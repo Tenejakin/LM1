@@ -1,0 +1,21 @@
+[Unit]
+Description=Pinpoint Launch Monitor BLE Peripheral
+After=bluetooth.service dbus.service
+Requires=bluetooth.service
+
+[Service]
+Type=simple
+User=root
+EnvironmentFile=-/etc/default/pinpoint
+WorkingDirectory=/opt/pinpoint
+ExecStart=/opt/pinpoint/.venv/bin/python /opt/pinpoint/pinpoint_ble.py
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/pinpoint
+
+[Install]
+WantedBy=multi-user.target

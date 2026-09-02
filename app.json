@@ -1,0 +1,59 @@
+{
+  "expo": {
+    "name": "Pinpoint LM",
+    "slug": "pinpoint-launch-monitor",
+    "version": "2.0.0",
+    "orientation": "portrait",
+    "scheme": "pinpoint",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "buildNumber": "8",
+      "bundleIdentifier": "com.pinpoint.launchmonitor",
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "Pinpoint uses the local network for golf simulator connections.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
+      }
+    },
+    "android": {
+      "versionCode": 8,
+      "package": "com.pinpoint.launchmonitor",
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_CONNECT"
+      ]
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-font",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
+      [
+        "react-native-ble-plx",
+        {
+          "isBackgroundEnabled": false,
+          "bluetoothAlwaysPermission": "Allow Pinpoint to connect to your Raspberry Pi launch monitor."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "d6ac2e51-21e7-41d0-b91f-d271ba6c0a31"
+      }
+    }
+  }
+}

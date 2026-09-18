@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "units": "mm",
+  "file": "lm1-adhesive-wire-clip-v1.0.0.stl",
+  "dimensions_mm": [
+    40.0,
+    12.0,
+    8.5
+  ],
+  "channels": 4,
+  "nominal_channel_diameter_mm": 4.4,
+  "channel_opening_mm": 3.0,
+  "base_thickness_mm": 2.0,
+  "watertight": true,
+  "positive_volume": true,
+  "connected_solids": 1
+}

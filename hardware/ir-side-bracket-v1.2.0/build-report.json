@@ -1,0 +1,39 @@
+{
+  "version": "1.2.0",
+  "units": "mm",
+  "mountHoleSpacingMm": 44.0,
+  "mountHoleDiameterMm": 3.4,
+  "tapePadMm": [
+    32.0,
+    38.0
+  ],
+  "padInwardOffsetFromUprightMm": 12.0,
+  "nominalLedCentreSpacingMm": 86.0,
+  "inwardAngleDegPerSide": 4.915342887157992,
+  "downwardPitchDeg": 28.0,
+  "nominalAxisIntersectionDistanceMm": 500.0,
+  "parts": [
+    {
+      "file": "lm1-ir-side-bracket-left-v1.2.0.stl",
+      "dimensionsMm": [
+        34.0,
+        25.957,
+        56.0
+      ],
+      "watertight": true,
+      "connectedComponents": 1,
+      "volumeMm3": 18701.404
+    },
+    {
+      "file": "lm1-ir-side-bracket-right-v1.2.0.stl",
+      "dimensionsMm": [
+        34.0,
+        25.957,
+        56.0
+      ],
+      "watertight": true,
+      "connectedComponents": 1,
+      "volumeMm3": 18701.404
+    }
+  ]
+}

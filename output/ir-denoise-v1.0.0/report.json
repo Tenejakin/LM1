@@ -1,0 +1,26 @@
+{
+  "version": "1.0.0",
+  "source": "G:\\Developemnt\\LM1\\tmp\\ir-latest-review\\ir-on-new-supply-v1.0.6.jpg",
+  "opencv": "5.0.0",
+  "results": {
+    "original": {
+      "detectedTagIds": [],
+      "displayLiftDetectedTagIds": [],
+      "meanAbsoluteChangeGreyLevels": 0.0,
+      "note": "No noise/accuracy score: no clean reference, confirmed ball ROI or ground truth."
+    },
+    "bilateral": {
+      "detectedTagIds": [],
+      "displayLiftDetectedTagIds": [],
+      "meanAbsoluteChangeGreyLevels": 0.11665625,
+      "note": "No noise/accuracy score: no clean reference, confirmed ball ROI or ground truth."
+    },
+    "nonlocal-h3": {
+      "detectedTagIds": [],
+      "displayLiftDetectedTagIds": [],
+      "meanAbsoluteChangeGreyLevels": 0.08541015625,
+      "note": "No noise/accuracy score: no clean reference, confirmed ball ROI or ground truth."
+    }
+  },
+  "limitation": "Single compressed snapshot; no claim of motion tracking or spin improvement. Offline only."
+}

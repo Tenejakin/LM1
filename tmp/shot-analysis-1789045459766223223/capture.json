@@ -1,0 +1,66 @@
+{
+  "capturedAtUnix": 1789045458.6560707,
+  "frameCount": 220,
+  "fps": 200,
+  "durationMs": 1100,
+  "impactFrameIndex": 60,
+  "purpose": "200 fps impact burst with optional AprilTag metric reference; shot metrics remain synthetic",
+  "aprilTagCalibration": {
+    "detected": true,
+    "available": true,
+    "family": "tag36h11",
+    "tagId": 0,
+    "tagSizeMm": 100.0,
+    "imageSize": [
+      640,
+      400
+    ],
+    "corners": [
+      [
+        0.360938,
+        0.8225
+      ],
+      [
+        0.396875,
+        0.685
+      ],
+      [
+        0.607812,
+        0.7
+      ],
+      [
+        0.629687,
+        0.8475
+      ]
+    ],
+    "center": [
+      0.498828,
+      0.76375
+    ],
+    "edgePixels": 106.92,
+    "pixelsPerMm": 1.06919,
+    "rotationDeg": -67.31,
+    "perspectiveError": 1.0538,
+    "quality": 0.891,
+    "imageToTagMm": [
+      [
+        -0.29186366,
+        5.020055,
+        -1584.17758759
+      ],
+      [
+        -2.12420249,
+        -0.88830286,
+        782.94241642
+      ],
+      [
+        -6.941e-05,
+        -0.01390704,
+        1.0
+      ]
+    ],
+    "version": 1,
+    "capturedAt": "2026-09-10T12:42:18.596Z",
+    "purpose": "planar image-to-millimetre calibration for launch analysis"
+  }
+}

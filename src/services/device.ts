@@ -1,8 +1,25 @@
 import { connectBle } from '@/services/bleTransport';
 import type { BleConnection } from '@/services/bleTransport.types';
-import { CaptureMode, ClubId, DeviceEvent, DevicePutt, DeviceShot, DeviceStatus } from '@/types';
+import {
+  AprilTagCalibration,
+  CalibrationCaptureStatus,
+  CaptureAnalysis,
+  CaptureMode,
+  CaptureFramePreview,
+  CapturePreview,
+  ClubId,
+  DeviceEvent,
+  DevicePutt,
+  DeviceShot,
+  DeviceStatus,
+  LensCalibrationResult,
+  TargetLine,
+  WifiConnectionStatus,
+  WifiNetwork,
+} from '@/types';
 
 const REQUEST_TIMEOUT_MS = 20_000;
+const WIFI_CONNECT_TIMEOUT_MS = 50_000;
 
 type WireResponse = { type: 'response'; id: string; data: unknown };
 type WireError = { type: 'error'; id?: string; message: string };
@@ -39,7 +56,7 @@ export class DeviceClient {
       (chunk) => this.receiveChunk(chunk),
       () => this.handleDisconnect(),
     );
-    const status = await this.request<DeviceStatus>({ type: 'status' });
+    const status = await this.request<DeviceStatus>({ type: 'status', mtu: this.connection.mtu });
     if (status.protocolVersion && !status.protocolVersion.startsWith('2.')) {
       this.disconnect();
       throw new Error(`The Raspberry Pi uses unsupported BLE protocol ${status.protocolVersion}.`);
@@ -51,6 +68,10 @@ export class DeviceClient {
     return this.request<DeviceShot[]>({ type: 'listShots' });
   }
 
+  async listCaptures(): Promise<CaptureAnalysis[]> {
+    return this.request<CaptureAnalysis[]>({ type: 'listCaptures' }, 60_000);
+  }
+
   async listPutts(): Promise<DevicePutt[]> {
     return this.request<DevicePutt[]>({ type: 'listPutts' });
   }
@@ -59,12 +80,95 @@ export class DeviceClient {
     return this.request<DeviceStatus>({ type: 'arm', clubId, mode });
   }
 
+  async setClub(clubId: ClubId): Promise<DeviceStatus> {
+    return this.request<DeviceStatus>({ type: 'setClub', clubId });
+  }
+
   async disarm(): Promise<DeviceStatus> {
     return this.request<DeviceStatus>({ type: 'disarm' });
   }
 
   async trigger(): Promise<void> {
     await this.request<{ accepted: boolean }>({ type: 'trigger' });
+  }
+
+  async resetBallCalibration(): Promise<void> {
+    await this.request<{ accepted: boolean }>({ type: 'resetBallCalibration' });
+  }
+
+  async setExposure(exposureUs: number): Promise<DeviceStatus> {
+    return this.request<DeviceStatus>({ type: 'setExposure', exposureUs });
+  }
+
+  async setGain(gain: number): Promise<DeviceStatus> {
+    return this.request<DeviceStatus>({ type: 'setGain', gain });
+  }
+
+  /**
+   * Ask LM1 to work out exposure and gain for the light it is standing in. The
+   * sweep runs on the device; the chosen values arrive as an exposureCalibration
+   * event, so this only confirms the request was accepted.
+   */
+  async autoCalibrateExposure(): Promise<void> {
+    await this.request<{ accepted: boolean }>({ type: 'autoCalibrateExposure' }, 30_000);
+  }
+
+  async captureAprilTagCalibration(): Promise<AprilTagCalibration> {
+    return this.request<AprilTagCalibration>({ type: 'captureAprilTagCalibration' }, 30_000);
+  }
+
+  async captureCalibrationImage(): Promise<void> {
+    await this.request<{ accepted: boolean }>({ type: 'captureCalibrationImage' });
+  }
+
+  async clearCalibrationImages(): Promise<CalibrationCaptureStatus> {
+    return this.request<CalibrationCaptureStatus>({ type: 'clearCalibrationImages' });
+  }
+
+  async runLensCalibration(): Promise<LensCalibrationResult> {
+    return this.request<LensCalibrationResult>({ type: 'runLensCalibration' }, 30_000);
+  }
+
+  async setTargetLine(): Promise<TargetLine> {
+    return this.request<TargetLine>({ type: 'setTargetLine' });
+  }
+
+  async clearTargetLine(): Promise<void> {
+    await this.request<{ cleared: boolean }>({ type: 'clearTargetLine' });
+  }
+
+  async getLatestCapturePreview(): Promise<CapturePreview> {
+    return this.request<CapturePreview>({ type: 'latestCapturePreview' }, 45_000);
+  }
+
+  async getCaptureFrame(captureId: string, frameIndex: number): Promise<CaptureFramePreview> {
+    return this.request<CaptureFramePreview>(
+      { type: 'captureFrame', captureId, frameIndex },
+      30_000,
+    );
+  }
+
+  async getCaptureContactSheet(captureId: string): Promise<CapturePreview> {
+    return this.request<CapturePreview>({ type: 'captureContactSheet', captureId }, 45_000);
+  }
+
+  async getWifiStatus(): Promise<WifiConnectionStatus> {
+    return this.request<WifiConnectionStatus>({ type: 'wifiStatus' });
+  }
+
+  async scanWifi(): Promise<WifiNetwork[]> {
+    return this.request<WifiNetwork[]>({ type: 'wifiScan' });
+  }
+
+  async connectWifi(
+    ssid: string,
+    password: string,
+    hidden = false,
+  ): Promise<WifiConnectionStatus> {
+    return this.request<WifiConnectionStatus>(
+      { type: 'wifiConnect', ssid, password, hidden },
+      WIFI_CONNECT_TIMEOUT_MS,
+    );
   }
 
   disconnect(): void {
@@ -76,7 +180,10 @@ export class DeviceClient {
     this.rejectPending(new Error('Bluetooth connection closed.'));
   }
 
-  private async request<T>(command: Record<string, unknown>): Promise<T> {
+  private async request<T>(
+    command: Record<string, unknown>,
+    timeoutMs = REQUEST_TIMEOUT_MS,
+  ): Promise<T> {
     if (!this.connection) {
       throw new Error('The device is not connected.');
     }
@@ -85,7 +192,7 @@ export class DeviceClient {
       const timeout = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error('The Raspberry Pi did not respond over Bluetooth.'));
-      }, REQUEST_TIMEOUT_MS);
+      }, timeoutMs);
       this.pending.set(id, {
         resolve: (value) => resolve(value as T),
         reject,
@@ -137,7 +244,10 @@ export class DeviceClient {
       return;
     }
     if (message.type === 'error') {
-      if (!message.id) return;
+      if (!message.id) {
+        this.onEvent?.({ type: 'captureError', data: { message: message.message } });
+        return;
+      }
       const pending = this.pending.get(message.id);
       if (!pending) return;
       clearTimeout(pending.timeout);

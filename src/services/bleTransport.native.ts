@@ -52,7 +52,7 @@ async function waitForBluetooth(activeManager: BleManager): Promise<void> {
   const currentState = await activeManager.state();
   if (currentState === State.PoweredOn) return;
   if (currentState === State.Unauthorized) {
-    throw new Error('Bluetooth access is disabled for Pinpoint in phone settings.');
+    throw new Error('Bluetooth access is disabled for LM1 in phone settings.');
   }
   if (currentState === State.Unsupported) {
     throw new Error('This phone does not support Bluetooth Low Energy.');
@@ -73,7 +73,7 @@ async function waitForBluetooth(activeManager: BleManager): Promise<void> {
       } else if (nextState === State.Unauthorized || nextState === State.Unsupported) {
         clearTimeout(timeout);
         subscription?.remove();
-        reject(new Error('Bluetooth is not available to Pinpoint.'));
+        reject(new Error('Bluetooth is not available to LM1.'));
       }
     }, true);
   });
@@ -90,7 +90,7 @@ async function scanForPinpoint(activeManager: BleManager): Promise<Device> {
       action();
     };
     const timeout = setTimeout(() => {
-      finish(() => reject(new Error('No Pinpoint Raspberry Pi was found nearby.')));
+      finish(() => reject(new Error('No LM1 Raspberry Pi was found nearby.')));
     }, SCAN_TIMEOUT_MS);
 
     void activeManager.startDeviceScan(
@@ -177,16 +177,20 @@ export async function connectBle(
     throw monitorError ?? new Error('The Raspberry Pi disconnected during Bluetooth setup.');
   }
 
+  const mtu = Number.isFinite(device.mtu) && device.mtu >= 23 ? device.mtu : 23;
+  const commandChunkSize = Math.max(COMMAND_CHUNK_SIZE, Math.min(244, mtu - 3));
   return {
     id: device.id,
-    name: device.name ?? device.localName ?? 'Pinpoint LM',
+    name: device.name ?? device.localName ?? 'LM1',
+    mtu,
     write: async (value: string) => {
-      for (let offset = 0; offset < value.length; offset += COMMAND_CHUNK_SIZE) {
-        const chunk = value.slice(offset, offset + COMMAND_CHUNK_SIZE);
+      const encodedBytes = Base64.toUint8Array(Base64.encode(value));
+      for (let offset = 0; offset < encodedBytes.length; offset += commandChunkSize) {
+        const chunk = encodedBytes.slice(offset, offset + commandChunkSize);
         await device.writeCharacteristicWithResponseForService(
           PINPOINT_SERVICE_UUID,
           PINPOINT_COMMAND_UUID,
-          Base64.encode(chunk),
+          Base64.fromUint8Array(chunk),
         );
       }
     },

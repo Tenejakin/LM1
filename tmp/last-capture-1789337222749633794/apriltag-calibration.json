@@ -1,0 +1,58 @@
+{
+  "detected": true,
+  "available": true,
+  "family": "tag36h11",
+  "tagId": 0,
+  "tagSizeMm": 100.0,
+  "imageSize": [
+    640,
+    400
+  ],
+  "corners": [
+    [
+      0.485938,
+      0.635
+    ],
+    [
+      0.459375,
+      0.7625
+    ],
+    [
+      0.217188,
+      0.73
+    ],
+    [
+      0.289062,
+      0.6175
+    ]
+  ],
+  "center": [
+    0.362891,
+    0.68625
+  ],
+  "edgePixels": 99.96,
+  "pixelsPerMm": 0.99962,
+  "rotationDeg": 108.43,
+  "perspectiveError": 1.0182,
+  "quality": 0.833,
+  "imageToTagMm": [
+    [
+      0.32788965,
+      -5.90201363,
+      1397.13778178
+    ],
+    [
+      1.7615494,
+      0.58718313,
+      -696.98637747
+    ],
+    [
+      -0.0006018,
+      -0.01275029,
+      1.0
+    ]
+  ],
+  "version": 1,
+  "capturedAt": "2026-09-13T22:06:31.016Z",
+  "purpose": "planar image-to-millimetre calibration for launch analysis"
+}

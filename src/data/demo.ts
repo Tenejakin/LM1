@@ -87,7 +87,7 @@ export const demoShots: Shot[] = [
 ];
 
 export const demoStatus: DeviceStatus = {
-  name: 'Pinpoint LM · Demo',
+  name: 'LM1 · Demo',
   state: 'ready',
   firmwareVersion: '0.1.0-demo',
   cameraConnected: true,

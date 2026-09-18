@@ -14,7 +14,7 @@ const tabs: {
 }[] = [
   { key: 'home', label: 'Monitor', icon: 'radio-outline', activeIcon: 'radio' },
   { key: 'putting', label: 'Putting', icon: 'golf-outline', activeIcon: 'golf' },
-  { key: 'calculator', label: 'Calc', icon: 'calculator-outline', activeIcon: 'calculator' },
+  { key: 'calibration', label: 'Calibrate', icon: 'scan-outline', activeIcon: 'scan' },
   { key: 'history', label: 'Sessions', icon: 'stats-chart-outline', activeIcon: 'stats-chart' },
   { key: 'device', label: 'Device', icon: 'hardware-chip-outline', activeIcon: 'hardware-chip' },
 ];
@@ -37,7 +37,7 @@ export function BottomNav({ active, onChange }: { active: AppTab; onChange: (tab
             <Ionicons
               name={selected ? tab.activeIcon : tab.icon}
               color={selected ? colors.accent : colors.textDim}
-              size={21}
+              size={22}
             />
             <Text style={[styles.label, selected && styles.labelActive]}>{tab.label}</Text>
           </Pressable>
@@ -65,10 +65,11 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 3,
     justifyContent: 'center',
-    minHeight: 52,
+    minHeight: 56,
+    paddingVertical: 4,
   },
   tabActive: { backgroundColor: '#1A2118' },
   pressed: { opacity: 0.7 },
-  label: { color: colors.textDim, fontSize: 9, fontWeight: '700' },
+  label: { color: colors.textDim, fontSize: 11, fontWeight: '700' },
   labelActive: { color: colors.accent },
 });

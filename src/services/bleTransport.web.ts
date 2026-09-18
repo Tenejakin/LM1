@@ -9,5 +9,5 @@ export async function connectBle(
   _onChunk: BleChunkHandler,
   _onDisconnect: BleDisconnectHandler,
 ): Promise<BleConnection> {
-  throw new Error('Raspberry Pi connections require the Pinpoint iOS or Android app. Web preview supports demo mode only.');
+  throw new Error('Raspberry Pi connections require the LM1 iOS or Android app. Web preview supports demo mode only.');
 }

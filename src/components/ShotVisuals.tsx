@@ -6,7 +6,7 @@ import Svg, { Circle, Defs, G, LinearGradient, Line, Path, Stop } from 'react-na
 import { colors, radii, spacing } from '@/theme';
 import { getClub } from '@/data/clubs';
 import { Shot } from '@/types';
-import { metersToYards } from '@/utils/carry';
+import { useUnits } from '@/context/UnitsContext';
 
 export function StrikeMap({ shot, compact = false }: { shot: Shot; compact?: boolean }) {
   const x = Math.max(35, Math.min(245, 140 + shot.strike.xMm * 5.2));
@@ -105,10 +105,11 @@ export function TrajectoryChart({ shot, compact = false }: { shot: Shot; compact
 
 export function ShotRow({ shot, onPress }: { shot: Shot; onPress: () => void }) {
   const club = getClub(shot.clubId);
+  const units = useUnits();
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Open shot ${shot.number}, ${club.label}, ball speed ${shot.ballSpeedMps} metres per second, estimated carry ${shot.estimatedCarryM} metres`}
+      accessibilityLabel={`Open shot ${shot.number}, ${club.label}, ball speed ${units.speed(shot.ballSpeedMps)} ${units.spokenSpeedLabel}, estimated carry ${units.distance(shot.estimatedCarryM)} ${units.spokenDistanceLabel}`}
       onPress={onPress}
       style={({ pressed }) => [styles.shotRow, pressed && styles.shotRowPressed]}
     >
@@ -117,12 +118,12 @@ export function ShotRow({ shot, onPress }: { shot: Shot; onPress: () => void }) 
         <Text style={styles.shotNumberText}>{shot.number}</Text>
       </View>
       <View style={styles.shotMain}>
-        <Text style={styles.shotSpeed}>{shot.ballSpeedMps.toFixed(1)}</Text>
-        <Text style={styles.shotUnit}>{club.shortLabel} · {(shot.ballSpeedMps * 2.23694).toFixed(0)} mph</Text>
+        <Text style={styles.shotSpeed}>{units.speed(shot.ballSpeedMps)}</Text>
+        <Text style={styles.shotUnit}>{club.shortLabel} · {units.speedLabel}</Text>
       </View>
       <View style={styles.shotMeta}>
         <Text style={styles.shotSmash}>{shot.smashFactor.toFixed(2)} smash</Text>
-        <Text style={styles.shotDirection}>{shot.estimatedCarryM} m · {metersToYards(shot.estimatedCarryM)} yd</Text>
+        <Text style={styles.shotDirection}>{units.distanceWithUnit(shot.estimatedCarryM)}</Text>
       </View>
       <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
     </Pressable>

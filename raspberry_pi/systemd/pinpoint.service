@@ -1,7 +1,8 @@
 [Unit]
-Description=Pinpoint Launch Monitor BLE Peripheral
-After=bluetooth.service dbus.service
+Description=LM1 PRO Launch Monitor BLE Peripheral
+After=bluetooth.service dbus.service NetworkManager.service
 Requires=bluetooth.service
+Wants=NetworkManager.service
 
 [Service]
 Type=simple

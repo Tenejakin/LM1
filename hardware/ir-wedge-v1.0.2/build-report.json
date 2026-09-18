@@ -1,0 +1,13 @@
+{
+  "version": "1.0.2",
+  "angleDeg": 4.915342887157992,
+  "dimensionsMm": [
+    32.0,
+    38.0,
+    2.752
+  ],
+  "watertight": true,
+  "connectedComponents": 1,
+  "volumeMm3": 1673.2159999999997,
+  "nominalLedSpacingMmFor500mmIntersection": 86
+}

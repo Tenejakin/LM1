@@ -1,0 +1,356 @@
+{
+  "classification": "motion-observed",
+  "frameCount": 325,
+  "captureDurationMs": 1341,
+  "measuredFps": 241.6,
+  "impactFrameIndex": 166,
+  "coarseDepartureFrameIndex": 192,
+  "lastStationaryFrameIndex": 164,
+  "firstMovingFrameIndex": 166,
+  "imageFrameIndex": 164,
+  "track": [
+    {
+      "frameIndex": 127,
+      "x": 319.5,
+      "y": 332.0,
+      "score": 0.781
+    },
+    {
+      "frameIndex": 128,
+      "x": 319.5,
+      "y": 332.0,
+      "score": 0.78
+    },
+    {
+      "frameIndex": 129,
+      "x": 319.5,
+      "y": 331.0,
+      "score": 0.782
+    },
+    {
+      "frameIndex": 134,
+      "x": 319.5,
+      "y": 332.0,
+      "score": 0.78
+    },
+    {
+      "frameIndex": 160,
+      "x": 320.5,
+      "y": 330.0,
+      "score": 0.788
+    },
+    {
+      "frameIndex": 162,
+      "x": 318.5,
+      "y": 331.0,
+      "score": 0.898
+    },
+    {
+      "frameIndex": 163,
+      "x": 320.5,
+      "y": 332.0,
+      "score": 0.979
+    },
+    {
+      "frameIndex": 164,
+      "x": 322.5,
+      "y": 333.0,
+      "score": 0.865
+    },
+    {
+      "frameIndex": 166,
+      "x": 334.5,
+      "y": 333.0,
+      "score": 0.803
+    },
+    {
+      "frameIndex": 167,
+      "x": 344.5,
+      "y": 331.0,
+      "score": 0.929
+    },
+    {
+      "frameIndex": 168,
+      "x": 354.5,
+      "y": 331.0,
+      "score": 0.999
+    },
+    {
+      "frameIndex": 169,
+      "x": 364.5,
+      "y": 332.0,
+      "score": 0.947
+    },
+    {
+      "frameIndex": 170,
+      "x": 375.5,
+      "y": 333.0,
+      "score": 0.862
+    },
+    {
+      "frameIndex": 171,
+      "x": 387.5,
+      "y": 334.0,
+      "score": 0.786
+    },
+    {
+      "frameIndex": 172,
+      "x": 399.5,
+      "y": 335.0,
+      "score": 0.799
+    },
+    {
+      "frameIndex": 173,
+      "x": 410.5,
+      "y": 336.0,
+      "score": 0.774
+    },
+    {
+      "frameIndex": 174,
+      "x": 420.5,
+      "y": 336.0,
+      "score": 0.774
+    },
+    {
+      "frameIndex": 175,
+      "x": 430.5,
+      "y": 337.0,
+      "score": 0.769
+    },
+    {
+      "frameIndex": 176,
+      "x": 441.5,
+      "y": 336.0,
+      "score": 0.772
+    },
+    {
+      "frameIndex": 177,
+      "x": 450.5,
+      "y": 337.0,
+      "score": 0.776
+    },
+    {
+      "frameIndex": 178,
+      "x": 461.5,
+      "y": 336.0,
+      "score": 0.772
+    },
+    {
+      "frameIndex": 179,
+      "x": 470.5,
+      "y": 336.0,
+      "score": 0.772
+    },
+    {
+      "frameIndex": 180,
+      "x": 479.5,
+      "y": 336.0,
+      "score": 0.773
+    },
+    {
+      "frameIndex": 181,
+      "x": 488.5,
+      "y": 336.0,
+      "score": 0.769
+    },
+    {
+      "frameIndex": 182,
+      "x": 497.5,
+      "y": 336.0,
+      "score": 0.772
+    },
+    {
+      "frameIndex": 183,
+      "x": 506.5,
+      "y": 336.0,
+      "score": 0.765
+    },
+    {
+      "frameIndex": 184,
+      "x": 514.5,
+      "y": 336.0,
+      "score": 0.765
+    },
+    {
+      "frameIndex": 185,
+      "x": 523.5,
+      "y": 335.0,
+      "score": 0.76
+    },
+    {
+      "frameIndex": 186,
+      "x": 531.5,
+      "y": 334.0,
+      "score": 0.757
+    },
+    {
+      "frameIndex": 187,
+      "x": 539.5,
+      "y": 334.0,
+      "score": 0.748
+    },
+    {
+      "frameIndex": 188,
+      "x": 548.5,
+      "y": 335.0,
+      "score": 0.734
+    },
+    {
+      "frameIndex": 189,
+      "x": 554.5,
+      "y": 335.0,
+      "score": 0.72
+    },
+    {
+      "frameIndex": 190,
+      "x": 563.5,
+      "y": 336.0,
+      "score": 0.718
+    },
+    {
+      "frameIndex": 191,
+      "x": 566.5,
+      "y": 345.0,
+      "score": 0.725
+    },
+    {
+      "frameIndex": 192,
+      "x": 574.5,
+      "y": 344.0,
+      "score": 0.73
+    },
+    {
+      "frameIndex": 193,
+      "x": 582.5,
+      "y": 343.0,
+      "score": 0.734
+    },
+    {
+      "frameIndex": 194,
+      "x": 583.5,
+      "y": 348.0,
+      "score": 0.743
+    },
+    {
+      "frameIndex": 195,
+      "x": 591.5,
+      "y": 346.0,
+      "score": 0.733
+    },
+    {
+      "frameIndex": 196,
+      "x": 593.5,
+      "y": 350.0,
+      "score": 0.706
+    },
+    {
+      "frameIndex": 197,
+      "x": 600.5,
+      "y": 349.0,
+      "score": 0.713
+    },
+    {
+      "frameIndex": 198,
+      "x": 606.5,
+      "y": 349.0,
+      "score": 0.707
+    },
+    {
+      "frameIndex": 199,
+      "x": 611.5,
+      "y": 349.0,
+      "score": 0.707
+    }
+  ],
+  "warnings": [
+    "Ball departure does not prove club contact; lifting the ball can trigger a capture.",
+    "[Errno 2] No such file or directory: '\\\\var\\\\lib\\\\pinpoint\\\\intrinsics.json'",
+    "Monocular measurements are estimates pending physical reference validation.",
+    "Contact is bounded by the last stationary and first moving frames; exact club contact can fall between exposures."
+  ],
+  "measurements": {
+    "metrics": {
+      "ballSpeedMps": {
+        "value": null,
+        "unit": "m/s",
+        "status": "unavailable",
+        "reason": "[Errno 2] No such file or directory: '\\\\var\\\\lib\\\\pinpoint\\\\intrinsics.json'"
+      },
+      "clubSpeedMps": {
+        "value": null,
+        "unit": "m/s",
+        "status": "unavailable",
+        "reason": "[Errno 2] No such file or directory: '\\\\var\\\\lib\\\\pinpoint\\\\intrinsics.json'"
+      },
+      "smashFactor": {
+        "value": null,
+        "unit": "",
+        "status": "unavailable",
+        "reason": "[Errno 2] No such file or directory: '\\\\var\\\\lib\\\\pinpoint\\\\intrinsics.json'"
+      },
+      "launchAngleDeg": {
+        "value": null,
+        "unit": "deg",
+        "status": "unavailable",
+        "reason": "[Errno 2] No such file or directory: '\\\\var\\\\lib\\\\pinpoint\\\\intrinsics.json'"
+      },
+      "startDirectionDeg": {
+        "value": null,
+        "unit": "deg",
+        "status": "unavailable",
+        "reason": "[Errno 2] No such file or directory: '\\\\var\\\\lib\\\\pinpoint\\\\intrinsics.json'"
+      },
+      "strikeXmm": {
+        "value": null,
+        "unit": "mm",
+        "status": "unavailable",
+        "reason": "[Errno 2] No such file or directory: '\\\\var\\\\lib\\\\pinpoint\\\\intrinsics.json'"
+      },
+      "strikeYmm": {
+        "value": null,
+        "unit": "mm",
+        "status": "unavailable",
+        "reason": "[Errno 2] No such file or directory: '\\\\var\\\\lib\\\\pinpoint\\\\intrinsics.json'"
+      },
+      "spinRpm": {
+        "value": null,
+        "unit": "rpm",
+        "status": "unavailable",
+        "reason": "Needs at least three resolved surface marks and two consistent small-rotation frame pairs; increase magnification/frame rate."
+      },
+      "spinAxisDeg": {
+        "value": null,
+        "unit": "deg",
+        "status": "unavailable",
+        "reason": "Needs at least three resolved surface marks and two consistent small-rotation frame pairs; increase magnification/frame rate."
+      },
+      "estimatedCarryM": {
+        "value": null,
+        "unit": "m",
+        "status": "unavailable",
+        "reason": "[Errno 2] No such file or directory: '\\\\var\\\\lib\\\\pinpoint\\\\intrinsics.json'"
+      },
+      "rollDistanceM": {
+        "value": null,
+        "unit": "m",
+        "status": "unavailable",
+        "reason": "Requires continuous in-frame tracking until a verified stop (at least 100 ms)."
+      },
+      "skidDistanceM": {
+        "value": null,
+        "unit": "m",
+        "status": "unavailable",
+        "reason": "Requires simultaneous translation and spin tracking through transition to true roll."
+      }
+    },
+    "ballTrack3d": [],
+    "clubTrack3d": [],
+    "warnings": [],
+    "method": "apriltag-monocular-sphere-v1",
+    "failure": "[Errno 2] No such file or directory: '\\\\var\\\\lib\\\\pinpoint\\\\intrinsics.json'"
+  },
+  "image": {
+    "mimeType": "image/jpeg",
+    "base64": "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDACgcHiMeGSgjISMtKygwPGRBPDc3PHtYXUlkkYCZlo+AjIqgtObDoKrarYqMyP/L2u71////m8H////6/+b9//j/wAALCAB4AKABAREA/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/9oACAEBAAA/AMdg2fmGKQcGg8mjHNJRRRRRRRRS0lFFFFFSTHMh9qjope1JS0lFFFFFFFFFFFFFKx3MTSUUtJS/L6mjj0P50ZHpS59hSZpKKKKKKKKKKKKKKKWikoooooooooooooopacEJqRY/an+XSGHPamGBvSkMTUjxMkaOcYfOPwqOiiiiiiiiiiipoIzITgdKuJaMetTLaKOtSiBR2oMYHaonSoGSka33WMuDkxMHH0PWqABPSl2N/k0N8oC/jTaKKKKKKKWrmmAtMyAZyM1sCBgO3HvQEJ6AmnmHJwOPqahYYJB7VEwqu4psThJQG+5IDG30NZ23DbTxg4NW41gRJnYbjjCDtVM9c+tJRRRRRRRSnrVrTX2X0eejHBrXubmWKYopAHUYFMzK0BlMhIBwRmmbmjZGbIOcjjrVq5GHyOjDNVmqF6rTAlCB1qq2TISwwTzSt9xQRyefwqM9aSiiiiiilopUYo6sOoOa3L7DCOUdGFPW7VoVhMeAQATnH41JcKEVhKMoq4Rh1zSbvMs427r8pquxqFzUL1CIjNMij15PoKilcNKzKOM8D27UzY3900bW9D+VJg+lFJRRRRS0lbMb+dpSnPMZxQsIUwlmysncdq0JSkyPbhvnA79qrW6mMzW7HOBkGoWNQyOq/eIFVZLhf4RmovNbkhiD0wPSjzl/55LTvtH+wPzo+0D+5+tN80f3f1prMG7U2kooopSSeppK09Jbcs0J6MM0omd4UhCEsjZBFSss7MZZXWLIwTnFRrcwWzlkZ5X6egqrJcyOTg7B6CoCMnJOTQIy5wqkn2FNbr9KSikoooooooooqe0nFvOJCCRgjAqd9QlORGFjB9OtQM7OdzsSfek4pQBg9z2FOa3n8suYyFFT6ZLIjuwwEC/Nx1oh097kebvVVYk9PemTaeY/+Wqn04NUqKKKKKKKKKKKcKdRS579MelWY79z8lwTIg7DvTp79Gh8uGPYPpip0uQltEq/3arNMXmUZ71TUAnDNtGDzjNP2R5/1vHP8J9P8eKNkXP77oeMKeen/wBf8qNkOT+++nyn3/8ArfnS7YAeZHPPZaUQq/ELM7YHG3vnFRvE6feUjpTKKKKWinA0oprHNNoqVbh1QLhSB0yoNL9ofOdqA+uwVDRRS0lKCR0OKlS5mjGFkIHFRu7SMWc5J702iiilop3ammkopaSiiiiiiiiv/9k="
+  }
+}

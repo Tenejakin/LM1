@@ -1,0 +1,95 @@
+{
+  "version": "1.0.0",
+  "captureId": "capture-1789515451301879262",
+  "results": {
+    "none": {
+      "elapsedSeconds": 0.7628425000002608,
+      "firstMovingFrame": 177,
+      "imageMatches": 21,
+      "points3d": 13,
+      "speedMps": 3.537,
+      "launchDeg": 0.0,
+      "spinRpm": null,
+      "trajectoryFit": {
+        "model": "ground",
+        "startPoint": "resting-ball",
+        "startOffsetMm": null,
+        "frames": 13,
+        "rejectedFrames": [],
+        "firstFrameIndex": 177,
+        "lastFrameIndex": 189,
+        "departureBeforeFirstMovingMs": 3.92,
+        "rmsPx": 1.512,
+        "radiusObservations": 12,
+        "radiusRmsPx": 1.333,
+        "modelRmsPx": {
+          "ground": 1.512,
+          "flight": 1.621,
+          "ground-free": 1.506
+        },
+        "flightLaunchDeg": 4.4,
+        "flightLaunchSigmaDeg": 0.75,
+        "decelerationMps2": -0.122,
+        "speedSigmaMps": 0.0459,
+        "launchSigmaDeg": null,
+        "headingDeg": 0.73,
+        "headingSigmaDeg": 0.18
+      },
+      "tagErrorPx": 1.5514,
+      "preprocessing": {
+        "version": 1,
+        "denoise": "none",
+        "diameter": 5,
+        "sigmaColor": 12,
+        "sigmaSpace": 3,
+        "elapsedMs": 0.0,
+        "rawFramesPreserved": true
+      }
+    },
+    "bilateral": {
+      "elapsedSeconds": 1.0371958000032464,
+      "firstMovingFrame": 177,
+      "imageMatches": 21,
+      "points3d": 13,
+      "speedMps": 3.5622,
+      "launchDeg": 0.0,
+      "spinRpm": null,
+      "trajectoryFit": {
+        "model": "ground",
+        "startPoint": "resting-ball",
+        "startOffsetMm": null,
+        "frames": 13,
+        "rejectedFrames": [],
+        "firstFrameIndex": 177,
+        "lastFrameIndex": 189,
+        "departureBeforeFirstMovingMs": 3.92,
+        "rmsPx": 1.507,
+        "radiusObservations": 12,
+        "radiusRmsPx": 1.659,
+        "modelRmsPx": {
+          "ground": 1.507,
+          "flight": 1.621,
+          "ground-free": 1.502
+        },
+        "flightLaunchDeg": 4.87,
+        "flightLaunchSigmaDeg": 0.76,
+        "decelerationMps2": -1.024,
+        "speedSigmaMps": 0.0478,
+        "launchSigmaDeg": null,
+        "headingDeg": 0.68,
+        "headingSigmaDeg": 0.19
+      },
+      "tagErrorPx": 1.3611,
+      "preprocessing": {
+        "version": 1,
+        "denoise": "bilateral",
+        "diameter": 5,
+        "sigmaColor": 12,
+        "sigmaSpace": 3,
+        "elapsedMs": 335.8,
+        "rawFramesPreserved": true
+      }
+    }
+  },
+  "limitations": "JPEG replay; no physical ground truth. Target heading omitted equally."
+}

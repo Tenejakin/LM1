@@ -1,0 +1,543 @@
+{
+  "classification": "motion-observed",
+  "frameCount": 325,
+  "captureDurationMs": 1341,
+  "measuredFps": 241.6,
+  "impactFrameIndex": 177,
+  "coarseDepartureFrameIndex": 192,
+  "lastStationaryFrameIndex": 176,
+  "firstMovingFrameIndex": 177,
+  "imageFrameIndex": 176,
+  "track": [
+    {
+      "frameIndex": 169,
+      "x": 306.28461796045303,
+      "y": 219.76979999244213,
+      "score": 0.998
+    },
+    {
+      "frameIndex": 170,
+      "x": 306.45124723389745,
+      "y": 219.94011587277055,
+      "score": 1.0
+    },
+    {
+      "frameIndex": 171,
+      "x": 306.5285733938217,
+      "y": 220.0218354202807,
+      "score": 1.0
+    },
+    {
+      "frameIndex": 172,
+      "x": 306.44212187826633,
+      "y": 219.92947993427515,
+      "score": 0.999
+    },
+    {
+      "frameIndex": 173,
+      "x": 306.6342917382717,
+      "y": 220.15633064508438,
+      "score": 0.999
+    },
+    {
+      "frameIndex": 174,
+      "x": 306.495182370767,
+      "y": 219.92436953634024,
+      "score": 0.999
+    },
+    {
+      "frameIndex": 175,
+      "x": 306.8702000081539,
+      "y": 220.03847309201956,
+      "score": 0.998
+    },
+    {
+      "frameIndex": 176,
+      "x": 306.7544050216675,
+      "y": 220.0489663593471,
+      "score": 0.987
+    },
+    {
+      "frameIndex": 177,
+      "x": 329.0196875035763,
+      "y": 220.60491317510605,
+      "score": 0.994
+    },
+    {
+      "frameIndex": 178,
+      "x": 353.15898022055626,
+      "y": 218.33236265182495,
+      "score": 0.991
+    },
+    {
+      "frameIndex": 179,
+      "x": 376.11342334747314,
+      "y": 215.8233224451542,
+      "score": 0.983
+    },
+    {
+      "frameIndex": 180,
+      "x": 398.84853634238243,
+      "y": 213.59966439008713,
+      "score": 0.963
+    },
+    {
+      "frameIndex": 181,
+      "x": 421.16659381985664,
+      "y": 211.39128249883652,
+      "score": 0.947
+    },
+    {
+      "frameIndex": 182,
+      "x": 442.95357832312584,
+      "y": 209.88948571681976,
+      "score": 0.92
+    },
+    {
+      "frameIndex": 183,
+      "x": 463.82893005013466,
+      "y": 208.4477587044239,
+      "score": 0.887
+    },
+    {
+      "frameIndex": 184,
+      "x": 483.69928258657455,
+      "y": 206.9817071147263,
+      "score": 0.858
+    },
+    {
+      "frameIndex": 185,
+      "x": 503.2181126475334,
+      "y": 206.42717584967613,
+      "score": 0.826
+    },
+    {
+      "frameIndex": 186,
+      "x": 521.9662617146969,
+      "y": 205.53409957885742,
+      "score": 0.8
+    },
+    {
+      "frameIndex": 187,
+      "x": 539.9776967763901,
+      "y": 205.39645147323608,
+      "score": 0.761
+    },
+    {
+      "frameIndex": 188,
+      "x": 556.6029618233442,
+      "y": 205.4909333884716,
+      "score": 0.731
+    },
+    {
+      "frameIndex": 189,
+      "x": 572.2644505649805,
+      "y": 205.34690472483635,
+      "score": 0.706
+    }
+  ],
+  "warnings": [
+    "Ball departure does not prove club contact; lifting the ball can trigger a capture.",
+    "Ground AprilTag pose reprojection error is 1.55 px; launch values are lower-confidence estimates.",
+    "Monocular measurements are estimates pending physical reference validation.",
+    "Contact is bounded by the last stationary and first moving frames; exact club contact can fall between exposures."
+  ],
+  "measurements": {
+    "metrics": {
+      "ballSpeedMps": {
+        "value": 3.537,
+        "unit": "m/s",
+        "status": "estimated",
+        "reason": "Anchored trajectory fit to 13 tracked frames from the resting ball; image residual 1.51 px. Fit \u00b10.05 m/s. Requires reference validation. Ground-tag pose error 1.55 px from frame 189."
+      },
+      "clubSpeedMps": {
+        "value": null,
+        "unit": "m/s",
+        "status": "unavailable",
+        "reason": "Attach a club AprilTag and calibrate its rigid transform to the face center."
+      },
+      "smashFactor": {
+        "value": null,
+        "unit": "",
+        "status": "unavailable",
+        "reason": "Attach a club AprilTag and calibrate its rigid transform to the face center."
+      },
+      "launchAngleDeg": {
+        "value": 0.0,
+        "unit": "deg",
+        "status": "estimated",
+        "reason": "Ball stayed on the ground: a flight model did not explain the image track better than a roll (flight estimate 4.4\u00b0 \u00b10.8\u00b0). Anchored trajectory fit to 13 tracked frames from the resting ball; image residual 1.51 px. Requires reference validation. Ground-tag pose error 1.55 px from frame 189."
+      },
+      "startDirectionDeg": {
+        "value": null,
+        "unit": "deg",
+        "status": "unavailable",
+        "reason": "Set the target line first: roll a ball toward the target, then use Set target line on the Calibration screen."
+      },
+      "strikeXmm": {
+        "value": null,
+        "unit": "mm",
+        "status": "unavailable",
+        "reason": "Attach a club AprilTag and calibrate its rigid transform to the face center."
+      },
+      "strikeYmm": {
+        "value": null,
+        "unit": "mm",
+        "status": "unavailable",
+        "reason": "Attach a club AprilTag and calibrate its rigid transform to the face center."
+      },
+      "spinRpm": {
+        "value": null,
+        "unit": "rpm",
+        "status": "unavailable",
+        "reason": "Needs at least three resolved surface marks and two consistent small-rotation frame pairs; increase magnification/frame rate."
+      },
+      "spinAxisDeg": {
+        "value": null,
+        "unit": "deg",
+        "status": "unavailable",
+        "reason": "Needs at least three resolved surface marks and two consistent small-rotation frame pairs; increase magnification/frame rate."
+      },
+      "estimatedCarryM": {
+        "value": 0.0,
+        "unit": "m",
+        "status": "estimated",
+        "reason": "Vacuum ballistic estimate to launch height; excludes lift, drag, wind and terrain. Ground-tag pose error 1.55 px from frame 189."
+      },
+      "rollDistanceM": {
+        "value": null,
+        "unit": "m",
+        "status": "unavailable",
+        "reason": "Requires continuous in-frame tracking until a verified stop (at least 100 ms)."
+      },
+      "skidDistanceM": {
+        "value": null,
+        "unit": "m",
+        "status": "unavailable",
+        "reason": "Requires simultaneous translation and spin tracking through transition to true roll."
+      }
+    },
+    "ballTrack3d": [
+      {
+        "frameIndex": 177,
+        "positionM": [
+          0.23483043032143702,
+          -0.13921256544757057,
+          0.021334999999999993
+        ],
+        "centerPx": [
+          329.0196875035763,
+          220.60491317510605
+        ]
+      },
+      {
+        "frameIndex": 178,
+        "positionM": [
+          0.24947196740976071,
+          -0.1390262413352977,
+          0.021334999999999993
+        ],
+        "centerPx": [
+          353.15898022055626,
+          218.33236265182495
+        ]
+      },
+      {
+        "frameIndex": 179,
+        "positionM": [
+          0.26411912901597356,
+          -0.13883984564698085,
+          0.021334999999999993
+        ],
+        "centerPx": [
+          376.11342334747314,
+          215.8233224451542
+        ]
+      },
+      {
+        "frameIndex": 180,
+        "positionM": [
+          0.27876837793454606,
+          -0.1386534233961098,
+          0.021334999999999993
+        ],
+        "centerPx": [
+          398.84853634238243,
+          213.59966439008713
+        ]
+      },
+      {
+        "frameIndex": 181,
+        "positionM": [
+          0.2934126357213329,
+          -0.13846706466098807,
+          0.021334999999999993
+        ],
+        "centerPx": [
+          421.16659381985664,
+          211.39128249883652
+        ]
+      },
+      {
+        "frameIndex": 182,
+        "positionM": [
+          0.30806959798245626,
+          -0.1382805442522737,
+          0.021334999999999993
+        ],
+        "centerPx": [
+          442.95357832312584,
+          209.88948571681976
+        ]
+      },
+      {
+        "frameIndex": 183,
+        "positionM": [
+          0.3227251083339273,
+          -0.13809404232015612,
+          0.021334999999999993
+        ],
+        "centerPx": [
+          463.82893005013466,
+          208.4477587044239
+        ]
+      },
+      {
+        "frameIndex": 184,
+        "positionM": [
+          0.3373791652632012,
+          -0.13790755888388356,
+          0.021334999999999993
+        ],
+        "centerPx": [
+          483.69928258657455,
+          206.9817071147263
+        ]
+      },
+      {
+        "frameIndex": 185,
+        "positionM": [
+          0.3520388497352115,
+          -0.13772100383307365,
+          0.021334999999999993
+        ],
+        "centerPx": [
+          503.2181126475334,
+          206.42717584967613
+        ]
+      },
+      {
+        "frameIndex": 186,
+        "positionM": [
+          0.3667006215195815,
+          -0.13753442221970952,
+          0.021334999999999993
+        ],
+        "centerPx": [
+          521.9662617146969,
+          205.53409957885742
+        ]
+      },
+      {
+        "frameIndex": 187,
+        "positionM": [
+          0.38136093836933055,
+          -0.1373478591214371,
+          0.021334999999999993
+        ],
+        "centerPx": [
+          539.9776967763901,
+          205.39645147323608
+        ]
+      },
+      {
+        "frameIndex": 188,
+        "positionM": [
+          0.3960268842742386,
+          -0.13716122438938066,
+          0.021334999999999993
+        ],
+        "centerPx": [
+          556.6029618233442,
+          205.4909333884716
+        ]
+      },
+      {
+        "frameIndex": 189,
+        "positionM": [
+          0.4106913742362844,
+          -0.1369746081852465,
+          0.021334999999999993
+        ],
+        "centerPx": [
+          572.2644505649805,
+          205.34690472483635
+        ]
+      }
+    ],
+    "clubTrack3d": [],
+    "warnings": [
+      "Ground AprilTag pose reprojection error is 1.55 px; launch values are lower-confidence estimates."
+    ],
+    "method": "apriltag-monocular-sphere-v1",
+    "diagnostics": {
+      "version": 1,
+      "frameCount": 325,
+      "motionTrackedFrames": 13,
+      "strict": {
+        "candidateFrames": 0,
+        "distortedOutlines": 0,
+        "invalidDepth": 0,
+        "acceptedFrames": 0
+      },
+      "calibration": {
+        "imageSize": [
+          640,
+          400
+        ],
+        "cameraMatrix": [
+          [
+            565.5682086088923,
+            0.0,
+            333.99531573783196
+          ],
+          [
+            0.0,
+            555.3127902177599,
+            198.2253920075832
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "distCoeffs": [
+          -0.41222274907597806,
+          -0.15125792643235048,
+          0.00618740376985397,
+          -0.005089721793506736,
+          0.8164134693071088
+        ],
+        "groundTagId": 0,
+        "groundTagSizeMm": 100.0,
+        "targetHeadingDeg": null
+      },
+      "groundPose": {
+        "cameraHeightMm": 209.9,
+        "cameraPitchDeg": 30.96,
+        "rotation": [
+          [
+            0.9919329436563914,
+            -0.12588180921281428,
+            0.014926667359964625
+          ],
+          [
+            -0.05207138879731806,
+            -0.5119855309541356,
+            -0.857414361066066
+          ],
+          [
+            0.11557510872971286,
+            0.849720298805978,
+            -0.5144101554588464
+          ]
+        ],
+        "translationM": [
+          -0.25371287047079694,
+          -0.028105476277045353,
+          0.44751329207674884
+        ]
+      },
+      "trajectoryFit": {
+        "model": "ground",
+        "startPoint": "resting-ball",
+        "startOffsetMm": null,
+        "frames": 13,
+        "rejectedFrames": [],
+        "firstFrameIndex": 177,
+        "lastFrameIndex": 189,
+        "departureBeforeFirstMovingMs": 3.92,
+        "rmsPx": 1.512,
+        "radiusObservations": 12,
+        "radiusRmsPx": 1.333,
+        "modelRmsPx": {
+          "ground": 1.512,
+          "flight": 1.621,
+          "ground-free": 1.506
+        },
+        "flightLaunchDeg": 4.4,
+        "flightLaunchSigmaDeg": 0.75,
+        "decelerationMps2": -0.122,
+        "speedSigmaMps": 0.0459,
+        "launchSigmaDeg": null,
+        "headingDeg": 0.73,
+        "headingSigmaDeg": 0.18
+      },
+      "preprocessing": {
+        "version": 1,
+        "denoise": "none",
+        "diameter": 5,
+        "sigmaColor": 12,
+        "sigmaSpace": 3,
+        "elapsedMs": 0.0,
+        "rawFramesPreserved": true
+      }
+    },
+    "tagPoseFrameIndex": 189,
+    "tagPoseReprojectionErrorPx": 1.5514,
+    "estimatedImpactFrameIndex": 177,
+    "groundRoll": {
+      "model": "trajectory-ground",
+      "flightLaunchDeg": 4.4,
+      "flightLaunchSigmaDeg": 0.75
+    },
+    "spinSamples": [
+      {
+        "frameIndex": 177,
+        "nextFrameIndex": 178,
+        "angularVelocityRadS": [
+          -8.850574776951023,
+          -12.308807103619843,
+          -12.394477314772242
+        ]
+      },
+      {
+        "frameIndex": 180,
+        "nextFrameIndex": 181,
+        "angularVelocityRadS": [
+          -5.194874118075961,
+          -42.9511000167926,
+          -21.83792514827836
+        ]
+      },
+      {
+        "frameIndex": 185,
+        "nextFrameIndex": 186,
+        "angularVelocityRadS": [
+          -1.1822330072934921,
+          -11.734477891740827,
+          -13.541406402650324
+        ]
+      },
+      {
+        "frameIndex": 187,
+        "nextFrameIndex": 188,
+        "angularVelocityRadS": [
+          6.029800499134905,
+          -14.84238248560259,
+          -13.552487462547928
+        ]
+      },
+      {
+        "frameIndex": 188,
+        "nextFrameIndex": 189,
+        "angularVelocityRadS": [
+          3.798150629864515,
+          -9.255991552384291,
+          -16.199044344963763
+        ]
+      }
+    ]
+  }
+}

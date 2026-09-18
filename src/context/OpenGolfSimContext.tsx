@@ -12,6 +12,7 @@ import React, {
 
 import { OpenGolfSimClient } from '@/services/opengolfsim';
 import {
+  CaptureAnalysis,
   OpenGolfSimConfig,
   OpenGolfSimResult,
   OpenGolfSimState,
@@ -41,6 +42,8 @@ interface OpenGolfSimContextValue {
   sendShot: (shot: Shot) => boolean;
   sendPutt: (putt: Putt) => boolean;
   sendTestShot: () => boolean;
+  /** Sends a camera hit's resolved ball data; false if it lacks speed, launch or direction, or the sim is not connected. */
+  sendCapture: (capture: CaptureAnalysis) => boolean;
   sendDeviceStatus: (status: 'ready' | 'busy') => void;
   clearError: () => void;
 }
@@ -158,6 +161,20 @@ export function OpenGolfSimProvider({ children }: PropsWithChildren) {
     }
   }, []);
 
+  const sendCapture = useCallback((capture: CaptureAnalysis): boolean => {
+    try {
+      const sent = client.current.sendCapture(capture);
+      if (sent) {
+        setLastSentAt(new Date().toISOString());
+        setError(null);
+      }
+      return sent;
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not send the camera hit to OpenGolfSim.');
+      return false;
+    }
+  }, []);
+
   const sendTestShot = useCallback((): boolean => {
     try {
       client.current.sendTestShot();
@@ -192,6 +209,7 @@ export function OpenGolfSimProvider({ children }: PropsWithChildren) {
       sendShot,
       sendPutt,
       sendTestShot,
+      sendCapture,
       sendDeviceStatus,
       clearError: () => setError(null),
     }),
@@ -208,6 +226,7 @@ export function OpenGolfSimProvider({ children }: PropsWithChildren) {
       sendShot,
       sendPutt,
       sendTestShot,
+      sendCapture,
       sendDeviceStatus,
     ],
   );

@@ -1,0 +1,145 @@
+{
+  "caseVersion": "0.3.0",
+  "units": "millimetres",
+  "assembledSizeExcludingHood_mm": [
+    174.0,
+    144.0,
+    189.0
+  ],
+  "parts": [
+    {
+      "file": "lm1_base_v0.3.0.stl",
+      "printQuantity": 1,
+      "watertight": true,
+      "volume_mm3": 118899.1,
+      "size_mm": [
+        170.0,
+        140.0,
+        12.0
+      ],
+      "triangles": 4660
+    },
+    {
+      "file": "lm1_front_sensor_panel_v0.3.0.stl",
+      "printQuantity": 1,
+      "watertight": true,
+      "volume_mm3": 90764.6,
+      "size_mm": [
+        162.0,
+        180.0,
+        4.0
+      ],
+      "triangles": 3962
+    },
+    {
+      "file": "lm1_rear_service_panel_v0.3.0.stl",
+      "printQuantity": 1,
+      "watertight": true,
+      "volume_mm3": 105148.7,
+      "size_mm": [
+        162.0,
+        180.0,
+        4.0
+      ],
+      "triangles": 2252
+    },
+    {
+      "file": "lm1_side_panel_v0.3.0.stl",
+      "printQuantity": 2,
+      "watertight": true,
+      "volume_mm3": 92295.1,
+      "size_mm": [
+        132.0,
+        180.0,
+        4.0
+      ],
+      "triangles": 996
+    },
+    {
+      "file": "lm1_corner_rail_v0.3.0.stl",
+      "printQuantity": 4,
+      "watertight": true,
+      "volume_mm3": 16752.2,
+      "size_mm": [
+        180.0,
+        10.0,
+        10.0
+      ],
+      "triangles": 2148
+    },
+    {
+      "file": "lm1_top_oled_v0.3.0.stl",
+      "printQuantity": 1,
+      "watertight": true,
+      "volume_mm3": 87546.1,
+      "size_mm": [
+        174.0,
+        144.0,
+        7.0
+      ],
+      "triangles": 3978
+    },
+    {
+      "file": "lm1_sun_hood_v0.3.0.stl",
+      "printQuantity": 1,
+      "watertight": true,
+      "volume_mm3": 45251.9,
+      "size_mm": [
+        94.0,
+        42.0,
+        136.0
+      ],
+      "triangles": 652
+    },
+    {
+      "file": "lm1_camera_mount_13deg_v0.3.0.stl",
+      "printQuantity": 1,
+      "watertight": true,
+      "volume_mm3": 17733.2,
+      "size_mm": [
+        120.0,
+        17.5,
+        58.0
+      ],
+      "triangles": 4640
+    },
+    {
+      "file": "lm1_window_retainer_v0.3.0.stl",
+      "printQuantity": 1,
+      "watertight": true,
+      "volume_mm3": 8309.7,
+      "size_mm": [
+        100.0,
+        76.0,
+        3.0
+      ],
+      "triangles": 816
+    },
+    {
+      "file": "lm1_oled_retainer_v0.3.0.stl",
+      "printQuantity": 1,
+      "watertight": true,
+      "volume_mm3": 4630.3,
+      "size_mm": [
+        84.0,
+        52.0,
+        3.0
+      ],
+      "triangles": 816
+    },
+    {
+      "file": "lm1_led_adapter_v0.3.0.stl",
+      "printQuantity": 2,
+      "watertight": true,
+      "volume_mm3": 1910.8,
+      "size_mm": [
+        36.0,
+        34.0,
+        4.0
+      ],
+      "triangles": 852
+    }
+  ],
+  "assemblyReference": "lm1_assembly_reference_v0.3.0.stl",
+  "allPrintablePartsWatertight": true
+}

@@ -19,12 +19,12 @@ import { directionLabel, StrikeMap, strikeLabel, TrajectoryChart } from '@/compo
 import { Eyebrow, MetricTile, PrimaryButton, SectionHeader, Surface } from '@/components/ui';
 import { useLaunchMonitor } from '@/context/LaunchMonitorContext';
 import { useOpenGolfSim } from '@/context/OpenGolfSimContext';
+import { SpeedUnit, useUnits } from '@/context/UnitsContext';
 import { getClub } from '@/data/clubs';
 import { colors, radii, spacing } from '@/theme';
 import { Shot } from '@/types';
-import { estimateCarryMeters, metersToYards } from '@/utils/carry';
-
-type SpeedUnit = 'mps' | 'mph';
+import { estimateCarryMeters } from '@/utils/carry';
+import { kmhToMps, mpsToKmh } from '@/utils/speed';
 
 interface CalculatorInputs {
   ballSpeed: string;
@@ -49,8 +49,9 @@ const MPH_PER_MPS = 2.23694;
 export function CalculatorScreen() {
   const insets = useSafeAreaInsets();
   const { state, isDemo, selectedClub } = useLaunchMonitor();
+  const units = useUnits();
+  const { speedUnit, setSpeedUnit } = units;
   const [inputs, setInputs] = useState<CalculatorInputs>(initialInputs);
-  const [speedUnit, setSpeedUnit] = useState<SpeedUnit>('mps');
   const [hasCalculated, setHasCalculated] = useState(false);
 
   const calculatedShot = useMemo<Shot | null>(() => {
@@ -70,8 +71,8 @@ export function CalculatorScreen() {
       strikeY === null
     ) return null;
 
-    const ballSpeedMps = speedUnit === 'mph' ? ballInput / MPH_PER_MPS : ballInput;
-    const clubSpeedMps = speedUnit === 'mph' ? clubInput / MPH_PER_MPS : clubInput;
+    const ballSpeedMps = speedUnit === 'mph' ? ballInput / MPH_PER_MPS : kmhToMps(ballInput);
+    const clubSpeedMps = speedUnit === 'mph' ? clubInput / MPH_PER_MPS : kmhToMps(clubInput);
     if (
       ballSpeedMps <= 0 || ballSpeedMps > 100 ||
       clubSpeedMps <= 0 || clubSpeedMps > 70 ||
@@ -110,7 +111,8 @@ export function CalculatorScreen() {
     const convert = (value: string) => {
       const parsed = parseNumber(value);
       if (parsed === null) return value;
-      const converted = nextUnit === 'mph' ? parsed * MPH_PER_MPS : parsed / MPH_PER_MPS;
+      const speedMps = speedUnit === 'mph' ? parsed / MPH_PER_MPS : kmhToMps(parsed);
+      const converted = nextUnit === 'mph' ? speedMps * MPH_PER_MPS : mpsToKmh(speedMps);
       return converted.toFixed(2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1');
     };
     setInputs((current) => ({
@@ -150,9 +152,10 @@ export function CalculatorScreen() {
           <SectionHeader title="Club & units" />
           <ClubSelector />
           <View accessibilityRole="radiogroup" style={styles.unitSelector}>
-            <UnitButton label="Metres / second" shortLabel="m/s" selected={speedUnit === 'mps'} onPress={() => changeUnit('mps')} />
-            <UnitButton label="Miles / hour" shortLabel="mph" selected={speedUnit === 'mph'} onPress={() => changeUnit('mph')} />
+            <UnitButton label="Kilometres per hour" shortLabel="km/h" selected={speedUnit === 'kmh'} onPress={() => changeUnit('kmh')} />
+            <UnitButton label="Miles per hour" shortLabel="mph" selected={speedUnit === 'mph'} onPress={() => changeUnit('mph')} />
           </View>
+          <Text style={styles.unitNote}>This is your app-wide speed unit — every screen follows it.</Text>
         </View>
 
         <View style={styles.section}>
@@ -160,15 +163,15 @@ export function CalculatorScreen() {
           <View style={styles.fieldRow}>
             <NumberField
               label="Ball speed"
-              placeholder={speedUnit === 'mps' ? '61.8' : '138.2'}
-              suffix={speedUnit === 'mps' ? 'm/s' : 'mph'}
+              placeholder={speedUnit === 'kmh' ? '222.5' : '138.2'}
+              suffix={speedUnit === 'kmh' ? 'km/h' : 'mph'}
               value={inputs.ballSpeed}
               onChangeText={(value) => updateInput('ballSpeed', value)}
             />
             <NumberField
               label="Club speed"
-              placeholder={speedUnit === 'mps' ? '42.4' : '94.8'}
-              suffix={speedUnit === 'mps' ? 'm/s' : 'mph'}
+              placeholder={speedUnit === 'kmh' ? '152.6' : '94.8'}
+              suffix={speedUnit === 'kmh' ? 'km/h' : 'mph'}
               value={inputs.clubSpeed}
               onChangeText={(value) => updateInput('clubSpeed', value)}
             />
@@ -250,6 +253,7 @@ export function CalculatorScreen() {
 
 function CalculatorResults({ shot }: { shot: Shot }) {
   const club = getClub(shot.clubId);
+  const units = useUnits();
   const { state: openGolfSimState, sendShot } = useOpenGolfSim();
   const [sentToOpenGolfSim, setSentToOpenGolfSim] = useState(false);
   const openGolfSimConnected = openGolfSimState === 'connected';
@@ -273,10 +277,10 @@ function CalculatorResults({ shot }: { shot: Shot }) {
         <View>
           <Eyebrow>Estimated carry</Eyebrow>
           <View style={styles.carryRow}>
-            <Text style={styles.carryValue}>{shot.estimatedCarryM}</Text>
-            <Text style={styles.carryUnit}>m</Text>
+            <Text style={styles.carryValue}>{units.distance(shot.estimatedCarryM)}</Text>
+            <Text style={styles.carryUnit}>{units.distanceLabel}</Text>
           </View>
-          <Text style={styles.carryYards}>{metersToYards(shot.estimatedCarryM)} yards</Text>
+          <Text style={styles.carryYards}>{units.altDistanceWithUnit(shot.estimatedCarryM)}</Text>
         </View>
         <View style={styles.smashBlock}>
           <Text style={styles.smashLabel}>Smash factor</Text>
@@ -286,8 +290,8 @@ function CalculatorResults({ shot }: { shot: Shot }) {
       </Surface>
 
       <View style={styles.metricRow}>
-        <MetricTile label="Ball speed" value={shot.ballSpeedMps.toFixed(1)} unit="m/s" />
-        <MetricTile label="Club speed" value={shot.clubSpeedMps.toFixed(1)} unit="m/s" />
+        <MetricTile label="Ball speed" value={units.speed(shot.ballSpeedMps)} unit={units.speedLabel} />
+        <MetricTile label="Club speed" value={units.speed(shot.clubSpeedMps)} unit={units.speedLabel} />
         <MetricTile label="Launch" value={shot.launchAngleDeg.toFixed(1)} unit="deg" />
       </View>
 
@@ -434,6 +438,7 @@ const styles = StyleSheet.create({
   introBody: { color: colors.textMuted, fontSize: 11, lineHeight: 16, marginTop: 4 },
   section: { marginTop: spacing.xl },
   unitSelector: { backgroundColor: colors.surface, borderColor: colors.line, borderRadius: radii.md, borderWidth: 1, flexDirection: 'row', gap: 5, padding: 5 },
+  unitNote: { color: colors.textMuted, fontSize: 12, lineHeight: 16, marginTop: spacing.xs },
   unitButton: { alignItems: 'center', borderRadius: radii.sm, flex: 1, justifyContent: 'center', minHeight: 42 },
   unitButtonSelected: { backgroundColor: colors.accent },
   unitText: { color: colors.textMuted, fontSize: 13, fontWeight: '800' },

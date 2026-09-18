@@ -1,11 +1,14 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import React, { PropsWithChildren } from 'react';
+import React, { PropsWithChildren, useState } from 'react';
 import {
   ActivityIndicator,
+  LayoutAnimation,
+  Platform,
   Pressable,
   StyleProp,
   StyleSheet,
   Text,
+  UIManager,
   View,
   ViewStyle,
 } from 'react-native';
@@ -95,6 +98,138 @@ export function PrimaryButton({
   );
 }
 
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+/**
+ * A section that stays folded away until it is needed. Everyday controls stay on
+ * screen; setup and tuning live behind a tap so the screen is not a wall of options.
+ */
+export function CollapsibleSection({
+  title,
+  summary,
+  icon,
+  badge,
+  defaultOpen = false,
+  children,
+}: PropsWithChildren<{
+  title: string;
+  summary?: string;
+  icon?: keyof typeof Ionicons.glyphMap;
+  /** Short status shown on the closed row, e.g. "Connected" or "Needs setup". */
+  badge?: string;
+  defaultOpen?: boolean;
+}>) {
+  const [open, setOpen] = useState(defaultOpen);
+  const toggle = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setOpen((current) => !current);
+  };
+
+  return (
+    <View style={styles.collapsible}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={title}
+        accessibilityHint={open ? 'Double tap to hide these settings' : 'Double tap to show these settings'}
+        accessibilityState={{ expanded: open }}
+        onPress={toggle}
+        style={({ pressed }) => [styles.collapsibleHeader, pressed && styles.pressed]}
+      >
+        {icon ? (
+          <View style={styles.collapsibleIcon}>
+            <Ionicons name={icon} size={18} color={colors.textMuted} />
+          </View>
+        ) : null}
+        <View style={styles.collapsibleCopy}>
+          <Text style={styles.collapsibleTitle}>{title}</Text>
+          {summary ? <Text style={styles.collapsibleSummary}>{summary}</Text> : null}
+        </View>
+        {badge ? <Text style={styles.collapsibleBadge}>{badge}</Text> : null}
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={18} color={colors.accent} />
+      </Pressable>
+      {open ? <View style={styles.collapsibleBody}>{children}</View> : null}
+    </View>
+  );
+}
+
+/** A row of mutually exclusive choices, e.g. a units switch. */
+export function SegmentedControl<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label?: string;
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (value: T) => void;
+}) {
+  return (
+    <View style={styles.segmentWrap}>
+      {label ? <Text style={styles.segmentLabel}>{label}</Text> : null}
+      <View style={styles.segmentTrack}>
+        {options.map((option) => {
+          const selected = option.value === value;
+          return (
+            <Pressable
+              accessibilityRole="radio"
+              accessibilityLabel={option.label}
+              accessibilityState={{ selected }}
+              key={option.value}
+              onPress={() => onChange(option.value)}
+              style={({ pressed }) => [
+                styles.segment,
+                selected && styles.segmentSelected,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
+                {option.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+/** A quiet explanatory line. Use it instead of leaving a control unexplained. */
+export function HelpText({ children }: PropsWithChildren) {
+  return <Text style={styles.helpText}>{children}</Text>;
+}
+
+/** A numbered instruction, for the "what do I do now" moments. */
+export function StepRow({
+  index,
+  title,
+  body,
+  done = false,
+}: {
+  index: number;
+  title: string;
+  body: string;
+  done?: boolean;
+}) {
+  return (
+    <View style={styles.stepRow}>
+      <View style={[styles.stepIndex, done && styles.stepIndexDone]}>
+        {done ? (
+          <Ionicons name="checkmark" size={15} color={colors.accentInk} />
+        ) : (
+          <Text style={styles.stepIndexText}>{index}</Text>
+        )}
+      </View>
+      <View style={styles.stepCopy}>
+        <Text style={[styles.stepTitle, done && styles.stepTitleDone]}>{title}</Text>
+        <Text style={styles.stepBody}>{body}</Text>
+      </View>
+    </View>
+  );
+}
+
 const stateMeta: Record<DeviceState, { label: string; color: string }> = {
   offline: { label: 'Offline', color: colors.textDim },
   connecting: { label: 'Connecting', color: colors.orange },
@@ -122,11 +257,13 @@ export function MetricTile({
   value,
   unit,
   accent = false,
+  note,
 }: {
   label: string;
   value: string;
   unit?: string;
   accent?: boolean;
+  note?: string;
 }) {
   return (
     <View style={styles.metricTile}>
@@ -135,6 +272,7 @@ export function MetricTile({
         <Text style={[styles.metricValue, accent && styles.metricValueAccent]}>{value}</Text>
         {unit ? <Text style={styles.metricUnit}>{unit}</Text> : null}
       </View>
+      {note ? <Text style={styles.metricNote}>{note}</Text> : null}
     </View>
   );
 }
@@ -245,6 +383,76 @@ const styles = StyleSheet.create({
   metricValue: { color: colors.text, fontSize: 25, fontWeight: '700', letterSpacing: -1 },
   metricValueAccent: { color: colors.accent },
   metricUnit: { color: colors.textMuted, fontSize: 11, fontWeight: '700' },
+  metricNote: { color: colors.textDim, fontSize: 10, fontWeight: '700', lineHeight: 14, marginTop: 5 },
+  collapsible: {
+    backgroundColor: colors.surface,
+    borderColor: colors.line,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  collapsibleHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
+    minHeight: 60,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  collapsibleIcon: {
+    alignItems: 'center',
+    backgroundColor: colors.surfaceRaised,
+    borderRadius: 14,
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
+  },
+  collapsibleCopy: { flex: 1 },
+  collapsibleTitle: { color: colors.text, fontSize: 15, fontWeight: '700' },
+  collapsibleSummary: { color: colors.textMuted, fontSize: 12, lineHeight: 16, marginTop: 2 },
+  collapsibleBadge: { color: colors.textMuted, fontSize: 11, fontWeight: '800' },
+  collapsibleBody: {
+    borderTopColor: colors.line,
+    borderTopWidth: 1,
+    padding: spacing.md,
+  },
+  segmentWrap: { gap: spacing.xs },
+  segmentLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '700' },
+  segmentTrack: {
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    flexDirection: 'row',
+    padding: 3,
+  },
+  segment: {
+    alignItems: 'center',
+    borderRadius: radii.sm,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 42,
+  },
+  segmentSelected: { backgroundColor: colors.accent },
+  segmentText: { color: colors.textMuted, fontSize: 13, fontWeight: '800' },
+  segmentTextSelected: { color: colors.accentInk },
+  helpText: { color: colors.textMuted, fontSize: 12, lineHeight: 17 },
+  stepRow: { flexDirection: 'row', gap: spacing.sm },
+  stepIndex: {
+    alignItems: 'center',
+    backgroundColor: colors.surfaceSoft,
+    borderRadius: 14,
+    height: 28,
+    justifyContent: 'center',
+    marginTop: 1,
+    width: 28,
+  },
+  stepIndexDone: { backgroundColor: colors.accent },
+  stepIndexText: { color: colors.textMuted, fontSize: 13, fontWeight: '800' },
+  stepCopy: { flex: 1 },
+  stepTitle: { color: colors.text, fontSize: 14, fontWeight: '700' },
+  stepTitleDone: { color: colors.textMuted, textDecorationLine: 'line-through' },
+  stepBody: { color: colors.textMuted, fontSize: 12, lineHeight: 17, marginTop: 2 },
   iconButton: {
     alignItems: 'center',
     backgroundColor: colors.surfaceRaised,

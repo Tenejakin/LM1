@@ -1,0 +1,40 @@
+{
+  "version": "0.5.2",
+  "units": "mm",
+  "camera_pitch_deg": 15.0,
+  "parts": [
+    {
+      "file": "lm1_test_pi_tray_v0.5.2.stl",
+      "watertight": true,
+      "positive_volume": true,
+      "connected_solids": 1,
+      "size_mm": [
+        140.0,
+        130.0,
+        11.0
+      ]
+    },
+    {
+      "file": "lm1_test_camera_mast_v0.5.2.stl",
+      "watertight": true,
+      "positive_volume": true,
+      "connected_solids": 1,
+      "size_mm": [
+        130.0,
+        180.0,
+        32.0
+      ]
+    },
+    {
+      "file": "lm1_test_camera_bracket_15deg_v0.5.2.stl",
+      "watertight": true,
+      "positive_volume": true,
+      "connected_solids": 1,
+      "size_mm": [
+        120.0,
+        58.0,
+        18.44
+      ]
+    }
+  ]
+}

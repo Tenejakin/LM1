@@ -7,7 +7,7 @@ import { colors, spacing } from '@/theme';
 import { DeviceState } from '@/types';
 
 export function ScreenHeader({
-  title = 'Pinpoint',
+  title = 'LM1',
   subtitle = 'Launch monitor',
   state,
   demo,

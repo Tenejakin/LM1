@@ -1,24 +1,26 @@
 {
   "expo": {
-    "name": "Pinpoint LM",
+    "name": "LM1",
     "slug": "pinpoint-launch-monitor",
-    "version": "2.0.0",
+    "version": "3.11.0",
     "orientation": "portrait",
     "scheme": "pinpoint",
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
-      "buildNumber": "8",
+      "buildNumber": "47",
       "bundleIdentifier": "com.pinpoint.launchmonitor",
       "infoPlist": {
-        "NSLocalNetworkUsageDescription": "Pinpoint uses the local network for golf simulator connections.",
+        "CFBundleDisplayName": "LM1",
+        "NSLocalNetworkUsageDescription": "LM1 uses the local network for golf simulator connections.",
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
-        }
+        },
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
-      "versionCode": 8,
+      "versionCode": 47,
       "package": "com.pinpoint.launchmonitor",
       "permissions": [
         "android.permission.INTERNET",
@@ -46,7 +48,7 @@
         "react-native-ble-plx",
         {
           "isBackgroundEnabled": false,
-          "bluetoothAlwaysPermission": "Allow Pinpoint to connect to your Raspberry Pi launch monitor."
+          "bluetoothAlwaysPermission": "Allow LM1 to connect to your Raspberry Pi launch monitor."
         }
       ]
     ],

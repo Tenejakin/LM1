@@ -1,0 +1,2357 @@
+{
+  "captureId": "capture-1789508154639131803",
+  "capturedAtUnix": 1789508154.9994237,
+  "timestampSource": "sensor",
+  "frameMetadata": [
+    {
+      "SensorTimestamp": 97757112000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97761251000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97765392000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97769529000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97773669000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97777808000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97781947000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97786086000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97790225000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97794364000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97798504000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97802643000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97806782000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97810921000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97815060000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97819199000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97823338000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97827478000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97831617000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97835756000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97839895000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97844034000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97848173000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97852312000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97856451000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97860590000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97864730000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97868869000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97873008000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97877147000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97881286000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97885426000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97889565000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97893704000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97897843000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97901982000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97906121000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97910260000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97914399000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97918539000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97922678000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97926817000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97930956000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97935095000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97939234000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97943373000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97947513000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97951652000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97955791000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97959930000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97964069000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97968208000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97972347000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97976487000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97980626000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97984765000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97988904000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97993043000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 97997183000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98001321000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98005461000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98009600000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98013739000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98017878000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98022017000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98026156000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98030295000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98034435000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98038574000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98042713000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98046852000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98050992000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98055130000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98059270000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98063409000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98067548000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98071687000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98075826000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98079965000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98084105000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98088244000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98092383000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98096522000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98100661000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98104800000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98108940000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98113079000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98117218000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98121357000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98125496000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98129636000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98133774000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98137913000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98142053000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98146192000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98150331000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98154470000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98158609000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98162749000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98166888000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98171027000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98175166000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98179305000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98183444000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98187583000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98191723000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98195862000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98200001000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98204140000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98208279000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98212418000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98216558000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98220697000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98224836000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98228975000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98233115000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98237253000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98241392000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98245532000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98249671000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98253810000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98257949000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98262088000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98266228000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98270367000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98274506000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98278645000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98282784000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98286923000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98291062000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98295201000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98299341000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98303480000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98307619000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98311758000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98315897000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98320036000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98324176000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98328315000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98332454000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98336593000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98340732000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98344871000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98349010000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98353150000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98357289000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98361428000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98365568000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98369706000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98373846000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98377985000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98382124000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98386263000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98390402000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98394541000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98398680000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98402819000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98406959000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98411098000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98415237000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98419376000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98423515000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98427654000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98431794000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98435933000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98440072000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98444211000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98448350000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98452489000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98456629000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98460768000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98464907000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98469046000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98473185000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98477324000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98481463000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98485603000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98489742000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98493881000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98498020000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98502159000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98506298000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98510437000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98514577000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98518716000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98522855000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98526994000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98531134000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98535273000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98539411000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98543551000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98547690000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98551829000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98555968000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98560107000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98564247000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98568386000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98572525000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98576664000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98580803000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98584943000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98589082000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98593221000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98597360000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98601499000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98605638000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98609777000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98613916000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98618056000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98622195000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98626334000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98630473000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98634612000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98638752000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98642891000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98647030000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98651169000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98655308000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98659447000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98663586000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98667726000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98671865000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98676004000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98680143000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98684282000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98688421000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98692560000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98696700000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98700839000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98704978000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98709117000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98713256000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98717395000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98721534000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98725674000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98729813000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98733952000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98738091000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98742230000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98746369000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98750508000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98754648000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98758787000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98762926000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98767065000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98771204000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98775343000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98779483000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98783622000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98787761000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98791900000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98796039000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98800179000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98804317000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98808457000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98812596000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98816735000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98820874000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98825013000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98829153000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98833292000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98837431000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98841570000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98845709000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98849848000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98853987000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98858127000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98862266000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98866405000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98870544000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98874683000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98878822000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98882962000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98887101000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98891240000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98895379000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98899519000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98903657000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98907796000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98911936000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98916075000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98920214000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98924353000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98928492000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98932632000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98936771000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98940910000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98945049000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98949188000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98953327000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98957467000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98961605000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98965745000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98969884000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98974023000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98978163000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98982302000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98986441000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98990580000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98994720000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 98998859000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 99002998000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 99007137000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 99011276000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 99015415000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 99019555000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 99023694000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 99027833000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 99031972000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 99036111000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 99040251000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 99044389000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 99048529000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 99052668000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 99056807000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 99060947000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 99065085000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 99069225000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 99073364000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 99077503000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 99081642000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 99085781000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 99089921000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 99094060000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    },
+    {
+      "SensorTimestamp": 99098199000,
+      "FrameDuration": 4131,
+      "AnalogueGain": 4.0,
+      "ExposureTime": 95
+    }
+  ],
+  "frameCount": 325,
+  "fps": 242,
+  "measuredFps": 241.6,
+  "durationMs": 1341.087,
+  "frameTimesMs": [
+    0.0,
+    4.139,
+    8.28,
+    12.417,
+    16.557,
+    20.696,
+    24.835,
+    28.974,
+    33.113,
+    37.252,
+    41.392,
+    45.531,
+    49.67,
+    53.809,
+    57.948,
+    62.087,
+    66.226,
+    70.366,
+    74.505,
+    78.644,
+    82.783,
+    86.922,
+    91.061,
+    95.2,
+    99.339,
+    103.478,
+    107.618,
+    111.757,
+    115.896,
+    120.035,
+    124.174,
+    128.314,
+    132.453,
+    136.592,
+    140.731,
+    144.87,
+    149.009,
+    153.148,
+    157.287,
+    161.427,
+    165.566,
+    169.705,
+    173.844,
+    177.983,
+    182.122,
+    186.261,
+    190.401,
+    194.54,
+    198.679,
+    202.818,
+    206.957,
+    211.096,
+    215.235,
+    219.375,
+    223.514,
+    227.653,
+    231.792,
+    235.931,
+    240.071,
+    244.209,
+    248.349,
+    252.488,
+    256.627,
+    260.766,
+    264.905,
+    269.044,
+    273.183,
+    277.323,
+    281.462,
+    285.601,
+    289.74,
+    293.88,
+    298.018,
+    302.158,
+    306.297,
+    310.436,
+    314.575,
+    318.714,
+    322.853,
+    326.993,
+    331.132,
+    335.271,
+    339.41,
+    343.549,
+    347.688,
+    351.828,
+    355.967,
+    360.106,
+    364.245,
+    368.384,
+    372.524,
+    376.662,
+    380.801,
+    384.941,
+    389.08,
+    393.219,
+    397.358,
+    401.497,
+    405.637,
+    409.776,
+    413.915,
+    418.054,
+    422.193,
+    426.332,
+    430.471,
+    434.611,
+    438.75,
+    442.889,
+    447.028,
+    451.167,
+    455.306,
+    459.446,
+    463.585,
+    467.724,
+    471.863,
+    476.003,
+    480.141,
+    484.28,
+    488.42,
+    492.559,
+    496.698,
+    500.837,
+    504.976,
+    509.116,
+    513.255,
+    517.394,
+    521.533,
+    525.672,
+    529.811,
+    533.95,
+    538.089,
+    542.229,
+    546.368,
+    550.507,
+    554.646,
+    558.785,
+    562.924,
+    567.064,
+    571.203,
+    575.342,
+    579.481,
+    583.62,
+    587.759,
+    591.898,
+    596.038,
+    600.177,
+    604.316,
+    608.456,
+    612.594,
+    616.734,
+    620.873,
+    625.012,
+    629.151,
+    633.29,
+    637.429,
+    641.568,
+    645.707,
+    649.847,
+    653.986,
+    658.125,
+    662.264,
+    666.403,
+    670.542,
+    674.682,
+    678.821,
+    682.96,
+    687.099,
+    691.238,
+    695.377,
+    699.517,
+    703.656,
+    707.795,
+    711.934,
+    716.073,
+    720.212,
+    724.351,
+    728.491,
+    732.63,
+    736.769,
+    740.908,
+    745.047,
+    749.186,
+    753.325,
+    757.465,
+    761.604,
+    765.743,
+    769.882,
+    774.022,
+    778.161,
+    782.299,
+    786.439,
+    790.578,
+    794.717,
+    798.856,
+    802.995,
+    807.135,
+    811.274,
+    815.413,
+    819.552,
+    823.691,
+    827.831,
+    831.97,
+    836.109,
+    840.248,
+    844.387,
+    848.526,
+    852.665,
+    856.804,
+    860.944,
+    865.083,
+    869.222,
+    873.361,
+    877.5,
+    881.64,
+    885.779,
+    889.918,
+    894.057,
+    898.196,
+    902.335,
+    906.474,
+    910.614,
+    914.753,
+    918.892,
+    923.031,
+    927.17,
+    931.309,
+    935.448,
+    939.588,
+    943.727,
+    947.866,
+    952.005,
+    956.144,
+    960.283,
+    964.422,
+    968.562,
+    972.701,
+    976.84,
+    980.979,
+    985.118,
+    989.257,
+    993.396,
+    997.536,
+    1001.675,
+    1005.814,
+    1009.953,
+    1014.092,
+    1018.231,
+    1022.371,
+    1026.51,
+    1030.649,
+    1034.788,
+    1038.927,
+    1043.067,
+    1047.205,
+    1051.345,
+    1055.484,
+    1059.623,
+    1063.762,
+    1067.901,
+    1072.041,
+    1076.18,
+    1080.319,
+    1084.458,
+    1088.597,
+    1092.736,
+    1096.875,
+    1101.015,
+    1105.154,
+    1109.293,
+    1113.432,
+    1117.571,
+    1121.71,
+    1125.85,
+    1129.989,
+    1134.128,
+    1138.267,
+    1142.407,
+    1146.545,
+    1150.684,
+    1154.824,
+    1158.963,
+    1163.102,
+    1167.241,
+    1171.38,
+    1175.52,
+    1179.659,
+    1183.798,
+    1187.937,
+    1192.076,
+    1196.215,
+    1200.355,
+    1204.493,
+    1208.633,
+    1212.772,
+    1216.911,
+    1221.051,
+    1225.19,
+    1229.329,
+    1233.468,
+    1237.608,
+    1241.747,
+    1245.886,
+    1250.025,
+    1254.164,
+    1258.303,
+    1262.443,
+    1266.582,
+    1270.721,
+    1274.86,
+    1278.999,
+    1283.139,
+    1287.277,
+    1291.417,
+    1295.556,
+    1299.695,
+    1303.835,
+    1307.973,
+    1312.113,
+    1316.252,
+    1320.391,
+    1324.53,
+    1328.669,
+    1332.809,
+    1336.948,
+    1341.087
+  ],
+  "impactFrameIndex": 162,
+  "coarseDepartureFrameIndex": 192,
+  "lastStationaryFrameIndex": 159,
+  "firstMovingFrameIndex": 162,
+  "ballBounds": [
+    251,
+    169,
+    57,
+    55
+  ],
+  "purpose": "Ball departure evidence; physical launch metrics require validated tracking and calibration",
+  "aprilTagCalibration": {
+    "detected": true,
+    "available": true,
+    "family": "tag36h11",
+    "tagId": 0,
+    "tagSizeMm": 100.0,
+    "imageSize": [
+      640,
+      400
+    ],
+    "corners": [
+      [
+        0.421875,
+        0.415
+      ],
+      [
+        0.384375,
+        0.6075
+      ],
+      [
+        0.151562,
+        0.585
+      ],
+      [
+        0.228125,
+        0.4075
+      ]
+    ],
+    "center": [
+      0.296484,
+      0.50375
+    ],
+    "edgePixels": 110.06,
+    "pixelsPerMm": 1.10057,
+    "rotationDeg": 107.31,
+    "perspectiveError": 0.6235,
+    "quality": 1.0,
+    "imageToTagMm": [
+      [
+        -0.10170864,
+        4.20395729,
+        -670.39557645
+      ],
+      [
+        -1.99904023,
+        -0.62307747,
+        643.17172223
+      ],
+      [
+        0.00102262,
+        0.00827117,
+        1.0
+      ]
+    ],
+    "version": 1,
+    "capturedAt": "2026-09-15T20:55:03.800Z",
+    "purpose": "planar image-to-millimetre calibration for launch analysis"
+  }
+}

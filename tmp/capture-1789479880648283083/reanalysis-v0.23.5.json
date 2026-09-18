@@ -1,0 +1,1231 @@
+{
+  "classification": "motion-observed",
+  "frameCount": 325,
+  "captureDurationMs": 1341,
+  "measuredFps": 241.6,
+  "impactFrameIndex": 157,
+  "coarseDepartureFrameIndex": 192,
+  "lastStationaryFrameIndex": 148,
+  "firstMovingFrameIndex": 157,
+  "imageFrameIndex": 148,
+  "track": [
+    {
+      "frameIndex": 130,
+      "x": 255.0,
+      "y": 340.5,
+      "score": 0.855
+    },
+    {
+      "frameIndex": 131,
+      "x": 254.0,
+      "y": 340.5,
+      "score": 0.856
+    },
+    {
+      "frameIndex": 132,
+      "x": 255.0,
+      "y": 340.5,
+      "score": 0.858
+    },
+    {
+      "frameIndex": 133,
+      "x": 255.0,
+      "y": 341.5,
+      "score": 0.857
+    },
+    {
+      "frameIndex": 134,
+      "x": 255.0,
+      "y": 341.5,
+      "score": 0.858
+    },
+    {
+      "frameIndex": 145,
+      "x": 256.0,
+      "y": 341.5,
+      "score": 0.851
+    },
+    {
+      "frameIndex": 147,
+      "x": 256.0,
+      "y": 341.5,
+      "score": 0.855
+    },
+    {
+      "frameIndex": 148,
+      "x": 256.0,
+      "y": 341.5,
+      "score": 0.857
+    },
+    {
+      "frameIndex": 157,
+      "x": 264.0,
+      "y": 342.5,
+      "score": 0.87
+    },
+    {
+      "frameIndex": 158,
+      "x": 266.0,
+      "y": 342.5,
+      "score": 0.867
+    },
+    {
+      "frameIndex": 159,
+      "x": 270.0,
+      "y": 342.5,
+      "score": 0.867
+    },
+    {
+      "frameIndex": 160,
+      "x": 273.0,
+      "y": 342.5,
+      "score": 0.863
+    },
+    {
+      "frameIndex": 161,
+      "x": 276.0,
+      "y": 342.5,
+      "score": 0.859
+    },
+    {
+      "frameIndex": 162,
+      "x": 279.0,
+      "y": 342.5,
+      "score": 0.851
+    },
+    {
+      "frameIndex": 163,
+      "x": 282.0,
+      "y": 342.5,
+      "score": 0.853
+    },
+    {
+      "frameIndex": 164,
+      "x": 285.0,
+      "y": 342.5,
+      "score": 0.851
+    },
+    {
+      "frameIndex": 165,
+      "x": 288.0,
+      "y": 342.5,
+      "score": 0.85
+    },
+    {
+      "frameIndex": 166,
+      "x": 291.0,
+      "y": 342.5,
+      "score": 0.849
+    },
+    {
+      "frameIndex": 167,
+      "x": 294.0,
+      "y": 342.5,
+      "score": 0.848
+    },
+    {
+      "frameIndex": 168,
+      "x": 297.0,
+      "y": 341.5,
+      "score": 0.848
+    },
+    {
+      "frameIndex": 169,
+      "x": 301.0,
+      "y": 342.5,
+      "score": 0.848
+    },
+    {
+      "frameIndex": 170,
+      "x": 304.0,
+      "y": 342.5,
+      "score": 0.849
+    },
+    {
+      "frameIndex": 171,
+      "x": 307.0,
+      "y": 343.5,
+      "score": 0.849
+    },
+    {
+      "frameIndex": 172,
+      "x": 310.0,
+      "y": 343.5,
+      "score": 0.848
+    },
+    {
+      "frameIndex": 173,
+      "x": 314.0,
+      "y": 343.5,
+      "score": 0.846
+    },
+    {
+      "frameIndex": 174,
+      "x": 317.0,
+      "y": 343.5,
+      "score": 0.846
+    },
+    {
+      "frameIndex": 175,
+      "x": 320.0,
+      "y": 343.5,
+      "score": 0.849
+    },
+    {
+      "frameIndex": 176,
+      "x": 324.0,
+      "y": 344.5,
+      "score": 0.844
+    },
+    {
+      "frameIndex": 177,
+      "x": 326.0,
+      "y": 343.5,
+      "score": 0.845
+    },
+    {
+      "frameIndex": 178,
+      "x": 330.0,
+      "y": 344.5,
+      "score": 0.846
+    },
+    {
+      "frameIndex": 179,
+      "x": 333.0,
+      "y": 344.5,
+      "score": 0.842
+    },
+    {
+      "frameIndex": 180,
+      "x": 335.0,
+      "y": 344.5,
+      "score": 0.848
+    },
+    {
+      "frameIndex": 181,
+      "x": 339.0,
+      "y": 344.5,
+      "score": 0.844
+    },
+    {
+      "frameIndex": 182,
+      "x": 340.0,
+      "y": 344.5,
+      "score": 0.833
+    },
+    {
+      "frameIndex": 183,
+      "x": 344.0,
+      "y": 344.5,
+      "score": 0.85
+    },
+    {
+      "frameIndex": 184,
+      "x": 345.0,
+      "y": 344.5,
+      "score": 0.846
+    },
+    {
+      "frameIndex": 185,
+      "x": 348.0,
+      "y": 344.5,
+      "score": 0.867
+    },
+    {
+      "frameIndex": 186,
+      "x": 352.0,
+      "y": 343.5,
+      "score": 0.875
+    },
+    {
+      "frameIndex": 187,
+      "x": 353.0,
+      "y": 343.5,
+      "score": 0.893
+    },
+    {
+      "frameIndex": 188,
+      "x": 358.0,
+      "y": 343.5,
+      "score": 0.89
+    },
+    {
+      "frameIndex": 189,
+      "x": 361.0,
+      "y": 341.5,
+      "score": 0.898
+    },
+    {
+      "frameIndex": 190,
+      "x": 365.0,
+      "y": 341.5,
+      "score": 0.898
+    },
+    {
+      "frameIndex": 191,
+      "x": 369.0,
+      "y": 341.5,
+      "score": 0.889
+    },
+    {
+      "frameIndex": 192,
+      "x": 372.0,
+      "y": 340.5,
+      "score": 0.876
+    },
+    {
+      "frameIndex": 193,
+      "x": 375.0,
+      "y": 342.5,
+      "score": 0.878
+    },
+    {
+      "frameIndex": 194,
+      "x": 378.0,
+      "y": 341.5,
+      "score": 0.88
+    },
+    {
+      "frameIndex": 195,
+      "x": 381.0,
+      "y": 342.5,
+      "score": 0.894
+    },
+    {
+      "frameIndex": 196,
+      "x": 385.0,
+      "y": 341.5,
+      "score": 0.898
+    },
+    {
+      "frameIndex": 197,
+      "x": 389.0,
+      "y": 340.5,
+      "score": 0.903
+    },
+    {
+      "frameIndex": 198,
+      "x": 392.0,
+      "y": 341.5,
+      "score": 0.897
+    },
+    {
+      "frameIndex": 199,
+      "x": 395.0,
+      "y": 340.5,
+      "score": 0.899
+    },
+    {
+      "frameIndex": 200,
+      "x": 398.0,
+      "y": 341.5,
+      "score": 0.892
+    },
+    {
+      "frameIndex": 201,
+      "x": 402.0,
+      "y": 340.5,
+      "score": 0.897
+    },
+    {
+      "frameIndex": 202,
+      "x": 405.0,
+      "y": 340.5,
+      "score": 0.895
+    },
+    {
+      "frameIndex": 203,
+      "x": 408.0,
+      "y": 340.5,
+      "score": 0.89
+    },
+    {
+      "frameIndex": 204,
+      "x": 411.0,
+      "y": 339.5,
+      "score": 0.893
+    },
+    {
+      "frameIndex": 205,
+      "x": 413.0,
+      "y": 341.5,
+      "score": 0.891
+    },
+    {
+      "frameIndex": 206,
+      "x": 417.0,
+      "y": 340.5,
+      "score": 0.895
+    },
+    {
+      "frameIndex": 207,
+      "x": 419.0,
+      "y": 341.5,
+      "score": 0.892
+    },
+    {
+      "frameIndex": 208,
+      "x": 423.0,
+      "y": 340.5,
+      "score": 0.896
+    },
+    {
+      "frameIndex": 209,
+      "x": 426.0,
+      "y": 340.5,
+      "score": 0.895
+    },
+    {
+      "frameIndex": 210,
+      "x": 428.0,
+      "y": 341.5,
+      "score": 0.888
+    },
+    {
+      "frameIndex": 211,
+      "x": 432.0,
+      "y": 340.5,
+      "score": 0.895
+    },
+    {
+      "frameIndex": 212,
+      "x": 434.0,
+      "y": 341.5,
+      "score": 0.891
+    },
+    {
+      "frameIndex": 213,
+      "x": 438.0,
+      "y": 340.5,
+      "score": 0.893
+    },
+    {
+      "frameIndex": 214,
+      "x": 440.0,
+      "y": 341.5,
+      "score": 0.893
+    },
+    {
+      "frameIndex": 215,
+      "x": 443.0,
+      "y": 341.5,
+      "score": 0.892
+    },
+    {
+      "frameIndex": 216,
+      "x": 447.0,
+      "y": 340.5,
+      "score": 0.891
+    },
+    {
+      "frameIndex": 217,
+      "x": 448.0,
+      "y": 342.5,
+      "score": 0.887
+    },
+    {
+      "frameIndex": 218,
+      "x": 452.0,
+      "y": 341.5,
+      "score": 0.887
+    },
+    {
+      "frameIndex": 219,
+      "x": 455.0,
+      "y": 341.5,
+      "score": 0.887
+    },
+    {
+      "frameIndex": 220,
+      "x": 457.0,
+      "y": 341.5,
+      "score": 0.888
+    },
+    {
+      "frameIndex": 221,
+      "x": 460.0,
+      "y": 341.5,
+      "score": 0.887
+    },
+    {
+      "frameIndex": 222,
+      "x": 462.0,
+      "y": 342.5,
+      "score": 0.887
+    },
+    {
+      "frameIndex": 223,
+      "x": 466.0,
+      "y": 341.5,
+      "score": 0.884
+    },
+    {
+      "frameIndex": 224,
+      "x": 468.0,
+      "y": 342.5,
+      "score": 0.885
+    },
+    {
+      "frameIndex": 225,
+      "x": 471.0,
+      "y": 342.5,
+      "score": 0.882
+    },
+    {
+      "frameIndex": 226,
+      "x": 474.0,
+      "y": 342.5,
+      "score": 0.883
+    },
+    {
+      "frameIndex": 227,
+      "x": 476.0,
+      "y": 343.5,
+      "score": 0.885
+    },
+    {
+      "frameIndex": 228,
+      "x": 479.0,
+      "y": 342.5,
+      "score": 0.88
+    },
+    {
+      "frameIndex": 229,
+      "x": 481.0,
+      "y": 343.5,
+      "score": 0.883
+    },
+    {
+      "frameIndex": 230,
+      "x": 485.0,
+      "y": 342.5,
+      "score": 0.878
+    },
+    {
+      "frameIndex": 231,
+      "x": 487.0,
+      "y": 342.5,
+      "score": 0.878
+    },
+    {
+      "frameIndex": 232,
+      "x": 489.0,
+      "y": 343.5,
+      "score": 0.878
+    },
+    {
+      "frameIndex": 233,
+      "x": 493.0,
+      "y": 342.5,
+      "score": 0.874
+    },
+    {
+      "frameIndex": 234,
+      "x": 494.0,
+      "y": 344.5,
+      "score": 0.879
+    },
+    {
+      "frameIndex": 235,
+      "x": 498.0,
+      "y": 343.5,
+      "score": 0.867
+    },
+    {
+      "frameIndex": 236,
+      "x": 500.0,
+      "y": 344.5,
+      "score": 0.869
+    },
+    {
+      "frameIndex": 237,
+      "x": 502.0,
+      "y": 344.5,
+      "score": 0.865
+    },
+    {
+      "frameIndex": 238,
+      "x": 506.0,
+      "y": 343.5,
+      "score": 0.86
+    },
+    {
+      "frameIndex": 239,
+      "x": 506.0,
+      "y": 346.5,
+      "score": 0.881
+    },
+    {
+      "frameIndex": 240,
+      "x": 510.0,
+      "y": 344.5,
+      "score": 0.858
+    },
+    {
+      "frameIndex": 241,
+      "x": 511.0,
+      "y": 346.5,
+      "score": 0.873
+    },
+    {
+      "frameIndex": 242,
+      "x": 515.0,
+      "y": 345.5,
+      "score": 0.861
+    },
+    {
+      "frameIndex": 243,
+      "x": 517.0,
+      "y": 345.5,
+      "score": 0.866
+    },
+    {
+      "frameIndex": 244,
+      "x": 519.0,
+      "y": 346.5,
+      "score": 0.877
+    },
+    {
+      "frameIndex": 245,
+      "x": 522.0,
+      "y": 346.5,
+      "score": 0.856
+    },
+    {
+      "frameIndex": 246,
+      "x": 524.0,
+      "y": 347.5,
+      "score": 0.876
+    },
+    {
+      "frameIndex": 247,
+      "x": 527.0,
+      "y": 346.5,
+      "score": 0.857
+    },
+    {
+      "frameIndex": 248,
+      "x": 529.0,
+      "y": 347.5,
+      "score": 0.866
+    },
+    {
+      "frameIndex": 249,
+      "x": 531.0,
+      "y": 348.5,
+      "score": 0.867
+    },
+    {
+      "frameIndex": 250,
+      "x": 533.0,
+      "y": 348.5,
+      "score": 0.856
+    },
+    {
+      "frameIndex": 251,
+      "x": 536.0,
+      "y": 348.5,
+      "score": 0.88
+    },
+    {
+      "frameIndex": 252,
+      "x": 538.0,
+      "y": 348.5,
+      "score": 0.855
+    },
+    {
+      "frameIndex": 253,
+      "x": 541.0,
+      "y": 348.5,
+      "score": 0.87
+    },
+    {
+      "frameIndex": 254,
+      "x": 544.0,
+      "y": 348.5,
+      "score": 0.855
+    },
+    {
+      "frameIndex": 255,
+      "x": 546.0,
+      "y": 348.5,
+      "score": 0.855
+    },
+    {
+      "frameIndex": 256,
+      "x": 548.0,
+      "y": 350.5,
+      "score": 0.873
+    },
+    {
+      "frameIndex": 257,
+      "x": 550.0,
+      "y": 350.5,
+      "score": 0.852
+    },
+    {
+      "frameIndex": 258,
+      "x": 553.0,
+      "y": 350.5,
+      "score": 0.871
+    },
+    {
+      "frameIndex": 259,
+      "x": 555.0,
+      "y": 350.5,
+      "score": 0.855
+    },
+    {
+      "frameIndex": 260,
+      "x": 558.0,
+      "y": 350.5,
+      "score": 0.864
+    },
+    {
+      "frameIndex": 261,
+      "x": 560.0,
+      "y": 351.5,
+      "score": 0.866
+    },
+    {
+      "frameIndex": 262,
+      "x": 562.0,
+      "y": 351.5,
+      "score": 0.852
+    },
+    {
+      "frameIndex": 263,
+      "x": 565.0,
+      "y": 351.5,
+      "score": 0.87
+    },
+    {
+      "frameIndex": 264,
+      "x": 566.0,
+      "y": 352.5,
+      "score": 0.847
+    },
+    {
+      "frameIndex": 265,
+      "x": 569.0,
+      "y": 352.5,
+      "score": 0.859
+    },
+    {
+      "frameIndex": 266,
+      "x": 571.0,
+      "y": 352.5,
+      "score": 0.853
+    },
+    {
+      "frameIndex": 267,
+      "x": 573.0,
+      "y": 353.5,
+      "score": 0.847
+    },
+    {
+      "frameIndex": 268,
+      "x": 577.0,
+      "y": 352.5,
+      "score": 0.869
+    },
+    {
+      "frameIndex": 269,
+      "x": 578.0,
+      "y": 353.5,
+      "score": 0.842
+    },
+    {
+      "frameIndex": 270,
+      "x": 581.0,
+      "y": 352.5,
+      "score": 0.857
+    },
+    {
+      "frameIndex": 271,
+      "x": 582.0,
+      "y": 354.5,
+      "score": 0.844
+    },
+    {
+      "frameIndex": 272,
+      "x": 585.0,
+      "y": 354.5,
+      "score": 0.844
+    },
+    {
+      "frameIndex": 273,
+      "x": 587.0,
+      "y": 354.5,
+      "score": 0.858
+    },
+    {
+      "frameIndex": 274,
+      "x": 589.0,
+      "y": 354.5,
+      "score": 0.832
+    },
+    {
+      "frameIndex": 275,
+      "x": 592.0,
+      "y": 354.5,
+      "score": 0.853
+    },
+    {
+      "frameIndex": 276,
+      "x": 593.0,
+      "y": 355.5,
+      "score": 0.832
+    },
+    {
+      "frameIndex": 277,
+      "x": 596.0,
+      "y": 355.5,
+      "score": 0.841
+    },
+    {
+      "frameIndex": 278,
+      "x": 598.0,
+      "y": 355.5,
+      "score": 0.841
+    },
+    {
+      "frameIndex": 279,
+      "x": 600.0,
+      "y": 355.5,
+      "score": 0.827
+    },
+    {
+      "frameIndex": 280,
+      "x": 603.0,
+      "y": 355.5,
+      "score": 0.853
+    },
+    {
+      "frameIndex": 281,
+      "x": 604.0,
+      "y": 356.5,
+      "score": 0.826
+    },
+    {
+      "frameIndex": 282,
+      "x": 607.0,
+      "y": 355.5,
+      "score": 0.84
+    },
+    {
+      "frameIndex": 283,
+      "x": 609.0,
+      "y": 356.5,
+      "score": 0.828
+    },
+    {
+      "frameIndex": 284,
+      "x": 611.0,
+      "y": 356.5,
+      "score": 0.829
+    },
+    {
+      "frameIndex": 285,
+      "x": 614.0,
+      "y": 356.5,
+      "score": 0.852
+    },
+    {
+      "frameIndex": 286,
+      "x": 615.0,
+      "y": 356.5,
+      "score": 0.818
+    },
+    {
+      "frameIndex": 287,
+      "x": 616.0,
+      "y": 358.5,
+      "score": 0.82
+    },
+    {
+      "frameIndex": 288,
+      "x": 616.0,
+      "y": 360.5,
+      "score": 0.781
+    },
+    {
+      "frameIndex": 289,
+      "x": 616.0,
+      "y": 362.5,
+      "score": 0.738
+    }
+  ],
+  "warnings": [
+    "Ball departure does not prove club contact; lifting the ball can trigger a capture.",
+    "Ground AprilTag pose reprojection error is 1.25 px; launch values are lower-confidence estimates.",
+    "Monocular measurements are estimates pending physical reference validation.",
+    "Contact is bounded by the last stationary and first moving frames; exact club contact can fall between exposures."
+  ],
+  "measurements": {
+    "metrics": {
+      "ballSpeedMps": {
+        "value": 0.7074,
+        "unit": "m/s",
+        "status": "estimated",
+        "reason": "Known-ball-size 3D estimate; fit residual 3.3 mm. Requires reference validation. Ground-tag pose error 1.25 px from frame 164."
+      },
+      "clubSpeedMps": {
+        "value": null,
+        "unit": "m/s",
+        "status": "unavailable",
+        "reason": "Attach a club AprilTag and calibrate its rigid transform to the face center."
+      },
+      "smashFactor": {
+        "value": null,
+        "unit": "",
+        "status": "unavailable",
+        "reason": "Attach a club AprilTag and calibrate its rigid transform to the face center."
+      },
+      "launchAngleDeg": {
+        "value": 13.7099,
+        "unit": "deg",
+        "status": "estimated",
+        "reason": "Known-ball-size 3D estimate; fit residual 3.3 mm. Requires reference validation. Ground-tag pose error 1.25 px from frame 164."
+      },
+      "startDirectionDeg": {
+        "value": null,
+        "unit": "deg",
+        "status": "unavailable",
+        "reason": "Set the target line first: roll a ball toward the target, then use Set target line on the Calibration screen."
+      },
+      "strikeXmm": {
+        "value": null,
+        "unit": "mm",
+        "status": "unavailable",
+        "reason": "Attach a club AprilTag and calibrate its rigid transform to the face center."
+      },
+      "strikeYmm": {
+        "value": null,
+        "unit": "mm",
+        "status": "unavailable",
+        "reason": "Attach a club AprilTag and calibrate its rigid transform to the face center."
+      },
+      "spinRpm": {
+        "value": null,
+        "unit": "rpm",
+        "status": "unavailable",
+        "reason": "Needs at least three resolved surface marks and two consistent small-rotation frame pairs; increase magnification/frame rate."
+      },
+      "spinAxisDeg": {
+        "value": null,
+        "unit": "deg",
+        "status": "unavailable",
+        "reason": "Needs at least three resolved surface marks and two consistent small-rotation frame pairs; increase magnification/frame rate."
+      },
+      "estimatedCarryM": {
+        "value": 0.0235,
+        "unit": "m",
+        "status": "estimated",
+        "reason": "Vacuum ballistic estimate to launch height; excludes lift, drag, wind and terrain. Ground-tag pose error 1.25 px from frame 164."
+      },
+      "rollDistanceM": {
+        "value": null,
+        "unit": "m",
+        "status": "unavailable",
+        "reason": "Requires continuous in-frame tracking until a verified stop (at least 100 ms)."
+      },
+      "skidDistanceM": {
+        "value": null,
+        "unit": "m",
+        "status": "unavailable",
+        "reason": "Requires simultaneous translation and spin tracking through transition to true roll."
+      }
+    },
+    "ballTrack3d": [
+      {
+        "frameIndex": 171,
+        "positionM": [
+          0.038814885341054525,
+          0.0798611763995991,
+          0.006150044464070815
+        ],
+        "centerPx": [
+          304.32757568359375,
+          341.4482727050781
+        ]
+      },
+      {
+        "frameIndex": 173,
+        "positionM": [
+          0.03724622315807817,
+          0.08423688199006832,
+          0.006302787880899909
+        ],
+        "centerPx": [
+          310.0,
+          340.5
+        ]
+      },
+      {
+        "frameIndex": 174,
+        "positionM": [
+          0.04375727539470521,
+          0.08676133917099545,
+          0.009039508645163813
+        ],
+        "centerPx": [
+          313.2154541015625,
+          341.28521728515625
+        ]
+      },
+      {
+        "frameIndex": 175,
+        "positionM": [
+          0.040652629950005216,
+          0.08907726663011949,
+          0.007840079445523774
+        ],
+        "centerPx": [
+          315.70928955078125,
+          339.8953552246094
+        ]
+      },
+      {
+        "frameIndex": 176,
+        "positionM": [
+          0.051583155345599326,
+          0.09198825774134543,
+          0.012437621560824084
+        ],
+        "centerPx": [
+          319.9529113769531,
+          341.521728515625
+        ]
+      },
+      {
+        "frameIndex": 177,
+        "positionM": [
+          0.04688301900739554,
+          0.09408387965307681,
+          0.01055200213170115
+        ],
+        "centerPx": [
+          322.25323486328125,
+          341.81817626953125
+        ]
+      },
+      {
+        "frameIndex": 178,
+        "positionM": [
+          0.048642612062055744,
+          0.09667107004571031,
+          0.011073721958427232
+        ],
+        "centerPx": [
+          325.82562255859375,
+          342.0828857421875
+        ]
+      },
+      {
+        "frameIndex": 179,
+        "positionM": [
+          0.04731855992909882,
+          0.09906304063251972,
+          0.01044685581540162
+        ],
+        "centerPx": [
+          328.5392150878906,
+          342.0
+        ]
+      },
+      {
+        "frameIndex": 180,
+        "positionM": [
+          0.04633769847133998,
+          0.10076019457817562,
+          0.01048529161221896
+        ],
+        "centerPx": [
+          331.7855224609375,
+          342.18841552734375
+        ]
+      },
+      {
+        "frameIndex": 181,
+        "positionM": [
+          0.05430916764370177,
+          0.10368574161881139,
+          0.013360027394741117
+        ],
+        "centerPx": [
+          335.9369201660156,
+          343.3519287109375
+        ]
+      },
+      {
+        "frameIndex": 193,
+        "positionM": [
+          0.052526604851376925,
+          0.13185183167943382,
+          0.012757636105907008
+        ],
+        "centerPx": [
+          372.0,
+          342.0
+        ]
+      }
+    ],
+    "clubTrack3d": [],
+    "warnings": [
+      "Ground AprilTag pose reprojection error is 1.25 px; launch values are lower-confidence estimates."
+    ],
+    "method": "apriltag-monocular-sphere-v1",
+    "diagnostics": {
+      "version": 1,
+      "frameCount": 325,
+      "motionTrackedFrames": 133,
+      "strict": {
+        "candidateFrames": 11,
+        "distortedOutlines": 0,
+        "invalidDepth": 0,
+        "acceptedFrames": 11
+      },
+      "calibration": {
+        "imageSize": [
+          640,
+          400
+        ],
+        "cameraMatrix": [
+          [
+            565.5682086088923,
+            0.0,
+            333.99531573783196
+          ],
+          [
+            0.0,
+            555.3127902177599,
+            198.2253920075832
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "distCoeffs": [
+          -0.41222274907597806,
+          -0.15125792643235048,
+          0.00618740376985397,
+          -0.005089721793506736,
+          0.8164134693071088
+        ],
+        "groundTagId": 0,
+        "groundTagSizeMm": 100.0,
+        "targetHeadingDeg": null
+      },
+      "groundPose": {
+        "cameraHeightMm": 211.9,
+        "cameraPitchDeg": 12.81,
+        "rotation": [
+          [
+            0.022686502717769064,
+            0.9991135816825966,
+            0.03545946265540517
+          ],
+          [
+            0.2226138635590672,
+            0.029529651309571303,
+            -0.974459371880039
+          ],
+          [
+            -0.9746426988110779,
+            0.030000843169960156,
+            -0.22174661003801105
+          ]
+        ],
+        "translationM": [
+          -0.10388219042041774,
+          0.10805078379882342,
+          0.464290505792846
+        ]
+      }
+    },
+    "tagPoseFrameIndex": 164,
+    "tagPoseReprojectionErrorPx": 1.2529,
+    "estimatedImpactFrameIndex": 171,
+    "spinSamples": [
+      {
+        "frameIndex": 173,
+        "nextFrameIndex": 174,
+        "angularVelocityRadS": [
+          -11.472568759562362,
+          -6.3027966103543624,
+          -6.406562292623495
+        ]
+      },
+      {
+        "frameIndex": 174,
+        "nextFrameIndex": 175,
+        "angularVelocityRadS": [
+          -7.128671165275536,
+          11.019464950214186,
+          -3.2430445930824163
+        ]
+      },
+      {
+        "frameIndex": 175,
+        "nextFrameIndex": 176,
+        "angularVelocityRadS": [
+          -11.923712418634274,
+          -13.90043605674075,
+          -12.213894261271287
+        ]
+      },
+      {
+        "frameIndex": 176,
+        "nextFrameIndex": 177,
+        "angularVelocityRadS": [
+          -3.4265546966650136,
+          10.133671124333384,
+          -0.33320689193141645
+        ]
+      },
+      {
+        "frameIndex": 177,
+        "nextFrameIndex": 178,
+        "angularVelocityRadS": [
+          -5.059359807812873,
+          -5.376947741678972,
+          -5.349426928982215
+        ]
+      },
+      {
+        "frameIndex": 178,
+        "nextFrameIndex": 179,
+        "angularVelocityRadS": [
+          -10.934569749365432,
+          2.774137444737199,
+          -3.651516399714055
+        ]
+      },
+      {
+        "frameIndex": 179,
+        "nextFrameIndex": 180,
+        "angularVelocityRadS": [
+          -9.268324478846827,
+          11.771458009809471,
+          4.5738686149788395
+        ]
+      },
+      {
+        "frameIndex": 180,
+        "nextFrameIndex": 181,
+        "angularVelocityRadS": [
+          -5.700716527024383,
+          -16.91185560939342,
+          -14.402890538286137
+        ]
+      }
+    ]
+  },
+  "image": {
+    "mimeType": "image/jpeg",
+    "base64": "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDACgcHiMeGSgjISMtKygwPGRBPDc3PHtYXUlkkYCZlo+AjIqgtObDoKrarYqMyP/L2u71////m8H////6/+b9//j/wAALCAB4AKABAREA/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/9oACAEBAAA/AMYgg4NODbRihmB4FNIIHNJRRRRRRRRRRRRRRRTmOWNNpaD1opKKKKKKKKKKKKWkpaKKXFNpRjvS5T+6T+NLuHZB+tG89lX8qPMb2/IU3JpKKKKKKKKKWkopeaSiiiilpKKKKKKKKKKWkopRkDNJRRRRS0UYowfSjB9KMH0o2mjFJRRRS44zRSg8YptFFFPjieQ4RGY+wrQg0iaTBkxGvv1qwLGztuXYu1RvcW6Z2RL+NVJbgMeFUfhUDSE00saTNJRSUUU7+Eig+nYUu07cj86ZRUsED3EojjHJ9egrTj0yCD5riTzD/dXgVY+1eWu2CNUUdSBgCqz38rtjPFVZpCTkmqrNk8Gm5ozRmiiikoop6kAMD3FIMY5pWcuQDwPSkYAdDmm1qaXbyeW0qr97gE+lTuI1z5suSOy1BLcq6hAu1B2qq0gHTioGctxR5T8cdaaVKnBFJRRRRRRRSg4BpKKWgDJq40stuoRWIXHY1A0xNMDMTgZJp4gmYZ2H8aUWs2R8h/OpGSRMbwR6Go3V34UE96Z5Mn9w0hicdUP5Umxh/CfypMH0pKKKKUDOaDyaSlHNWYbeRCJWT5R60y4kLNiokCnJY4x+tPglaGUOoB9jVj7fL/cWl/tCT+4n60j3xYYaJDTBeY6RKPpS/bf+mY/Oka8yP9X+tNNzn+D9aYZQf4f1phYHtTaKKfEfnxxyCOabRQKnjkkdsMxIAqFzliacI8jOacEApQBnmkxSEU0rSEUlJRRRRRS9KSnIpdgqgkk4AFXW01lYqZ4dw6gtjFNe0lgQuxQr0yrA1XMbBcsMZGR9KsrZTmNWETEEAgikWEkD5lGexzQYsE/OmQCcc/4VDuFMLUham5opKKKKKKKK1LOIWlv9qkH7xuI1Pb3q7aQyeWXR4ZC3LbhnmqlwpmfDRhc8YUYqO/t/IUc5GMVWguZYgxDE4XA56VcjUCKMf7P9TUUgGT/ut/I1Wgt5bjPl84609rC5H/LMn6UCwuMElQPYsAaPsMnGZIgT0G8UfYJezxH/AIGKPsFwTgKp+jj/ABpDYXQ/5ZE/Qg1E0MqfejcfVaYeDzSUUVd020+0zZf/AFacn39qvCVTeeZcoyovCLt4FSJqaoSFgAUnscUl3eBMiSUNG44WPqPxrFlk3ucFtueATT5U8qFR/E3JqWO7ARVZASBjPNMkuQc7Y1yQRnJ7/jVcEjoaNzep/OgnPWkopaVXZTlWIPqDUq3dwowJn/Oni+lP+sWOT/fQUG6hfmS0j/4CStRTmJmBhUqCvIznBqKlVipypIPqDVlNQuk6TMR6NzUn9pMf9ZBC/wDwHFMkuYJBzbbT7NUYNtkErIPxptxIJZSw6dBUVFFFFFFFFFFFFf/Z"
+  }
+}

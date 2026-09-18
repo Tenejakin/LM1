@@ -1,0 +1,54 @@
+{
+  "version": "1.0.0",
+  "file": "ir-crossbar-v1.0.0.stl",
+  "dimensionsMm": [
+    120.0,
+    28.0,
+    42.0
+  ],
+  "watertight": true,
+  "connectedComponents": 1,
+  "volumeMm3": 19477.38110240208,
+  "ledCentreSpacingMm": 86.0,
+  "inwardAngleDegPerSide": 4.915342887157992,
+  "intersectionMm": [
+    0,
+    500,
+    23
+  ],
+  "frameOuterMm": [
+    32,
+    38
+  ],
+  "frameWindowMm": [
+    24,
+    28
+  ],
+  "boardDimensionsVerified": false,
+  "axes": [
+    {
+      "originMm": [
+        -43.0,
+        0.0,
+        23.0
+      ],
+      "direction": [
+        0.08568372529846931,
+        0.9963223871915036,
+        0.0
+      ]
+    },
+    {
+      "originMm": [
+        43.0,
+        0.0,
+        23.0
+      ],
+      "direction": [
+        -0.08568372529846931,
+        0.9963223871915036,
+        0.0
+      ]
+    }
+  ]
+}

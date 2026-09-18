@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Defs, LinearGradient, Line, Path, Stop } from 'react-native-svg';
 
 import { ScreenHeader } from '@/components/ScreenHeader';
+import { CaptureReview } from '@/components/CaptureReview';
 import { Eyebrow, MetricTile, PrimaryButton, SectionHeader, Surface } from '@/components/ui';
 import { useLaunchMonitor } from '@/context/LaunchMonitorContext';
 import { colors, radii, spacing } from '@/theme';
@@ -15,6 +16,7 @@ import {
   puttRollMeters,
   startLineLabel,
 } from '@/utils/putting';
+import { useUnits } from '@/context/UnitsContext';
 
 const METERS_TO_FEET = 3.28084;
 
@@ -28,6 +30,7 @@ export function PuttingScreen({ onOpenDevice }: { onOpenDevice: () => void }) {
     putts,
     activePutt,
     captureMode,
+    ballDetected,
     armPutting,
     disarm,
     trigger,
@@ -39,7 +42,8 @@ export function PuttingScreen({ onOpenDevice }: { onOpenDevice: () => void }) {
   const stimpFeet = clamp(parseDecimal(stimpInput) ?? 10, 5, 15);
   const recentPutts = useMemo(() => putts.slice(0, 4), [putts]);
   const puttingArmed = state === 'armed' && captureMode === 'putting';
-  const isPiTest = !isDemo && status?.captureBackend === 'simulator';
+  const automaticCapture = !isDemo && Boolean(status?.automaticCapture);
+  const isPiTest = !isDemo && !automaticCapture && status?.captureBackend === 'simulator';
 
   const handlePrimary = () => {
     if (state === 'offline' || state === 'error') onOpenDevice();
@@ -48,7 +52,9 @@ export function PuttingScreen({ onOpenDevice }: { onOpenDevice: () => void }) {
     else if (state === 'armed') void disarm();
   };
 
-  const primaryLabel = state === 'ready'
+  const primaryLabel = automaticCapture && puttingArmed
+    ? ballDetected ? 'Ball detected · waiting for putt' : 'Putting armed · place the ball'
+    : state === 'ready'
     ? isPiTest ? 'Arm putting test' : 'Arm putting mode'
     : puttingArmed
       ? isDemo ? 'Simulate putt' : isPiTest ? 'Send test putt' : 'Manual putt trigger'
@@ -58,7 +64,7 @@ export function PuttingScreen({ onOpenDevice }: { onOpenDevice: () => void }) {
           ? 'Analyzing putt'
           : state === 'connecting'
             ? 'Connecting'
-            : 'Connect device';
+            : 'Connect to LM1';
 
   const hero = puttingHero(state, captureMode, status?.fps, isPiTest);
 
@@ -69,6 +75,7 @@ export function PuttingScreen({ onOpenDevice }: { onOpenDevice: () => void }) {
       showsVerticalScrollIndicator={false}
     >
       <ScreenHeader title="Putting" subtitle="Pace & start-line monitor" state={state} demo={isDemo} />
+      <CaptureReview />
 
       {error ? (
         <Pressable
@@ -114,7 +121,7 @@ export function PuttingScreen({ onOpenDevice }: { onOpenDevice: () => void }) {
           label={primaryLabel}
           icon={state === 'ready' ? 'radio' : puttingArmed ? 'ellipse' : 'link'}
           onPress={handlePrimary}
-          disabled={state === 'processing' || state === 'connecting'}
+          disabled={state === 'processing' || state === 'connecting' || (automaticCapture && puttingArmed)}
           loading={state === 'processing' || state === 'connecting'}
         />
       </Surface>
@@ -164,6 +171,7 @@ function PuttResult({
   targetDistanceM: number;
   stimpFeet: number;
 }) {
+  const units = useUnits();
   const rollDistanceM = puttRollMeters(putt, stimpFeet);
   const missCm = lateralMissCentimeters(putt.launchDirectionDeg, targetDistanceM);
 
@@ -171,12 +179,12 @@ function PuttResult({
     <View style={styles.results}>
       <View style={styles.resultHeading}>
         <View>
-          <Eyebrow>{putt.simulated ? 'Synthetic link test' : 'Latest result'}</Eyebrow>
+          <Eyebrow>{putt.measurementSource ? 'Camera estimate - unvalidated' : putt.simulated ? 'Synthetic link test' : 'Latest result'}</Eyebrow>
           <Text style={styles.resultTitle}>Putt #{putt.number}</Text>
         </View>
         <View style={styles.confidencePill}>
           <Ionicons name="checkmark-circle" size={14} color={colors.accent} />
-          <Text style={styles.confidenceText}>{Math.round(putt.confidence * 100)}% confidence</Text>
+          <Text style={styles.confidenceText}>{putt.measurementSource ? 'Accuracy not validated' : Math.round(putt.confidence * 100) + '% confidence'}</Text>
         </View>
       </View>
 
@@ -198,8 +206,8 @@ function PuttResult({
       </Surface>
 
       <View style={styles.metricsRow}>
-        <MetricTile label="Ball speed" value={putt.ballSpeedMps.toFixed(2)} unit="m/s" accent />
-        <MetricTile label="Putter speed" value={putt.putterSpeedMps.toFixed(2)} unit="m/s" />
+        <MetricTile label="Ball speed" value={units.speed(putt.ballSpeedMps)} unit={units.speedLabel} accent />
+        <MetricTile label="Putter speed" value={units.speed(putt.putterSpeedMps)} unit={units.speedLabel} />
         <MetricTile label="Smash" value={putt.smashFactor.toFixed(2)} />
       </View>
 
@@ -317,6 +325,7 @@ function PuttRow({
   targetDistanceM: number;
   stimpFeet: number;
 }) {
+  const units = useUnits();
   const rollDistanceM = puttRollMeters(putt, stimpFeet);
   return (
     <Surface style={styles.puttRow}>
@@ -326,11 +335,11 @@ function PuttRow({
       </View>
       <View style={styles.puttMain}>
         <Text style={styles.puttDistance}>{rollDistanceM.toFixed(2)} m</Text>
-        <Text style={styles.puttMeta}>{putt.ballSpeedMps.toFixed(2)} m/s · {startLineLabel(putt.launchDirectionDeg)}</Text>
+        <Text style={styles.puttMeta}>{units.speedWithUnit(putt.ballSpeedMps)} · {startLineLabel(putt.launchDirectionDeg)}</Text>
       </View>
       <View style={styles.puttPace}>
         <Text style={styles.puttPaceValue}>{paceLabel(rollDistanceM, targetDistanceM)}</Text>
-        <Text style={styles.puttConfidence}>{Math.round(putt.confidence * 100)}% confidence</Text>
+        <Text style={styles.puttConfidence}>{putt.measurementSource ? 'Accuracy not validated' : Math.round(putt.confidence * 100) + '% confidence'}</Text>
       </View>
     </Surface>
   );
@@ -353,7 +362,7 @@ function puttingHero(state: string, mode: string, fps?: number, isPiTest = false
   if (state === 'processing') return isPiTest
     ? { eyebrow: 'Test event received', title: 'Checking live data', body: 'The Pi is sending a synthetic putting result.' }
     : { eyebrow: 'Tracking roll', title: 'Analyzing putt', body: 'Calculating pace, start line, skid, and strike.' };
-  if (state === 'offline' || state === 'error') return { eyebrow: 'Device offline', title: 'Connect your monitor', body: 'Use the Device tab, then return here to start putting.' };
+  if (state === 'offline' || state === 'error') return { eyebrow: 'Device offline', title: 'Connect to LM1', body: 'Use the Device tab, then return here to start putting.' };
   if (isPiTest) return { eyebrow: 'Pi connected', title: 'Putting link ready', body: 'Camera-free test mode is active.' };
   return { eyebrow: 'Putting session', title: 'Dial in pace and line', body: fps ? `${fps} FPS capture ready` : 'Set a target and arm the monitor.' };
 }

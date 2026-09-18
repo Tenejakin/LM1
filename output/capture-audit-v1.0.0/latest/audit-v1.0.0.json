@@ -1,0 +1,255 @@
+{
+  "version": "1.0.0",
+  "captureId": "capture-1789478965522399703",
+  "opencvVersion": "5.0.0",
+  "intrinsicsSha256": "4ef9b4aa9ecbc4290d3e1b53db78caf360a6f67b9c6e33ba14d14028b5043180",
+  "intrinsics": {
+    "version": 1,
+    "imageSize": [
+      640,
+      400
+    ],
+    "cameraMatrix": [
+      [
+        565.5682086088923,
+        0.0,
+        333.99531573783196
+      ],
+      [
+        0.0,
+        555.3127902177599,
+        198.2253920075832
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "distCoeffs": [
+      -0.41222274907597806,
+      -0.15125792643235048,
+      0.00618740376985397,
+      -0.005089721793506736,
+      0.8164134693071088
+    ],
+    "rmsPx": 0.42154490950914564,
+    "views": [
+      "calib-0000.jpg",
+      "calib-0002.jpg",
+      "calib-0004.jpg",
+      "calib-0006.jpg",
+      "calib-0007.jpg",
+      "calib-0009.jpg",
+      "calib-0010.jpg",
+      "calib-0011.jpg",
+      "calib-0015.jpg",
+      "calib-0016.jpg",
+      "calib-0018.jpg",
+      "calib-0019.jpg"
+    ]
+  },
+  "frameCount": 325,
+  "exposureUs": 143,
+  "measurements": {
+    "metrics": {
+      "ballSpeedMps": {
+        "value": null,
+        "unit": "m/s",
+        "status": "unavailable",
+        "reason": "Fewer than three usable 3D ball outlines. Captured 325 frames; tracked motion in 8. Partial-outline checks accepted 0 frames, with a longest consecutive run of 0; 1 failed ground/depth checks. Check ball edges and ground calibration."
+      },
+      "clubSpeedMps": {
+        "value": null,
+        "unit": "m/s",
+        "status": "unavailable",
+        "reason": "Fewer than three usable 3D ball outlines. Captured 325 frames; tracked motion in 8. Partial-outline checks accepted 0 frames, with a longest consecutive run of 0; 1 failed ground/depth checks. Check ball edges and ground calibration."
+      },
+      "smashFactor": {
+        "value": null,
+        "unit": "",
+        "status": "unavailable",
+        "reason": "Fewer than three usable 3D ball outlines. Captured 325 frames; tracked motion in 8. Partial-outline checks accepted 0 frames, with a longest consecutive run of 0; 1 failed ground/depth checks. Check ball edges and ground calibration."
+      },
+      "launchAngleDeg": {
+        "value": null,
+        "unit": "deg",
+        "status": "unavailable",
+        "reason": "Fewer than three usable 3D ball outlines. Captured 325 frames; tracked motion in 8. Partial-outline checks accepted 0 frames, with a longest consecutive run of 0; 1 failed ground/depth checks. Check ball edges and ground calibration."
+      },
+      "startDirectionDeg": {
+        "value": null,
+        "unit": "deg",
+        "status": "unavailable",
+        "reason": "Fewer than three usable 3D ball outlines. Captured 325 frames; tracked motion in 8. Partial-outline checks accepted 0 frames, with a longest consecutive run of 0; 1 failed ground/depth checks. Check ball edges and ground calibration."
+      },
+      "strikeXmm": {
+        "value": null,
+        "unit": "mm",
+        "status": "unavailable",
+        "reason": "Fewer than three usable 3D ball outlines. Captured 325 frames; tracked motion in 8. Partial-outline checks accepted 0 frames, with a longest consecutive run of 0; 1 failed ground/depth checks. Check ball edges and ground calibration."
+      },
+      "strikeYmm": {
+        "value": null,
+        "unit": "mm",
+        "status": "unavailable",
+        "reason": "Fewer than three usable 3D ball outlines. Captured 325 frames; tracked motion in 8. Partial-outline checks accepted 0 frames, with a longest consecutive run of 0; 1 failed ground/depth checks. Check ball edges and ground calibration."
+      },
+      "spinRpm": {
+        "value": null,
+        "unit": "rpm",
+        "status": "unavailable",
+        "reason": "Needs at least three resolved surface marks and two consistent small-rotation frame pairs; increase magnification/frame rate."
+      },
+      "spinAxisDeg": {
+        "value": null,
+        "unit": "deg",
+        "status": "unavailable",
+        "reason": "Needs at least three resolved surface marks and two consistent small-rotation frame pairs; increase magnification/frame rate."
+      },
+      "estimatedCarryM": {
+        "value": null,
+        "unit": "m",
+        "status": "unavailable",
+        "reason": "Fewer than three usable 3D ball outlines. Captured 325 frames; tracked motion in 8. Partial-outline checks accepted 0 frames, with a longest consecutive run of 0; 1 failed ground/depth checks. Check ball edges and ground calibration."
+      },
+      "rollDistanceM": {
+        "value": null,
+        "unit": "m",
+        "status": "unavailable",
+        "reason": "Requires continuous in-frame tracking until a verified stop (at least 100 ms)."
+      },
+      "skidDistanceM": {
+        "value": null,
+        "unit": "m",
+        "status": "unavailable",
+        "reason": "Requires simultaneous translation and spin tracking through transition to true roll."
+      }
+    },
+    "ballTrack3d": [],
+    "clubTrack3d": [],
+    "warnings": [
+      "Ground AprilTag pose reprojection error is 1.45 px; launch values are lower-confidence estimates."
+    ],
+    "method": "apriltag-monocular-sphere-v1",
+    "diagnostics": {
+      "version": 1,
+      "frameCount": 325,
+      "motionTrackedFrames": 8,
+      "strict": {
+        "candidateFrames": 0,
+        "distortedOutlines": 0,
+        "invalidDepth": 0,
+        "acceptedFrames": 0
+      },
+      "calibration": {
+        "imageSize": [
+          640,
+          400
+        ],
+        "cameraMatrix": [
+          [
+            565.5682086088923,
+            0.0,
+            333.99531573783196
+          ],
+          [
+            0.0,
+            555.3127902177599,
+            198.2253920075832
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "distCoeffs": [
+          -0.41222274907597806,
+          -0.15125792643235048,
+          0.00618740376985397,
+          -0.005089721793506736,
+          0.8164134693071088
+        ],
+        "groundTagId": 0,
+        "groundTagSizeMm": 100.0,
+        "targetHeadingDeg": null
+      },
+      "groundPose": {
+        "cameraHeightMm": 214.9,
+        "cameraPitchDeg": 12.98,
+        "rotation": [
+          [
+            0.021808570603394917,
+            0.9989545238344888,
+            0.04017767488104257
+          ],
+          [
+            0.22559673147236925,
+            0.03423360030908973,
+            -0.9736191120550486
+          ],
+          [
+            -0.9739766429423351,
+            0.030297193277389833,
+            -0.22461428957724838
+          ]
+        ],
+        "translationM": [
+          -0.1039703238403309,
+          0.10924064232931552,
+          0.46447353914679035
+        ]
+      },
+      "guided": {
+        "frames": [
+          {
+            "frameIndex": 177,
+            "status": "no-matching-outline"
+          },
+          {
+            "frameIndex": 178,
+            "status": "invalid-depth",
+            "heightMm": -28.2
+          },
+          {
+            "frameIndex": 179,
+            "status": "no-matching-outline"
+          },
+          {
+            "frameIndex": 180,
+            "status": "no-matching-outline"
+          },
+          {
+            "frameIndex": 181,
+            "status": "no-matching-outline"
+          }
+        ],
+        "longestRun": 0,
+        "radiusRejectedWindows": 0,
+        "fitRejectedWindows": 0
+      }
+    },
+    "tagPoseFrameIndex": 269,
+    "tagPoseReprojectionErrorPx": 1.4459,
+    "failure": "Fewer than three usable 3D ball outlines. Captured 325 frames; tracked motion in 8. Partial-outline checks accepted 0 frames, with a longest consecutive run of 0; 1 failed ground/depth checks. Check ball edges and ground calibration."
+  },
+  "timing": {
+    "fps": 241.55,
+    "maxGapMs": 4.144,
+    "largeGaps": 0
+  },
+  "stationaryPatchBrightness": {
+    "sampleFrames": 100,
+    "min": 160.56,
+    "max": 196.65,
+    "maxToMinRatio": 1.225,
+    "note": "Fixed image patch. Motion or occlusion also changes brightness; inspect the frames."
+  },
+  "leftToRightGroundView": {
+    "distanceM": 0.223,
+    "maxSpeedForTwoIntervalsMps": 27.0,
+    "maxSpeedForThreeIntervalsMps": 18.0,
+    "note": "Planning estimate for ground-level motion at the current image row; excludes club occlusion and assumes fixed apparent ball radius."
+  }
+}

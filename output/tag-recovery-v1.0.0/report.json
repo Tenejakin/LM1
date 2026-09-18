@@ -1,0 +1,13 @@
+{
+  "version": "1.0.0",
+  "captureId": "capture-1789515962500510189",
+  "framesTested": 325,
+  "groundTagDetectedFrames": {
+    "raw": [],
+    "bilateral": [],
+    "bilateral-4x": [],
+    "clahe": [],
+    "nonlocal-clahe": []
+  },
+  "detector": "OpenCV AprilTag 36h11; offline diagnostic, not live pose validation"
+}

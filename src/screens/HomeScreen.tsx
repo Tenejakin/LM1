@@ -13,14 +13,15 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ScreenHeader } from '@/components/ScreenHeader';
+import { CaptureReview } from '@/components/CaptureReview';
 import { ClubSelector } from '@/components/ClubSelector';
 import { directionLabel, ShotRow, StrikeMap, TrajectoryChart } from '@/components/ShotVisuals';
-import { Eyebrow, MetricTile, PrimaryButton, SectionHeader, Surface } from '@/components/ui';
+import { Eyebrow, HelpText, MetricTile, PrimaryButton, SectionHeader, StepRow, Surface } from '@/components/ui';
 import { useLaunchMonitor } from '@/context/LaunchMonitorContext';
+import { useUnits } from '@/context/UnitsContext';
 import { getClub } from '@/data/clubs';
 import { colors, radii, spacing } from '@/theme';
 import { Shot } from '@/types';
-import { metersToYards } from '@/utils/carry';
 
 export function HomeScreen({
   onOpenDevice,
@@ -39,12 +40,15 @@ export function HomeScreen({
     activeShot,
     isDemo,
     error,
+    ballDetected,
     arm,
     trigger,
     clearError,
   } = useLaunchMonitor();
+  const units = useUnits();
   const [pulse] = useState(() => new Animated.Value(0));
-  const isPiTest = !isDemo && status?.captureBackend === 'simulator';
+  const automaticCapture = !isDemo && Boolean(status?.automaticCapture);
+  const isPiTest = !isDemo && !automaticCapture && status?.captureBackend === 'simulator';
 
   useEffect(() => {
     const loop = Animated.loop(
@@ -79,16 +83,16 @@ export function HomeScreen({
       case 'processing':
         return isPiTest
           ? { eyebrow: 'Test event received', title: 'Checking live data…', note: 'The Pi is sending a synthetic result' }
-          : { eyebrow: 'Capture received', title: 'Analyzing shot…', note: 'Tracking ball and clubhead' };
+          : { eyebrow: 'Capture received', title: 'Analyzing capture…', note: 'Checking ball motion and image evidence' };
       case 'connecting':
-        return { eyebrow: 'Local connection', title: 'Finding your monitor', note: 'This usually takes a moment' };
+        return { eyebrow: 'Connecting', title: 'Finding your LM1', note: 'Keep your phone near the monitor' };
       case 'error':
       case 'offline':
-        return { eyebrow: 'Device offline', title: 'Connect your monitor', note: 'Use the Device tab to get started' };
+        return { eyebrow: 'Not connected', title: 'Connect your LM1', note: 'Tap below and we will walk you through it' };
       default:
         return isPiTest
-          ? { eyebrow: 'Pi connected', title: 'Communication ready', note: 'Camera-free test mode' }
-          : { eyebrow: 'System ready', title: 'Step in when ready', note: status ? `${status.fps} FPS · ${status.exposureUs} μs exposure` : 'All systems nominal' };
+          ? { eyebrow: 'Connected', title: 'Everything is talking', note: 'Test mode — no camera needed yet' }
+          : { eyebrow: 'Ready', title: status?.camera?.ballDetection?.state === 'calibrating' ? 'Keep the hitting area empty' : 'Place a ball in the hitting area', note: status ? `Camera running at ${status.fps} frames per second` : 'Connect a camera to begin' };
     }
   }, [isPiTest, state, status]);
 
@@ -98,15 +102,28 @@ export function HomeScreen({
     else if (state === 'armed') void trigger();
   };
 
-  const primaryLabel = state === 'ready'
-    ? isPiTest ? 'Arm connection test' : 'Arm launch monitor'
+  const primaryLabel = automaticCapture && (state === 'ready' || state === 'armed')
+    ? state === 'armed'
+      ? ballDetected ? 'Ball detected · swing away' : 'Watching · place your ball'
+      : 'Watching for your ball'
+    : state === 'ready'
+    ? isPiTest ? 'Start connection test' : 'Start tracking'
     : state === 'armed'
-      ? isDemo ? 'Simulate impact' : isPiTest ? 'Send test shot' : 'Manual impact trigger'
+      ? isDemo ? 'Play a sample shot' : isPiTest ? 'Send a test shot' : 'Record a shot now'
       : state === 'processing'
-        ? 'Analyzing shot'
+        ? 'Reading your shot'
         : state === 'connecting'
           ? 'Connecting'
-          : 'Connect device';
+          : 'Connect your LM1';
+
+  /** One line telling the player exactly what the button will do. */
+  const primaryHint = automaticCapture && (state === 'ready' || state === 'armed')
+    ? 'The camera triggers on its own — no need to press anything.'
+    : state === 'ready'
+      ? 'Starts watching the hitting area for your next strike.'
+      : state === 'armed'
+        ? 'Only needed if the camera does not pick the strike up by itself.'
+        : null;
 
   return (
     <ScrollView
@@ -116,16 +133,29 @@ export function HomeScreen({
       <ScreenHeader state={state} demo={isDemo} />
 
       {error ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`${error}. Dismiss`}
-          onPress={clearError}
-          style={styles.errorBanner}
-        >
-          <Ionicons name="alert-circle" size={18} color={colors.red} />
-          <Text style={styles.errorText}>{error}</Text>
-          <Ionicons name="close" size={17} color={colors.textMuted} />
-        </Pressable>
+        <View style={styles.errorBanner}>
+          <View style={styles.errorTop}>
+            <Ionicons name="alert-circle" size={18} color={colors.red} />
+            <Text style={styles.errorText}>{error}</Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Dismiss this message"
+              hitSlop={10}
+              onPress={clearError}
+            >
+              <Ionicons name="close" size={18} color={colors.textMuted} />
+            </Pressable>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open the Device tab to fix this"
+            onPress={onOpenDevice}
+            style={({ pressed }) => [styles.errorAction, pressed && styles.pressed]}
+          >
+            <Text style={styles.errorActionText}>Open Device to fix this</Text>
+            <Ionicons name="arrow-forward" size={14} color={colors.accent} />
+          </Pressable>
+        </View>
       ) : null}
 
       <ClubSelector disabled={state === 'armed' || state === 'processing' || state === 'connecting'} />
@@ -166,16 +196,19 @@ export function HomeScreen({
           label={primaryLabel}
           icon={state === 'ready' ? 'radio' : state === 'armed' ? 'flash' : 'link'}
           onPress={handlePrimary}
-          disabled={state === 'processing' || state === 'connecting'}
+          disabled={state === 'processing' || state === 'connecting' || (automaticCapture && (state === 'ready' || state === 'armed'))}
           loading={state === 'processing' || state === 'connecting'}
         />
+        {primaryHint ? <Text style={styles.heroHint}>{primaryHint}</Text> : null}
       </LinearGradient>
 
-      {activeShot ? (
+      <CaptureReview />
+
+      {activeShot && (!automaticCapture || activeShot.measurementSource) ? (
         <>
           <View style={styles.lastShotHeader}>
             <View>
-              <Eyebrow>{activeShot.simulated ? 'Synthetic link test' : 'Latest result'}</Eyebrow>
+              <Eyebrow>{activeShot.measurementSource ? 'Camera estimate' : activeShot.simulated ? 'Test shot' : 'Latest shot'}</Eyebrow>
               <Text style={styles.shotTitle}>Shot #{activeShot.number}</Text>
               <Text style={styles.shotClub}>{getClub(activeShot.clubId).label}</Text>
             </View>
@@ -194,29 +227,29 @@ export function HomeScreen({
             <View>
               <Eyebrow>Ball speed</Eyebrow>
               <View style={styles.speedRow}>
-                <Text style={styles.speedValue}>{activeShot.ballSpeedMps.toFixed(1)}</Text>
-                <Text style={styles.speedUnit}>m/s</Text>
+                <Text style={styles.speedValue}>{units.speed(activeShot.ballSpeedMps)}</Text>
+                <Text style={styles.speedUnit}>{units.speedLabel}</Text>
               </View>
               <Text style={styles.speedSecondary}>
-                {(activeShot.ballSpeedMps * 2.23694).toFixed(1)} mph
+                {units.altSpeedWithUnit(activeShot.ballSpeedMps)}
               </Text>
             </View>
             <View style={styles.carryColumn}>
               <Text style={styles.carryLabel}>Estimated carry</Text>
               <View style={styles.carryValueRow}>
-                <Text style={styles.carryValue}>{activeShot.estimatedCarryM}</Text>
-                <Text style={styles.carryUnit}>m</Text>
+                <Text style={styles.carryValue}>{units.distance(activeShot.estimatedCarryM)}</Text>
+                <Text style={styles.carryUnit}>{units.distanceLabel}</Text>
               </View>
-              <Text style={styles.carryYards}>{metersToYards(activeShot.estimatedCarryM)} yd</Text>
+              <Text style={styles.carryYards}>{units.altDistanceWithUnit(activeShot.estimatedCarryM)}</Text>
               <View style={styles.confidencePill}>
                 <Ionicons name="checkmark-circle" color={colors.accent} size={14} />
-                <Text style={styles.confidenceText}>{Math.round(activeShot.confidence * 100)}% confidence</Text>
+                <Text style={styles.confidenceText}>{activeShot.measurementSource ? 'Estimate · not yet validated' : `${Math.round(activeShot.confidence * 100)}% confidence`}</Text>
               </View>
             </View>
           </Surface>
 
           <View style={styles.metricsRow}>
-            <MetricTile label="Club speed" value={activeShot.clubSpeedMps.toFixed(1)} unit="m/s" />
+            <MetricTile label="Club speed" value={units.speed(activeShot.clubSpeedMps)} unit={units.speedLabel} />
             <MetricTile label="Smash" value={activeShot.smashFactor.toFixed(2)} accent />
             <MetricTile label="Launch" value={activeShot.launchAngleDeg.toFixed(1)} unit="deg" />
           </View>
@@ -259,11 +292,41 @@ export function HomeScreen({
         </>
       ) : (
         <Surface style={styles.emptyCard}>
-          <View style={styles.emptyIcon}>
-            <Ionicons name="golf-outline" size={28} color={colors.accent} />
+          <View style={styles.emptyHeader}>
+            <View style={styles.emptyIcon}>
+              <Ionicons name="golf-outline" size={24} color={colors.accent} />
+            </View>
+            <View style={styles.emptyHeaderCopy}>
+              <Text style={styles.emptyTitle}>Your next shot starts here</Text>
+              <HelpText>Three steps and you are hitting.</HelpText>
+            </View>
           </View>
-          <Text style={styles.emptyTitle}>Your next shot starts here</Text>
-          <Text style={styles.emptyBody}>Connect and arm the monitor. Results will appear automatically after impact.</Text>
+          <View style={styles.steps}>
+            <StepRow
+              index={1}
+              title="Connect your LM1"
+              body="Turn on Bluetooth and stand near the monitor."
+              done={state !== 'offline' && state !== 'error'}
+            />
+            <StepRow
+              index={2}
+              title="Pick the club you are hitting"
+              body="Carry estimates use the club you choose above."
+              done={state !== 'offline' && state !== 'error'}
+            />
+            <StepRow
+              index={3}
+              title="Place a ball and swing"
+              body="Results appear here on their own after impact."
+              done={shots.length > 0}
+            />
+          </View>
+          {state === 'offline' || state === 'error' ? (
+            <View style={styles.emptyActions}>
+              <PrimaryButton label="Connect your LM1" icon="bluetooth" onPress={onOpenDevice} />
+              <Text style={styles.emptyAside}>No monitor yet? Try the demo from the Device tab.</Text>
+            </View>
+          ) : null}
         </Surface>
       )}
     </ScrollView>
@@ -273,17 +336,18 @@ export function HomeScreen({
 const styles = StyleSheet.create({
   content: { paddingHorizontal: spacing.md, paddingBottom: 110 },
   errorBanner: {
-    alignItems: 'center',
     backgroundColor: '#241718',
     borderColor: '#4C2929',
     borderRadius: radii.md,
     borderWidth: 1,
-    flexDirection: 'row',
     gap: spacing.sm,
     marginBottom: spacing.md,
     padding: spacing.md,
   },
-  errorText: { color: '#F0B0AC', flex: 1, fontSize: 12, fontWeight: '600', lineHeight: 17 },
+  errorTop: { alignItems: 'flex-start', flexDirection: 'row', gap: spacing.sm },
+  errorText: { color: '#F0B0AC', flex: 1, fontSize: 13, fontWeight: '600', lineHeight: 18 },
+  errorAction: { alignItems: 'center', flexDirection: 'row', gap: 5, minHeight: 32 },
+  errorActionText: { color: colors.accent, fontSize: 13, fontWeight: '700' },
   hero: {
     borderColor: '#34402F',
     borderRadius: radii.xl,
@@ -305,7 +369,8 @@ const styles = StyleSheet.create({
   heroTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.lg },
   heroCopy: { flex: 1, paddingRight: spacing.md },
   heroTitle: { color: colors.text, fontSize: 27, fontWeight: '700', letterSpacing: -1, marginTop: 7 },
-  heroNote: { color: colors.textMuted, fontSize: 12, fontWeight: '600', marginTop: 5 },
+  heroNote: { color: colors.textMuted, fontSize: 13, fontWeight: '600', marginTop: 5 },
+  heroHint: { color: colors.textMuted, fontSize: 12, lineHeight: 16, marginTop: spacing.sm, textAlign: 'center' },
   sensorWrap: { alignItems: 'center', height: 64, justifyContent: 'center', width: 64 },
   sensorPulse: { backgroundColor: colors.accent, borderRadius: 32, height: 64, position: 'absolute', width: 64 },
   sensor: {
@@ -321,7 +386,7 @@ const styles = StyleSheet.create({
   sensorArmed: { backgroundColor: '#17221B', borderColor: '#45613E' },
   lastShotHeader: { alignItems: 'flex-end', flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.md },
   shotTitle: { color: colors.text, fontSize: 24, fontWeight: '700', letterSpacing: -0.6, marginTop: 3 },
-  shotClub: { color: colors.textMuted, fontSize: 11, fontWeight: '700', marginTop: 2 },
+  shotClub: { color: colors.textMuted, fontSize: 12, fontWeight: '700', marginTop: 2 },
   reviewButton: { alignItems: 'center', flexDirection: 'row', gap: 5, paddingVertical: 6 },
   reviewText: { color: colors.accent, fontSize: 13, fontWeight: '700' },
   pressed: { opacity: 0.65 },
@@ -335,15 +400,15 @@ const styles = StyleSheet.create({
   speedRow: { alignItems: 'baseline', flexDirection: 'row', gap: 8, marginTop: 2 },
   speedValue: { color: colors.text, fontSize: 56, fontWeight: '700', letterSpacing: -3.2 },
   speedUnit: { color: colors.textMuted, fontSize: 16, fontWeight: '700' },
-  speedSecondary: { color: colors.textDim, fontSize: 11, fontWeight: '600', marginTop: -5 },
+  speedSecondary: { color: colors.textDim, fontSize: 12, fontWeight: '600', marginTop: -4 },
   carryColumn: { alignItems: 'flex-end', paddingBottom: 2 },
-  carryLabel: { color: colors.textMuted, fontSize: 9, fontWeight: '800', letterSpacing: 0.8, textTransform: 'uppercase' },
+  carryLabel: { color: colors.textMuted, fontSize: 10, fontWeight: '800', letterSpacing: 0.8, textTransform: 'uppercase' },
   carryValueRow: { alignItems: 'baseline', flexDirection: 'row', gap: 4, marginTop: 2 },
   carryValue: { color: colors.accent, fontSize: 33, fontWeight: '700', letterSpacing: -1.4 },
   carryUnit: { color: colors.textMuted, fontSize: 12, fontWeight: '700' },
-  carryYards: { color: colors.textDim, fontSize: 10, fontWeight: '600', marginTop: -3 },
+  carryYards: { color: colors.textDim, fontSize: 11, fontWeight: '600', marginTop: -2 },
   confidencePill: { alignItems: 'center', flexDirection: 'row', gap: 5, marginTop: 7 },
-  confidenceText: { color: colors.textMuted, fontSize: 10, fontWeight: '700' },
+  confidenceText: { color: colors.textMuted, fontSize: 11, fontWeight: '700' },
   metricsRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
   visualGrid: { flexDirection: 'row', gap: spacing.sm },
   visualCard: { flex: 1, minHeight: 175, overflow: 'hidden', padding: spacing.md },
@@ -352,8 +417,12 @@ const styles = StyleSheet.create({
   smallIcon: { alignItems: 'center', backgroundColor: colors.surfaceRaised, borderRadius: 12, height: 32, justifyContent: 'center', width: 32 },
   section: { marginTop: spacing.xl },
   listGap: { gap: spacing.sm },
-  emptyCard: { alignItems: 'center', padding: spacing.xl },
-  emptyIcon: { alignItems: 'center', backgroundColor: '#1B241A', borderRadius: 28, height: 56, justifyContent: 'center', marginBottom: spacing.md, width: 56 },
-  emptyTitle: { color: colors.text, fontSize: 20, fontWeight: '700' },
-  emptyBody: { color: colors.textMuted, fontSize: 13, lineHeight: 19, marginTop: spacing.sm, maxWidth: 270, textAlign: 'center' },
+  emptyCard: { gap: spacing.lg, padding: spacing.lg },
+  emptyHeader: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm },
+  emptyHeaderCopy: { flex: 1 },
+  emptyIcon: { alignItems: 'center', backgroundColor: '#1B241A', borderRadius: 24, height: 48, justifyContent: 'center', width: 48 },
+  emptyTitle: { color: colors.text, fontSize: 19, fontWeight: '700' },
+  steps: { gap: spacing.md },
+  emptyActions: { gap: spacing.sm },
+  emptyAside: { color: colors.textMuted, fontSize: 12, lineHeight: 16, textAlign: 'center' },
 });

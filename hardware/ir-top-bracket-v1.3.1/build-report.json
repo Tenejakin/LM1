@@ -1,0 +1,22 @@
+{
+  "version": "1.3.1",
+  "units": "mm",
+  "file": "lm1-ir-top-bracket-v1.3.1.stl",
+  "dimensionsMm": [
+    122.0,
+    29.757,
+    52.0
+  ],
+  "watertight": true,
+  "connectedComponents": 1,
+  "volumeMm3": 45024.052,
+  "mountHoleSpacingMm": 110.0,
+  "mountHoleDiameterMm": 3.4,
+  "nominalLedCentreSpacingMm": 86.0,
+  "ledCentreAboveUpperScrewsMm": 28.0,
+  "downwardPitchDeg": 32.28098837189664,
+  "cameraPitchDeg": 28.0,
+  "irCentreAboveCameraMm": 50.0,
+  "inwardAngleDegPerSide": 4.915342887157992,
+  "nominalAxisIntersectionDistanceMm": 500.0
+}

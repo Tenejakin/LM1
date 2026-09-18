@@ -1,173 +1,172 @@
-# LM1 Launch Monitor Mobile
+<p align="center">
+  <img src="assets/lm1-logo-v1.png" alt="LM1" width="160">
+</p>
 
+<h1 align="center">LM1 — DIY Camera Golf Launch Monitor</h1>
 
+<p align="center">
+  A Raspberry Pi 5 + OV9281 global-shutter camera launch monitor, with a React Native companion app that talks to it over Bluetooth LE.
+</p>
 
-Version 3.8.1
+<p align="center">
+  <img alt="App" src="https://img.shields.io/badge/app-3.11.0-2ea44f">
+  <img alt="Pi service" src="https://img.shields.io/badge/pi%20service-0.28.0-c51a4a">
+  <img alt="BLE protocol" src="https://img.shields.io/badge/BLE%20protocol-2.17.0-0a66c2">
+  <img alt="Expo SDK" src="https://img.shields.io/badge/Expo%20SDK-54-000020">
+  <img alt="Status" src="https://img.shields.io/badge/status-experimental-orange">
+</p>
 
-AprilTag launch measurements and setup: [LAUNCH_MEASUREMENTS.md](./LAUNCH_MEASUREMENTS.md). Version 3.8.1 expands the default Pi ball-detection region to 61.2% of the frame for more flexible ball placement. Version 3.8.0 adds a guarded tracker-guided fallback for partial ball silhouettes while retaining strict temporal, radius and 3D-fit validation. Version 3.7.3 selects the best ground-tag pose from several burst frames and permits explicitly lower-confidence estimates up to a bounded 3 px reprojection error. Version 3.7.2 rejoins ball silhouettes split by the seam line. Version 3.7.1 fits ball depth to the silhouette's convex hull so seam lines and logos no longer block ball speed. Version 3.7.0 cuts Pi shot analysis from ~6 s to ~2 s and sends BLE data in MTU-sized chunks (about 12× faster transfers). Version 3.6.1 shortens the Pi's rolling burst to about 1.35 s and stops preview work from dropping frames. Version 3.6.0 shows each capture's contact sheet on every capture card and shot detail. Earlier releases add live, persistent OV9281 exposure and analogue-gain controls in the Device screen, retain 100 self-identifying rolling captures on the Pi, separate the sampled departure trigger from the full-rate contact window, and include monocular ball/club/spin estimates with per-metric evidence gates and captured imagery. Physical accuracy requires reference validation. Synthetic values remain reserved for explicit demo/link tests.
+---
 
+> [!WARNING]
+> **LM1 is an experimental hobby project.** Its measurements are unvalidated estimates and have not been checked against a reference launch monitor. Every value is labelled as measured, camera-estimated or club-estimated, with a confidence score. Treat the numbers as indicative only.
 
+## What it is
 
-A React Native + Expo companion app for the Raspberry Pi golf launch monitor described in [`golf_launch_monitor_project.md`](./golf_launch_monitor_project.md).
+LM1 has three parts:
 
+| Part | Where | What it does |
+| --- | --- | --- |
+| **Mobile app** | [`App.tsx`](App.tsx), [`src/`](src) | Expo / React Native app for iOS and Android. It arms the monitor, shows shots, sessions and putting, and handles calibration and device setup. |
+| **Pi service** | [`raspberry_pi/`](raspberry_pi) | A Python BLE peripheral on a Raspberry Pi 5. It keeps a rolling high-speed capture buffer, detects shots and runs the computer vision. |
+| **Hardware** | [`hardware/`](hardware) | Parametric CAD scripts and printable STLs for the enclosure, camera brackets, IR light mounts and cable clips. |
 
+```text
+OV9281 camera ──► Raspberry Pi 5 ──BLE──► LM1 app ──► OpenGolfSim / n8n webhook
+                  │                                  
+                  ├─ rolling RAM buffer              
+                  ├─ ball + AprilTag detection       
+                  ├─ trajectory fit                  
+                  └─ club silhouette / tag tracking  
+```
 
-The app includes:
+The phone and the Pi talk **only over Bluetooth LE**. You don't need a shared network, an IP address or port forwarding. The Pi's Wi-Fi is left free for updates, SSH and simulator traffic.
 
+## Features
 
+**Measurement (Pi)**
+- Ball speed, launch angle and start direction from a sub-pixel trajectory fit over up to 48 tracked frames
+- Clubhead speed, attack angle and club path, from a club AprilTag or from the clubhead silhouette when no tag is fitted
+- Smash factor, strike location on the face and surface spin estimates
+- Putting motion analysis: pace, start line, skid and roll
+- AprilTag ground calibration saved as a 3D pose, so the tag can be removed after calibration
+- Lens calibration, a saved target line, and automatic exposure (shutter + gain)
+- The last 100 rolling captures are kept on the Pi, each with a contact sheet for review
 
-- A live monitor with ready, armed, processing, and result states
+**App**
+- Live monitor with ready → armed → processing → result states
+- Club selection, carry estimates, shot history, session averages and consistency
+- Shot review shows each metric's source and confidence
+- Dedicated putting monitor and a manual shot calculator
+- Device screen covering Wi-Fi setup over BLE, camera tuning, calibration and health diagnostics
+- Metric or imperial units, set once and used on every screen
+- [OpenGolfSim](OPENGOLFSIM.md) Desktop and Web forwarding, plus n8n webhook export
+- Interactive demo mode, so you can try the app without any hardware
 
-- Ball speed, club speed, smash factor, launch angle, and start direction
+## Hardware
 
-- Persistent club selection across woods, hybrids, irons, and wedges
+| Component | Notes |
+| --- | --- |
+| Raspberry Pi 5 | 1 GB is enough; use active cooling |
+| OV9281 global-shutter camera | CSI, high frame rate (90–200+ fps depending on mode) |
+| Continuous LED / IR lighting | Needed for the short exposure times |
+| AprilTag target | For ground-plane calibration (see [`scripts/create_apriltag_target.py`](scripts/create_apriltag_target.py)) |
+| 3D-printed parts | See [`hardware/enclosure/README.md`](hardware/enclosure/README.md) |
 
-- Estimated carry in metres and yards, with the selected club saved per shot
+The full design rationale is in [`golf_launch_monitor_project.md`](golf_launch_monitor_project.md).
 
-- A manual calculator page for entering shot measurements and deriving all result metrics
+## Getting started
 
-- A dedicated putting monitor with target pace, green speed, start line, skid, and roll-path analysis
+### 1. Run the app
 
-- Clubface strike visualization and trajectory visualization
+You need Node.js 20+ and an LM1 **development build** installed on a phone. BLE uses native code, so the app **does not run in Expo Go**.
 
-- Shot history, sorting, session averages, and consistency
-
-- Raspberry Pi connection exclusively over Bluetooth Low Energy
-
-- OpenGolfSim Desktop and Web connections with automatic shot forwarding
-
-- Camera, capture, temperature, storage, firmware, and calibration diagnostics
-
-- Persistent device address and automatic reconnection
-
-- Interactive demo mode for testing without hardware
-
-- A camera-free Raspberry Pi service for verifying the real BLE and live-event path
-
-- OV9281 CSI camera preview, full-resolution focus snapshots, and live exposure diagnostics
-
-- Optional USB-webcam diagnostic capture while shot and putting values stay clearly synthetic
-
-- A low-resolution ball-placement preview delivered over BLE every three seconds
-
-- Raspberry Pi Wi-Fi scanning and setup from the Device screen over BLE
-
-
-
-## Run it
-
-
-
-Requirements: Node.js 20+ and an LM1 native development build on an iOS or Android device. BLE cannot run in Expo Go.
-
-
-
-```powershell
-
+```bash
 npm install
-
 npm start
-
 ```
 
+Then open the dev server from the LM1 development app on your phone. To build one:
 
-
-Open the development server from the installed LM1 development app. Android can be built directly on Windows; iOS can be built with Expo's cloud service without a Mac, but requires an Apple Developer account.
-
-
-
-Other useful commands:
-
-
-
-```powershell
-
-npm run android
-
-npm run ios
-
-npm run web
-
+```bash
 npm run build:android:dev
-
-npm run build:ios:dev
-
-npm run typecheck
-
-npm run lint
-
-npm run test:ogs
-
 ```
 
+```bash
+npm run build:ios:dev
+```
 
+Android can also be built locally with `npm run android`. iOS builds go through EAS and need an Apple Developer account, but no Mac.
 
-Open the **Device** tab and choose **Use interactive demo** to exercise the complete arm → impact → processing → result flow without a Raspberry Pi.
+**No hardware?** Open the **Device** tab and choose **Use interactive demo**.
 
+### 2. Set up the Raspberry Pi
 
+Follow [`raspberry_pi/README.md`](raspberry_pi/README.md): flash Raspberry Pi OS Lite (64-bit), copy the `raspberry_pi/` folder over and run `install.sh`. This installs the BLE service as a systemd unit. The app finds the Pi by its BLE service UUID, so there is nothing to configure.
 
-## Connect to the Raspberry Pi
+### 3. Calibrate
 
+In the app, work through the checklist on the home screen:
 
+1. **Lens calibration**, done once per lens and focus setting
+2. **AprilTag ground calibration**, done with the tag in view; you can remove the tag afterwards
+3. **Automatic exposure**, then fine-tune shutter and gain by hand if needed
 
-The ready-to-install Pi service is in [`raspberry_pi/README.md`](./raspberry_pi/README.md). It works before the high-speed camera arrives, can save a diagnostic frame from a temporary USB webcam, and generates clearly labelled synthetic results to verify the full app ↔ Pi connection. The app finds the Pi by BLE service UUID, so no hostname, IP address, shared Wi-Fi, HTTP server, or port forwarding is involved. Other implementations can use the protocol in [`DEVICE_API.md`](./DEVICE_API.md).
+[`LAUNCH_MEASUREMENTS.md`](LAUNCH_MEASUREMENTS.md) covers the full setup.
 
+## Scripts
 
+| Command | Purpose |
+| --- | --- |
+| `npm start` | Start the Expo dev server for the dev client |
+| `npm run android` / `npm run ios` | Build and run on a connected device |
+| `npm run web` | Web preview (demo only, no BLE) |
+| `npm run typecheck` | TypeScript check |
+| `npm run lint` | ESLint |
+| `npm run ogs:bridge` | Start the OpenGolfSim Desktop WebSocket→TCP bridge |
+| `npm run test:ogs` | Test the OpenGolfSim bridge |
+| `npm run test:capture` | Test the capture client |
 
-Wi-Fi stays available for OpenGolfSim and internet traffic. Pi service 0.4.0 can scan and join a Wi-Fi network from the app's **Device → Wi-Fi setup** card. BLE pairing and Wi-Fi provisioning are proximity-only in this MVP; disable provisioning or add authenticated bonding before shared-space deployment.
+The Pi tests live in [`raspberry_pi/tests/`](raspberry_pi/tests). Run them on the Pi with:
 
-
-
-## Connect to OpenGolfSim
-
-
-
-Open the **Device** tab and use **Simulator connection**. Web mode connects directly using the OpenGolfSim account email. Desktop mode uses the included Expo-compatible WebSocket-to-TCP bridge; follow [`OPENGOLFSIM.md`](./OPENGOLFSIM.md) for setup.
-
-
+```bash
+python -m unittest discover -s raspberry_pi/tests -q
+```
 
 ## Project layout
 
-
-
 ```text
-
-App.tsx                         App shell and tab navigation
-
-src/components/                Reusable UI and shot visualizations
-
-src/context/                   Device/demo state and reconnection logic
-
-src/data/                      Interactive demo data
-
-src/screens/                   Monitor, Putting, Calculator, Sessions, and Device screens
-
-src/services/device.ts         Request/response and live-event BLE client
-
-src/services/bleTransport.*    Native BLE adapter and web demo-only fallback
-
-src/services/opengolfsim.ts    OpenGolfSim WebSocket client and shot mapping
-
-bridge/                        OpenGolfSim Desktop TCP bridge
-
-raspberry_pi/                  Installable Pi BLE peripheral, test backend, and systemd setup
-
-src/theme.ts                   Design tokens
-
-src/types.ts                   Shared API and app types
-
+App.tsx                  App shell and tab navigation
+src/
+  components/            UI and shot visualizations
+  context/               Device/demo state and reconnection
+  screens/               Home, Putting, Calculator, History, Calibration, Device
+  services/              BLE client, OpenGolfSim and n8n integrations
+  theme.ts, types.ts     Design tokens and shared types
+raspberry_pi/            Pi BLE service, vision pipeline, calibration, tests, systemd
+bridge/                  OpenGolfSim Desktop bridge
+scripts/                 Calibration targets, capture audit and replay tools
+hardware/                Enclosure, bracket and clip CAD (Python) + STLs
+shared-hosting-server/   Optional PHP/MySQL API for uploading shot data and images
+camera-tests/            Reference frames from camera bring-up
 ```
 
+## Documentation
 
+| Doc | Contents |
+| --- | --- |
+| [`DEVICE_API.md`](DEVICE_API.md) | BLE protocol spec (commands, events, chunking) |
+| [`LAUNCH_MEASUREMENTS.md`](LAUNCH_MEASUREMENTS.md) | How measurements are made and how to calibrate |
+| [`OPENGOLFSIM.md`](OPENGOLFSIM.md) | Simulator connection setup |
+| [`raspberry_pi/README.md`](raspberry_pi/README.md) | Pi installation and service details |
+| [`hardware/enclosure/README.md`](hardware/enclosure/README.md) | Enclosure revisions and print notes |
+| [`shared-hosting-server/README.md`](shared-hosting-server/README.md) | Optional upload API |
+| [`CHANGELOG.md`](CHANGELOG.md) | Release history |
 
-## Build targets
+## Security note
 
+In this MVP, BLE pairing and Wi-Fi provisioning work for anyone in Bluetooth range. Before using LM1 in a shared space, turn off provisioning or add authenticated bonding.
 
+## Contributing
 
-The app uses Expo SDK 54 with a custom development client because BLE requires native code. Android builds can be created locally on Windows or with EAS; iOS builds can be created by EAS without a Mac. The current app/build versions are `3.8.2`, iOS build `41`, and Android version code `41`. The home-screen name is **LM1**.
-
-
-
-Quality targets for a mid-range phone are: first useful native screen within 1.5 seconds; web-preview LCP ≤ 2.0 seconds, INP ≤ 200 ms, and CLS ≤ 0.1 at p75; ≤ 220 KB gzip JavaScript for the single web route; Lighthouse performance ≥ 85 and accessibility ≥ 95. Accessibility ownership sits with the app team, targeting WCAG 2.1 AA-equivalent contrast, labels, and touch targets.
-
-Pi service 0.26.0 supports saved ground-tag pose: explicitly capture AprilTag calibration after lens calibration, then remove the ground tag while keeping the camera, focus and hitting surface fixed. Reset empty plane clears ground pose and target line and requires the tag again. App 3.8.2 explains this flow.
+This is a personal project, but issues and pull requests are welcome. Before opening a PR, run `npm run typecheck` and `npm run lint`, and run the Pi test suite if you changed the Pi service.

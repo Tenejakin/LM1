@@ -52,7 +52,7 @@ def _lower_rest_pixel(camera: dict[str, Any], image: Any, bounds: tuple[int, int
 def stereo_rest_check(lower: dict[str, Any], upper: dict[str, Any], lower_image: Any, upper_image: Any,
                       bounds: tuple[int, int, int, int]) -> dict[str, Any]:
     """Locate the resting ball in both views and say whether the shared calibration still holds."""
-    from stereo_check import (MAX_RAY_GAP_MM, MAX_REST_HEIGHT_ERROR_MM, MAX_REST_PREDICTION_PX,
+    from stereo_check import (MAX_RAY_GAP_MM, MAX_REST_HEIGHT_ERROR_MM,
                               _circle_candidates, _gray, _project, _ray, _triangulate)
     label = "Camera alignment"
     rest_px = _lower_rest_pixel(lower, lower_image, bounds)
@@ -88,16 +88,18 @@ def stereo_rest_check(lower: dict[str, Any], upper: dict[str, Any], lower_image:
                      f"The two cameras no longer agree on where the ball is (their views miss by {gap_mm:.0f} mm, "
                      f"limit {MAX_RAY_GAP_MM:.0f} mm). A camera or the stand has moved: recalibrate both cameras "
                      "with the AprilTag.", **values)
+    where = "above" if height_error_mm > 0 else "below"
     if abs(height_error_mm) > MAX_REST_HEIGHT_ERROR_MM:
-        where = "above" if height_error_mm > 0 else "below"
         return _item("stereo-rest", label, "fail",
-                     f"The ball sits {abs(height_error_mm):.0f} mm {where} the calibrated ground (limit "
-                     f"{MAX_REST_HEIGHT_ERROR_MM:.0f} mm). If you hit off a mat or tee, recalibrate with the tag "
-                     "lying on that surface; otherwise the stand has moved.", **values)
-    if offset_px > MAX_REST_PREDICTION_PX:
-        return _item("stereo-rest", label, "fail",
-                     f"The top camera sees the ball {offset_px:.0f} px from where calibration puts it (limit "
-                     f"{MAX_REST_PREDICTION_PX:.0f} px). Recalibrate both cameras with the AprilTag.", **values)
+                     f"The ball appears {abs(height_error_mm):.0f} mm {where} the calibrated ground (limit "
+                     f"{MAX_REST_HEIGHT_ERROR_MM:.0f} mm): the stand has moved or the tag was calibrated on a "
+                     "different surface. Recalibrate both cameras with the AprilTag.", **values)
+    # Each shot takes its ground from the resting ball, so a surface a few mm off the
+    # calibration (and the top-camera offset it causes) is corrected, not a fault.
+    if abs(height_error_mm) >= 5:
+        return _item("stereo-rest", label, "ok",
+                     f"Both cameras agree on the ball. It sits {abs(height_error_mm):.0f} mm {where} the calibrated "
+                     "ground; each shot uses the ball's own height, so this is corrected automatically.", **values)
     return _item("stereo-rest", label, "ok",
                  f"Both cameras agree on the ball position ({offset_px:.0f} px, {height_error_mm:+.0f} mm).", **values)
 
@@ -123,10 +125,86 @@ def exposure_check(exposure_us: float | None, club_id: str, mode: str) -> dict[s
                  f"{limit:.0f} m/s ({limit * MPS_TO_MPH:.0f} mph).", **values)
 
 
+BALL_DIAMETER_MM = 42.67
+SENSOR_FRAME_S = 1 / 242
+# Frames the analysis needs on each side of the ball.
+TARGET_FRAMES = 5
+# Calibrated on 16 real chips (2026-09-25): the head comes down diagonally from above and
+# behind, so its visible path is ~1.4x the horizontal room behind the ball (club data
+# appeared from ~105 px of room at 9 m/s); the first two frames after contact show the
+# ball overlapping the club and cannot be used.
+CLUB_PATH_FACTOR = 1.4
+BALL_CONTACT_FRAMES = 2
+# Ball diameters in the lower image that tracked reliably on 2026-09-25 (26-27 px and 61 px
+# failed; 40-47 px worked).
+MIN_BALL_DIAMETER_PX = 32
+MAX_BALL_DIAMETER_PX = 56
+
+
+def placement_geometry(image_shape: tuple[int, ...], bounds: tuple[int, int, int, int]) -> dict[str, Any]:
+    """Room around the resting ball in millimetres, using the ball itself as the ruler."""
+    height, width = image_shape[:2]
+    x, y, w, h = bounds
+    diameter = float(max(w, h))
+    mm_per_px = BALL_DIAMETER_MM / max(diameter, 1.0)
+    return {"id": "placement-geometry", "label": "", "status": "ok", "detail": "",
+            "ballDiameterPx": round(diameter, 1), "mmPerPx": round(mm_per_px, 4),
+            "behindMm": round(x * mm_per_px, 1), "aheadMm": round((width - x - w) * mm_per_px, 1),
+            "aboveMm": round(y * mm_per_px, 1), "imageWidthPx": width}
+
+
+def placement_check(geometry: dict[str, Any] | None, speeds: dict[str, float], mode: str) -> dict[str, Any] | None:
+    """How many club and ball frames this spot allows at these speeds, and where to move the ball."""
+    if geometry is None or mode == "putting":
+        return None
+    label = "Ball position"
+    step_mm = lambda speed: speed * 1000 * SENSOR_FRAME_S
+    club_step = step_mm(speeds["clubSpeedMps"])
+    launch = math.radians(max(0.0, speeds["launchDeg"]))
+    ahead_step = max(step_mm(speeds["ballSpeedMps"] * math.cos(launch)), 1e-6)
+    up_step = max(step_mm(speeds["ballSpeedMps"] * math.sin(launch)), 1e-6)
+    club_frames = CLUB_PATH_FACTOR * geometry["behindMm"] / club_step
+    ball_frames = max(0.0, min(geometry["aheadMm"] / ahead_step, geometry["aboveMm"] / up_step) - BALL_CONTACT_FRAMES)
+    basis = speeds["basis"]
+    values = {"clubFrames": round(club_frames, 1), "ballFrames": round(ball_frames, 1),
+              "ballDiameterPx": geometry["ballDiameterPx"], "speedBasis": basis}
+    diameter = geometry["ballDiameterPx"]
+    if diameter < MIN_BALL_DIAMETER_PX:
+        return _item("placement", label, "warn",
+                     f"The ball is small in the image ({diameter:.0f} px): move it closer to the cameras until it "
+                     f"is about {MIN_BALL_DIAMETER_PX + 8} px across, or it may not be tracked.", **values)
+    if diameter > MAX_BALL_DIAMETER_PX:
+        return _item("placement", label, "warn",
+                     f"The ball is very close to the cameras ({diameter:.0f} px): it leaves the view within a few "
+                     f"frames. Move it further away until it is about {MAX_BALL_DIAMETER_PX - 12} px across.", **values)
+    needed_behind = TARGET_FRAMES * club_step / CLUB_PATH_FACTOR
+    needed_ahead = (TARGET_FRAMES + BALL_CONTACT_FRAMES) * ahead_step
+    spare_behind = geometry["behindMm"] - needed_behind
+    spare_ahead = geometry["aheadMm"] - needed_ahead
+    summary = f"About {club_frames:.0f} club and {ball_frames:.0f} ball frames expected ({basis})."
+    if club_frames >= TARGET_FRAMES and ball_frames >= TARGET_FRAMES:
+        return _item("placement", label, "ok", summary, **values)
+    if geometry["aboveMm"] / up_step < TARGET_FRAMES + BALL_CONTACT_FRAMES <= geometry["aheadMm"] / ahead_step:
+        advice = "The ball leaves the top of the view first: move it further from the cameras."
+    elif spare_behind < 0 <= spare_ahead:
+        shift = min(-spare_behind, spare_ahead)
+        advice = f"Move the ball about {shift / 10:.0f} cm towards the target to give the club more frames."
+    elif spare_ahead < 0 <= spare_behind:
+        shift = min(-spare_ahead, spare_behind)
+        advice = f"Move the ball about {shift / 10:.0f} cm back (away from the target) so the flight stays in view."
+    else:
+        advice = ("There is not enough room at this distance for both club and flight: move the ball further from "
+                  "the cameras (the view widens with distance).")
+    # 3-4 predicted frames gave club data on only some real chips; 5+ did every time.
+    return _item("placement", label, "warn", f"{summary} {advice}", **values)
+
+
 def camera_checks(lower_image: Any, upper_image: Any, bounds: tuple[int, int, int, int] | None) -> list[dict[str, Any]]:
     """Calibration and alignment checks for the ball as it now rests. Never raises."""
     from stereo_check import _camera
     items: list[dict[str, Any]] = []
+    if bounds is not None:
+        items.append(placement_geometry(lower_image.shape, bounds))
     try:
         height, width = lower_image.shape[:2]
         matrix, distortion = load_setup((width, height))
@@ -174,13 +252,36 @@ def club_profile_check(club_id: str, mode: str, club_name: str | None = None) ->
                  f"Face profile {profile['faceWidthMm']:.0f} × {profile['faceHeightMm']:.0f} mm.")
 
 
+def expected_speeds(club_id: str, recent: list[dict[str, float]] | None) -> dict[str, Any]:
+    """Median of the player's recent shots, else the club's typical full swing."""
+    recent = [shot for shot in (recent or []) if shot.get("ballSpeedMps")]
+    if recent:
+        median = lambda key, fallback: float(sorted(s.get(key) or fallback for s in recent)[len(recent) // 2])
+        ball = median("ballSpeedMps", 0.0)
+        return {"ballSpeedMps": ball, "launchDeg": median("launchDeg", 25.0),
+                "clubSpeedMps": median("clubSpeedMps", ball / 1.2),
+                "basis": f"your last {len(recent)} {'shot' if len(recent) == 1 else 'shots'}"}
+    from flight_model import CLUB_BALL_SPEED_MPS
+    from pinpoint_protocol import CLUB_PROFILES
+    club_speed, _, launch = CLUB_PROFILES.get(club_id, CLUB_PROFILES["7-iron"])
+    return {"ballSpeedMps": CLUB_BALL_SPEED_MPS.get(club_id, 45.0), "launchDeg": launch,
+            "clubSpeedMps": club_speed, "basis": "a typical full swing; hit a few shots for your own speeds"}
+
+
 def readiness(camera_items: list[dict[str, Any]] | None, exposure_us: float | None,
-              club_id: str, mode: str, bag_club: dict[str, Any] | None = None) -> dict[str, Any]:
+              club_id: str, mode: str, bag_club: dict[str, Any] | None = None,
+              recent_shots: list[dict[str, float]] | None = None) -> dict[str, Any]:
     """Combine the camera checks from the last arming with the current club and exposure.
 
-    ``club_id`` is the club type (for speed); ``bag_club`` the named club, if any.
+    ``club_id`` is the club type (for speed); ``bag_club`` the named club, if any;
+    ``recent_shots`` the player's latest measured speeds, for the placement check.
     """
-    items = [exposure_check(exposure_us, club_id, mode), *(camera_items or [])]
+    geometry = next((item for item in camera_items or [] if item["id"] == "placement-geometry"), None)
+    items = [exposure_check(exposure_us, club_id, mode),
+             *(item for item in camera_items or [] if item["id"] != "placement-geometry")]
+    placement = placement_check(geometry, expected_speeds(club_id, recent_shots), mode)
+    if placement is not None:
+        items.append(placement)
     profile = club_profile_check(bag_club["id"] if bag_club else club_id, mode,
                                  bag_club["name"] if bag_club else None)
     if profile is not None:

@@ -336,6 +336,43 @@ def ground_surface_pose(pose):
     return {**pose, "translation": translation, "groundTagThicknessMm": round(thickness * 1000, 2)}
 
 
+def shift_surface(rotation, translation, offset_m):
+    """Camera translation after raising the world origin by ``offset_m`` (surface higher than calibrated)."""
+    return np.asarray(translation, float) + offset_m * np.asarray(rotation, float)[:, 2]
+
+
+# The resting ball is a 42.67 mm reference: its triangulated centre says where the surface
+# under it actually is. Offsets up to this size are taken from the ball for the shot;
+# larger ones mean the two views matched different things.
+MAX_SURFACE_OFFSET_MM = 25.0
+SURFACE_MAX_RAY_GAP_MM = 6.0
+
+
+def resting_ball_surface(frames, secondary_frames, bounds, impact_index, lower_camera, upper_camera):
+    """Height (m) of the surface under the resting ball relative to the calibrated ground, or None.
+
+    Several still frames are tried (the club can hide the ball near impact) and the one
+    whose two camera rays meet most closely is used.
+    """
+    import readiness
+    from stereo_check import _camera
+    lower, upper = _camera(*lower_camera), _camera(*upper_camera)
+    best = None
+    for index in sorted({0, max(0, impact_index - 30), max(0, impact_index - 15)}):
+        try:
+            check = readiness.stereo_rest_check(lower, upper, frames[index][1], secondary_frames[index][1],
+                                                tuple(int(v) for v in bounds))
+        except (ValueError, IndexError, cv2.error, np.linalg.LinAlgError):
+            continue
+        if check.get("heightErrorMm") is None or check["rayGapMm"] > SURFACE_MAX_RAY_GAP_MM:
+            continue
+        if best is None or check["rayGapMm"] < best["rayGapMm"]:
+            best = {**check, "frameIndex": index}
+    if best is None or abs(best["heightErrorMm"]) > MAX_SURFACE_OFFSET_MM:
+        return None, best
+    return best["heightErrorMm"] / 1000, best
+
+
 def stored_ground_pose(image_size, ground_id, size, matrix, distortion, camera="primary"):
     from apriltag_calibration import load_apriltag_calibration
     saved = load_apriltag_calibration(camera)
@@ -1229,7 +1266,7 @@ def silhouette_launch(frames, bounds, impact_index, motion_track, matrix, distor
     return track, outgoing, velocity, launch, reason, reason, outgoing[0]["frameIndex"]
 
 
-def secondary_camera(lower_camera, image_size, ground_id, tag_size, lower_captured_at):
+def secondary_camera(lower_camera, image_size, ground_id, tag_size, lower_captured_at, surface_offset_m=0.0):
     """Top-camera lens and world pose, from the fixed stereo pair or its own ground tag.
 
     Returns (matrix, distortion, pose, fixed_pair). Shared by shot analysis and the
@@ -1251,16 +1288,20 @@ def secondary_camera(lower_camera, image_size, ground_id, tag_size, lower_captur
         stamps = [datetime.fromisoformat(str(value).replace("Z", "+00:00")) for value in (lower_captured_at, pose.get("capturedAt"))]
         if abs((stamps[0] - stamps[1]).total_seconds()) > STEREO_MAX_CALIBRATION_SKEW_S:
             raise ValueError("Lower and top cameras were calibrated at different times; capture the tag with both cameras again.")
+        # A fixed pair is derived from the (already shifted) lower pose; an independent
+        # top-camera pose has to be shifted the same way.
+        if surface_offset_m:
+            pose = {**pose, "translation": shift_surface(pose["rotation"], pose["translation"], surface_offset_m)}
     return matrix, distortion, pose, fixed_pair
 
 
 def stereo_measurement(frames, secondary_frames, rest_px, fit, observations, start_time, lower_camera,
-                       ground_id, tag_size, lower_captured_at, lower_pose_error_px):
+                       ground_id, tag_size, lower_captured_at, lower_pose_error_px, surface_offset_m=0.0):
     """Cross-check or independently recover the launch from both calibrated cameras."""
     from stereo_check import stereo_cross_check
     height, width = secondary_frames[0][1].shape[:2]
     matrix, distortion, pose, fixed_pair = secondary_camera(lower_camera, (width, height), ground_id, tag_size,
-                                                            lower_captured_at)
+                                                            lower_captured_at, surface_offset_m)
     track = fit["track"] if fit is not None else (observations or [])
     stereo = stereo_cross_check(frames, secondary_frames, lower_camera,
                                 (matrix, distortion, pose["rotation"], pose["translation"]), rest_px, track,
@@ -1371,6 +1412,28 @@ def measure_launch(frames, bounds, impact_index, timestamp_source="host", exposu
                 f"Ground AprilTag pose reprojection error is {pose_error:.2f} px; "
                 "launch values are lower-confidence estimates."
             )
+        # Take the ground under this shot from the resting ball itself (see resting_ball_surface).
+        surface_offset = 0.0
+        if secondary_frames and pose.get("source") == "stored-calibration" and bounds is not None:
+            try:
+                size = secondary_frames[0][1].shape[1], secondary_frames[0][1].shape[0]
+                upper_matrix, upper_distortion, upper_pose, _ = secondary_camera(
+                    (matrix, distortion, rotation, translation), size, ground_id, tag_size, pose.get("capturedAt"))
+                offset, check = resting_ball_surface(
+                    frames, secondary_frames, bounds, impact_index, (matrix, distortion, rotation, translation),
+                    (upper_matrix, upper_distortion, upper_pose["rotation"], upper_pose["translation"]))
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                diagnostics["surface"] = {"source": "calibration", "failure": str(error)}
+            else:
+                if offset is not None:
+                    surface_offset = offset
+                    translation = shift_surface(rotation, translation, offset)
+                diagnostics["surface"] = {
+                    "source": "resting-ball" if offset is not None else "calibration",
+                    "offsetMm": round(offset * 1000, 2) if offset is not None else None,
+                    "measuredHeightErrorMm": (check or {}).get("heightErrorMm"),
+                    "rayGapMm": (check or {}).get("rayGapMm"), "frameIndex": (check or {}).get("frameIndex"),
+                }
         fit = None
         two_point = None
         rest_px = time_bounds = observations = None
@@ -1388,7 +1451,7 @@ def measure_launch(frames, bounds, impact_index, timestamp_source="host", exposu
                 stereo = stereo_measurement(frames, secondary_frames, stereo_rest_px, fit, observations,
                                             time_bounds[0] if time_bounds else None,
                                             (matrix, distortion, rotation, translation), ground_id, tag_size,
-                                            pose.get("capturedAt"), pose_error)
+                                            pose.get("capturedAt"), pose_error, surface_offset)
             except (OSError, ValueError, KeyError, TypeError, np.linalg.LinAlgError, cv2.error) as error:
                 diagnostics["stereo"] = {"failure": str(error), **getattr(error, "diagnostics", {})}
                 grading["stereoFailure"] = str(error)
@@ -1516,7 +1579,8 @@ def measure_launch(frames, bounds, impact_index, timestamp_source="host", exposu
             try:
                 size = secondary_frames[0][1].shape[1], secondary_frames[0][1].shape[0]
                 upper_matrix, upper_distortion, upper_pose, _ = secondary_camera(
-                    (matrix, distortion, rotation, translation), size, ground_id, tag_size, pose.get("capturedAt"))
+                    (matrix, distortion, rotation, translation), size, ground_id, tag_size, pose.get("capturedAt"),
+                    surface_offset)
                 club_upper = (secondary_frames, (upper_matrix, upper_distortion,
                                                  upper_pose["rotation"], upper_pose["translation"]))
             except (OSError, ValueError, KeyError, TypeError) as error:

@@ -272,6 +272,18 @@ export interface CapturePreview {
   captureId: string;
 }
 
+/** A batch of cropped lower-camera frames for the swing loop (service 0.52.0+). */
+export interface CaptureClip {
+  captureId: string;
+  mimeType: 'image/jpeg';
+  frameCount: number;
+  cropBox: [number, number, number, number];
+  frames: { frameIndex: number; timeMs: number | null; base64: string }[];
+  impactFrameIndex: number | null;
+  firstMovingFrameIndex: number | null;
+  lastStationaryFrameIndex: number | null;
+}
+
 export interface CaptureFramePreview extends CapturePreview {
   secondaryBase64?: string;
   pairOffsetUs?: number;

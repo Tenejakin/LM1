@@ -100,9 +100,32 @@ def motion_mask(frame, background, close=5):
     return mask
 
 
-def club_silhouette(frame, background, ball_pixel, ball_radius_px):
+# A pixel that differs from the pre-shot background in this share of the frames before
+# impact is a persistent offset (a shoe that shifted), not the club passing through.
+PERSISTENT_CHANGE_FRACTION = 0.6
+PERSISTENT_CHANGE_THRESHOLD = 25
+
+
+def persistent_change(frames, background):
+    """Mask of pixels changed in most of ``frames``: things that moved and stayed, never the club.
+
+    On 2026-09-25 a white shoe that shifted slightly differed from the background in every
+    frame; both club trackers followed it as a perfectly steady "club" at 0.0 m/s.
+    """
+    if len(frames) < 5:
+        return None
+    count = np.zeros(background.shape, np.uint16)
+    for frame in frames:
+        count += cv2.absdiff(to_gray(frame), background) >= PERSISTENT_CHANGE_THRESHOLD
+    mask = (count >= PERSISTENT_CHANGE_FRACTION * len(frames)).astype(np.uint8) * 255
+    return cv2.dilate(mask, np.ones((5, 5), np.uint8))
+
+
+def club_silhouette(frame, background, ball_pixel, ball_radius_px, ignore=None):
     """Largest moving blob that is not the resting ball: the clubhead with its shaft."""
     mask = motion_mask(frame, background, close=7)
+    if ignore is not None:
+        mask[ignore > 0] = 0
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     best = None
     for contour in contours:
@@ -202,8 +225,10 @@ def club_head_track(frames, impact_index, background, ball_pixel, ball_radius_px
                     matrix, distortion, rotation, translation, plane_origin, plane_normal):
     """Back-project the pre-impact head centroid onto the swing plane, frame by frame."""
     samples, shaft = [], []
-    for index in range(max(0, impact_index - MAX_TRACK_FRAMES), impact_index):
-        points = club_silhouette(frames[index][1], background, ball_pixel, ball_radius_px)
+    window = range(max(0, impact_index - MAX_TRACK_FRAMES), impact_index)
+    ignore = persistent_change([frames[index][1] for index in window], background)
+    for index in window:
+        points = club_silhouette(frames[index][1], background, ball_pixel, ball_radius_px, ignore)
         if points is None:
             continue
         head = head_points(points, ball_radius_px)

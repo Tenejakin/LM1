@@ -1,6 +1,6 @@
 {
   "name": "pinpoint-launch-monitor",
-  "version": "3.38.0",
+  "version": "3.39.0",
   "private": true,
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {

@@ -47,7 +47,12 @@ def shot_evidence(measurements, mode=None):
     tagged = measurements.get("clubTrack3d") or []
     if silhouette is None and not tagged and "diagnostics" not in measurements:
         return measurements.get("shotEvidence")
-    frames = max(len(tagged), (silhouette or {}).get("acceptedFrames", 0))
+    stereo_club = diagnostics.get("clubStereo") or {}
+    # Any club seen near the ball counts as swing evidence, even when no track passed the
+    # measurement checks: a topped chip with the club in view in all 10 frames was
+    # classified as a roll with no club (2026-09-25).
+    frames = max(len(tagged), (silhouette or {}).get("acceptedFrames", 0),
+                 (silhouette or {}).get("candidateFrames", 0), stereo_club.get("triangulatedFrames", 0))
     observed = frames >= 3
     rejection = non_strike_reason(measurements, observed) if mode == "full-shot" else None
     if rejection:

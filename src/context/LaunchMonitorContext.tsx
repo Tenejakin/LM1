@@ -23,6 +23,7 @@ import {
   CaptureAnalysis,
   BallDetection,
   CapturePreview,
+  CaptureClip,
   CaptureFramePreview,
   CaptureMode,
   ClubId,
@@ -105,6 +106,7 @@ interface LaunchMonitorContextValue {
   clearTargetLine: () => Promise<void>;
   getLatestCapturePreview: () => Promise<CapturePreview>;
   getCaptureFrame: (captureId: string, frameIndex: number) => Promise<CaptureFramePreview>;
+  getCaptureClip: (captureId: string, startFrame: number, count: number) => Promise<CaptureClip>;
   getCaptureContactSheet: (captureId: string) => Promise<CapturePreview>;
   getLatestPuttRecoveryCandidate: () => Promise<Putt | null>;
   saveRecoveredPutt: (putt: Putt) => Promise<void>;
@@ -972,6 +974,11 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
     return client.current.getLatestCapturePreview();
   }, [isDemo]);
 
+  const getCaptureClip = useCallback(async (captureId: string, startFrame: number, count: number) => {
+    if (isDemo) throw new Error('Connect to LM1 to play the captured swing.');
+    return client.current.getCaptureClip(captureId, startFrame, count);
+  }, [isDemo]);
+
   const getCaptureFrame = useCallback(async (captureId: string, frameIndex: number) => {
     if (isDemo) throw new Error('Connect to LM1 to review capture frames.');
     return client.current.getCaptureFrame(captureId, frameIndex);
@@ -1060,6 +1067,7 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
       clearTargetLine,
       getLatestCapturePreview,
       getCaptureFrame,
+      getCaptureClip,
       getCaptureContactSheet,
       getLatestPuttRecoveryCandidate,
       saveRecoveredPutt,
@@ -1122,6 +1130,7 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
       clearTargetLine,
       getLatestCapturePreview,
       getCaptureFrame,
+      getCaptureClip,
       getCaptureContactSheet,
       getLatestPuttRecoveryCandidate,
       saveRecoveredPutt,

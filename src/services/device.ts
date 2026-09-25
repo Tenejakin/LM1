@@ -6,6 +6,7 @@ import {
   CalibrationCaptureStatus,
   CaptureAnalysis,
   CaptureMode,
+  CaptureClip,
   CaptureFramePreview,
   FrameUploadProgress,
   CapturePreview,
@@ -156,6 +157,11 @@ export class DeviceClient {
 
   async getLatestCapturePreview(): Promise<CapturePreview> {
     return this.request<CapturePreview>({ type: 'latestCapturePreview' }, 45_000);
+  }
+
+  /** Up to 8 cropped frames per request; the swing loop asks in batches to show progress. */
+  async getCaptureClip(captureId: string, startFrame: number, count: number): Promise<CaptureClip> {
+    return this.request<CaptureClip>({ type: 'captureClip', captureId, startFrame, count }, 30_000);
   }
 
   async getCaptureFrame(captureId: string, frameIndex: number): Promise<CaptureFramePreview> {

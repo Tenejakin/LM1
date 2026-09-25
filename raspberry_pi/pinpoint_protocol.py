@@ -35,6 +35,7 @@ from ball_detector import (
     calibration_capture_status,
     capture_retention,
     capture_contact_sheet,
+    capture_clip,
     capture_frame_preview,
     clear_calibration_images,
     lens_calibration_status,
@@ -55,8 +56,8 @@ from wifi_manager import (
 )
 
 
-SERVICE_VERSION = "0.51.0"
-PROTOCOL_VERSION = "2.34.0"
+SERVICE_VERSION = "0.53.0"
+PROTOCOL_VERSION = "2.36.0"
 MAX_HISTORY = 10
 MAX_COMMAND_BYTES = 4096
 BLE_CHUNK_BYTES = 20
@@ -340,10 +341,27 @@ class PinpointProtocol:
             exposure = camera_diagnostics().get("exposureUs") if uses_csi() else None
             if not exposure:
                 exposure = configured_exposure_us() if uses_csi() else int(os.getenv("PINPOINT_EXPOSURE_US", "0"))
-            return readiness(self._readiness_items, exposure, self.club_id, self.capture_mode, self.bag_club)
+            return readiness(self._readiness_items, exposure, self.club_id, self.capture_mode, self.bag_club,
+                             self._recent_speeds())
         except Exception:  # Status must always answer; a broken check is logged, not fatal.
             LOGGER.exception("Readiness check failed")
             return None
+
+    def _recent_speeds(self) -> list[dict[str, float]]:
+        """Ball speed, launch and club speed of the last few measured full shots."""
+        recent = []
+        for capture in self.captures:
+            if capture.get("mode") != "full-shot":
+                continue
+            metrics = (capture.get("measurements") or {}).get("metrics") or {}
+            value = lambda key: (metrics.get(key) or {}).get("value")
+            ball = value("ballSpeedMps")
+            if isinstance(ball, (int, float)) and ball >= 2:
+                recent.append({"ballSpeedMps": ball, "launchDeg": value("launchAngleDeg"),
+                               "clubSpeedMps": value("clubSpeedMps")})
+            if len(recent) == 5:
+                break
+        return recent
 
     async def readiness_checked(self, items: list[dict[str, Any]]) -> None:
         self._readiness_items = items
@@ -513,6 +531,9 @@ class PinpointProtocol:
             return
         if command_type == "captureFrame":
             await self._capture_frame(request_id, command)
+            return
+        if command_type == "captureClip":
+            await self._capture_clip(request_id, command)
             return
         if command_type == "captureContactSheet":
             await self._capture_contact_sheet(request_id, command)
@@ -752,6 +773,16 @@ class PinpointProtocol:
         if preview is None:
             raise CommandError("No impact capture is available yet. Place and remove the ball first.")
         await self._respond(request_id, preview)
+
+    async def _capture_clip(self, request_id: str, command: dict[str, Any]) -> None:
+        capture_id, start, count = command.get("captureId"), command.get("startFrame"), command.get("count", 6)
+        if not isinstance(capture_id, str) or not isinstance(start, int) or not isinstance(count, int):
+            raise CommandError("Capture id, integer startFrame and count are required.")
+        try:
+            clip = await asyncio.to_thread(capture_clip, capture_id, start, count)
+        except (OSError, ValueError) as error:
+            raise CommandError(str(error)) from error
+        await self._respond(request_id, clip)
 
     async def _capture_frame(self, request_id: str, command: dict[str, Any]) -> None:
         capture_id = command.get("captureId")

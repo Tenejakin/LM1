@@ -34,7 +34,10 @@ REST_SEARCH_PX = 40
 MAX_REST_PREDICTION_PX = 15.0
 # Measured-grade gates.
 MAX_RAY_GAP_MM = 3.0
-MAX_REST_HEIGHT_ERROR_MM = 5.0
+# The ground under each shot is now taken from the resting ball (launch_measurements.
+# resting_ball_surface), so a surface 9-12 mm off the calibration no longer matters for
+# speed, launch or direction. What remains is a gross check that both views saw the ball.
+MAX_REST_HEIGHT_ERROR_MM = 25.0
 MAX_START_ANCHOR_ERROR_MM = 30.0
 MAX_STEREO_RMS_PX = 3.0
 MAX_PAIR_OFFSET_US = 250.0

@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { CaptureReview } from '@/components/CaptureReview';
 import { ReadinessCard } from '@/components/ReadinessCard';
+import { SwingLoop } from '@/components/SwingLoop';
 import { ClubSelector } from '@/components/ClubSelector';
 import { directionLabel, ShotRow, StrikeMap, TrajectoryChart } from '@/components/ShotVisuals';
 import { Eyebrow, HelpText, MetricTile, PrimaryButton, SectionHeader, StepRow, Surface } from '@/components/ui';
@@ -243,6 +244,8 @@ export function HomeScreen({
               <Ionicons name="arrow-forward" size={15} color={colors.accent} />
             </Pressable>
           </View>
+
+          <SwingLoop shot={activeShot} />
 
           <Surface style={styles.speedCard}>
             <View>

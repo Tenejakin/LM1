@@ -1,5 +1,18 @@
 # Changelog
 
+## Pi service 0.53.0 / protocol 2.36.0 - 2026-09-25
+
+- Take the ground under each shot from the resting ball: both cameras triangulate the 42.67 mm ball on still frames before the swing (the cleanest of three), and the world is shifted so the surface under it is the ground for every fit. Offsets up to 25 mm are corrected; larger ones mean the views matched different things. The stereo resting-height gate is now that 25 mm gross check. On nine chips rejected or estimated at +9..12 mm, the ball measured -2.5..+2.2 mm and three more received two-camera ball values; the +9..12 mm came largely from the stereo fit's own rest-point method, not the surface.
+- Placement guidance in the setup check, using the ball as the ruler: from its size in pixels (mm per pixel at the ball) and the room behind, ahead and above it, predict club and ball frames at the player's last five measured speeds (or a typical full swing) and say which way to move the ball. Calibrated on 16 real chips: the head's visible path is ~1.4x the room behind the ball, the first two frames after contact are unusable, and 5+ predicted frames gave club data every time. Balls under 32 px or over 56 px across are flagged.
+- The setup check no longer fails a ball that sits a few mm off the calibrated ground; only camera disagreement or a gross offset fails it.
+
+## App 3.39.0 / Pi service 0.52.0 / protocol 2.35.0 - 2026-09-25
+
+- Swing loop above ball speed on the Monitor card and in shot details: the captured swing from 10 frames before the ball moves to 9 after, looping in slow motion. Tap to stop on a frame, step with the arrows or tap the bar to jump (impact marked); tap again to resume. Frames come from the new `captureClip` command: a fixed crop around ball, club and early flight at 240 px, display-brightened, about 1.5-2.5 KB per frame, fetched once per capture in batches of 8.
+- Ignore persistent changes when finding the club: a white shoe that shifted slightly differed from the background in every frame and both club trackers followed it at 0.0 m/s.
+- Count any club seen near the ball as swing evidence: a topped chip with the club in all 10 frames before impact was classified as a roll with no club.
+- Stereo resting-ball height limit 8 mm (was 5): six balls on one soft mat read +1.4..+7.1 mm; stand or tag errors (-16..-20 mm) are still caught.
+
 ## Pi service 0.51.0 - 2026-09-25
 
 - Stereo start check allows for contact timing. Contact happens anywhere between the last still and first moving frames (4.1 ms), so the fitted start can sit up to speed x 4.1 ms back along the flight (45 mm at 10.9 m/s); the old plain distance to the resting ball failed good shots against its 30 mm limit. The check now measures the distance to the nearest start any contact time in that window could produce, and reports the implied contact time. On ten recent shots offsets of 17-29 mm became 1-3 mm, with contact 1.3-3.1 ms after the last still frame.

@@ -54,11 +54,17 @@ class StereoRestTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok", result["detail"])
         self.assertLess(abs(result["heightErrorMm"]), 2)
 
-    def test_ball_on_a_mat_is_reported_before_the_shot(self):
+    def test_ball_on_a_mat_is_corrected_from_the_ball_itself(self):
+        # 9-12 mm offsets rejected four real chips on 2026-09-25; the ball is the reference.
         result = self.check(np.array([0., .15, RADIUS + .016]))
+        self.assertEqual(result["status"], "ok")
+        self.assertIn("corrected automatically", result["detail"])
+        self.assertAlmostEqual(result["heightErrorMm"], 16, delta=1.5)
+
+    def test_gross_offset_still_fails(self):
+        result = self.check(np.array([0., .15, RADIUS + .035]))
         self.assertEqual(result["status"], "fail")
-        self.assertIn("above the calibrated ground", result["detail"])
-        self.assertIn("mat or tee", result["detail"])
+        self.assertIn("Recalibrate", result["detail"])
 
     def test_moved_top_camera_is_reported_before_the_shot(self):
         rotation, translation = self.upper_pose
@@ -96,6 +102,47 @@ class GroundTagThicknessTests(unittest.TestCase):
     def test_invalid_thickness_is_ignored(self):
         with patch.dict(os.environ, {"PINPOINT_GROUND_TAG_THICKNESS_MM": "not-a-number"}):
             self.assertEqual(launch_measurements.ground_tag_thickness_m(), 0.0)
+
+
+class PlacementTests(unittest.TestCase):
+    """Using the 42.67 mm ball as the ruler, predict club and ball frames (checked on 16 real chips)."""
+
+    CHIP = {"ballSpeedMps": 12.0, "launchDeg": 28.0, "clubSpeedMps": 9.0, "basis": "test"}
+
+    def check(self, x, diameter):
+        geometry = readiness.placement_geometry((400, 640), (x, 240, diameter, diameter))
+        return readiness.placement_check(geometry, self.CHIP, "full-shot")
+
+    def test_ball_near_the_left_edge_asks_to_move_towards_the_target(self):
+        item = self.check(90, 46)  # where club data was missing on 2026-09-25
+        self.assertEqual(item["status"], "warn")
+        self.assertIn("towards the target", item["detail"])
+        self.assertLess(item["clubFrames"], 5)
+
+    def test_good_spot_passes(self):
+        item = self.check(170, 42)  # club and ball both measured there
+        self.assertEqual(item["status"], "ok")
+        self.assertGreaterEqual(item["clubFrames"], 5)
+        self.assertGreaterEqual(item["ballFrames"], 5)
+
+    def test_far_right_asks_to_move_back(self):
+        item = self.check(300, 44)
+        self.assertEqual(item["status"], "warn")
+        self.assertIn("back", item["detail"])
+
+    def test_ball_size_limits(self):
+        self.assertIn("closer to the cameras", self.check(150, 27)["detail"])
+        self.assertIn("further away", self.check(150, 61)["detail"])
+
+    def test_speeds_come_from_recent_shots(self):
+        speeds = readiness.expected_speeds("sand-wedge", [{"ballSpeedMps": 12, "launchDeg": 28, "clubSpeedMps": 9}] * 3)
+        self.assertEqual((speeds["ballSpeedMps"], speeds["clubSpeedMps"]), (12, 9))
+        self.assertIn("last 3 shots", speeds["basis"])
+        self.assertIn("typical full swing", readiness.expected_speeds("sand-wedge", [])["basis"])
+
+    def test_putting_has_no_placement_advice(self):
+        geometry = readiness.placement_geometry((400, 640), (90, 240, 46, 46))
+        self.assertIsNone(readiness.placement_check(geometry, self.CHIP, "putting"))
 
 
 class ExposureTests(unittest.TestCase):
@@ -140,7 +187,7 @@ class CombinedReadinessTests(unittest.TestCase):
         with TemporaryDirectory() as temporary, patch.dict(
                 os.environ, {"PINPOINT_INTRINSICS_PATH": str(Path(temporary) / "missing.json")}):
             items = readiness.camera_checks(np.zeros((400, 640, 3), np.uint8), None, (300, 200, 20, 20))
-        self.assertEqual(items[0]["status"], "fail")
+        self.assertEqual(next(item for item in items if item["id"] == "ground")["status"], "fail")
 
 
 if __name__ == "__main__":

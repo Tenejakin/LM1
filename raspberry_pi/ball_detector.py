@@ -540,6 +540,93 @@ def capture_frame_preview(capture_id: str, frame_index: int) -> dict[str, Any]:
     return result
 
 
+# Swing-loop clip: a fixed crop around the ball, club and early flight, small enough
+# that a 24-frame loop crosses BLE (~12-16 KB/s) in a few seconds.
+CLIP_MAX_FRAMES_PER_REQUEST = 8
+CLIP_WIDTH_PX = 240
+CLIP_MAX_BYTES = 4200
+CLIP_BEHIND_RADII = 7.0
+CLIP_AHEAD_RADII = 11.0
+CLIP_ABOVE_RADII = 8.0
+CLIP_BELOW_RADII = 3.0
+# Display only: the short exposure leaves frames dark. One fixed curve for every frame, so
+# the loop does not flicker; measurements never see it.
+CLIP_DISPLAY_GAMMA = 0.55
+_CLIP_LUT = None
+
+
+def clip_crop_box(manifest: dict[str, Any], width: int, height: int) -> tuple[int, int, int, int]:
+    """(x, y, w, h) around the resting ball: room behind for the club, ahead and above for flight."""
+    bounds = manifest.get("ballBounds")
+    if not bounds or len(bounds) != 4:
+        return 0, 0, width, height
+    x, y, w, h = bounds
+    cx, cy, r = x + w / 2, y + h / 2, max(w, h) / 2
+    left = int(max(0, cx - CLIP_BEHIND_RADII * r))
+    right = int(min(width, cx + CLIP_AHEAD_RADII * r))
+    top = int(max(0, cy - CLIP_ABOVE_RADII * r))
+    bottom = int(min(height, cy + CLIP_BELOW_RADII * r))
+    return left, top, max(1, right - left), max(1, bottom - top)
+
+
+def encode_clip_frame(frame: Any, box: tuple[int, int, int, int]) -> bytes:
+    x, y, w, h = box
+    gray = frame if len(frame.shape) == 2 else cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    global _CLIP_LUT
+    if _CLIP_LUT is None:
+        _CLIP_LUT = np.clip(((np.arange(256) / 255.0) ** CLIP_DISPLAY_GAMMA) * 255, 0, 255).astype(np.uint8)
+    crop = cv2.LUT(gray[y:y + h, x:x + w], _CLIP_LUT)
+    scale = min(1.0, CLIP_WIDTH_PX / max(1, crop.shape[1]))
+    if scale < 1.0:
+        crop = cv2.resize(crop, (round(crop.shape[1] * scale), round(crop.shape[0] * scale)), interpolation=cv2.INTER_AREA)
+    for quality in (45, 35, 25):
+        ok, encoded = cv2.imencode(".jpg", crop, [cv2.IMWRITE_JPEG_QUALITY, quality])
+        if ok and len(encoded) <= CLIP_MAX_BYTES:
+            return encoded.tobytes()
+    ok, encoded = cv2.imencode(".jpg", cv2.resize(crop, None, fx=0.7, fy=0.7), [cv2.IMWRITE_JPEG_QUALITY, 25])
+    if not ok:
+        raise RuntimeError("Could not encode a clip frame")
+    return encoded.tobytes()
+
+
+def capture_clip(capture_id: str, start_frame: int, count: int) -> dict[str, Any]:
+    """A batch of cropped lower-camera frames from a saved burst, for the app's swing loop."""
+    if cv2 is None:
+        raise RuntimeError("OpenCV is required for capture replay")
+    if not re.fullmatch(r"capture-\d+", capture_id):
+        raise ValueError("Invalid capture id")
+    if not 1 <= count <= CLIP_MAX_FRAMES_PER_REQUEST:
+        raise ValueError(f"Request 1-{CLIP_MAX_FRAMES_PER_REQUEST} frames at a time")
+    _wait_for_capture_save(capture_id)
+    root = Path(os.getenv("PINPOINT_ROLLING_CAPTURE_PATH", str(DEFAULT_ROLLING_CAPTURE_PATH)))
+    capture = root / capture_id
+    manifest_path = capture / "capture.json"
+    if not manifest_path.exists():
+        raise ValueError("Capture is no longer available")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    frame_count = int(manifest.get("frameCount", 0))
+    if not 0 <= start_frame < frame_count:
+        raise ValueError(f"Frame index must be between 0 and {max(0, frame_count - 1)}")
+    times = manifest.get("frameTimesMs") or [None] * frame_count
+    box = None
+    frames = []
+    for index in range(start_frame, min(frame_count, start_frame + count)):
+        frame = cv2.imread(str(capture / f"frame-{index:04d}.jpg"))
+        if frame is None:
+            raise ValueError("Capture frame is missing")
+        if box is None:
+            box = clip_crop_box(manifest, frame.shape[1], frame.shape[0])
+        frames.append({"frameIndex": index, "timeMs": times[index],
+                       "base64": base64.b64encode(encode_clip_frame(frame, box)).decode("ascii")})
+    return {
+        "captureId": capture_id, "mimeType": "image/jpeg", "frameCount": frame_count,
+        "cropBox": list(box), "frames": frames,
+        "impactFrameIndex": manifest.get("impactFrameIndex"),
+        "firstMovingFrameIndex": manifest.get("firstMovingFrameIndex"),
+        "lastStationaryFrameIndex": manifest.get("lastStationaryFrameIndex"),
+    }
+
+
 def ball_template_similarity(
     reference_frame: Any,
     current_frame: Any,

@@ -5,13 +5,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { StrikeMap, TrajectoryChart } from '@/components/ShotVisuals';
 import { Eyebrow, IconButton, MeasurementBadge, MeasurementLabel, MetricTile, Surface } from '@/components/ui';
-import { getClub } from '@/data/clubs';
 import { useLaunchMonitor } from '@/context/LaunchMonitorContext';
 import { useCloudSync } from '@/context/CloudSyncContext';
 import { useUnits } from '@/context/UnitsContext';
 import { colors, radii, spacing } from '@/theme';
 import { CaptureFramePreview, ClubValueKey, MetricConfidence, Shot, ShotMetricKey } from '@/types';
 import { ContactSheet } from '@/components/ContactSheet';
+import { SwingLoop } from '@/components/SwingLoop';
 import { DIRECTION_SIGN_NOTE, directionLabel } from '@/utils/direction';
 import { measuredAttackAngle, measuredClubPath, measuredClubSpeed, measuredSmash, measuredStrike } from '@/utils/shotValues';
 import { shotEstimates } from '@/utils/carry';
@@ -104,6 +104,8 @@ function ShotDetail({ shot, onClose }: { shot: Shot; onClose: () => void }) {
           </View>
           <IconButton icon="close" label="Close shot details" onPress={onClose} />
         </View>
+
+        <SwingLoop shot={shot} />
 
         <Surface style={styles.hero}>
           <View style={[styles.heroTop, compact && styles.heroTopCompact]}>

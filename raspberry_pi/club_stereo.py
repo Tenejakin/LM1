@@ -61,9 +61,9 @@ MEASURED_RAY_GAP_MM = 6.0
 MEASURED_RESIDUAL_MM = 5.0
 
 
-def hosel_pixel(frame, background, ball_pixel, ball_radius_px):
+def hosel_pixel(frame, background, ball_pixel, ball_radius_px, ignore=None):
     """Sub-pixel lowest point of the moving club blob: the shaft/hosel vertex."""
-    points = club_vision.club_silhouette(frame, background, ball_pixel, ball_radius_px)
+    points = club_vision.club_silhouette(frame, background, ball_pixel, ball_radius_px, ignore)
     if points is None:
         return None
     height, width = frame.shape[:2]
@@ -75,11 +75,13 @@ def hosel_pixel(frame, background, ball_pixel, ball_radius_px):
     return vertex
 
 
-def head_pixel(frame, background, ball_pixel, ball_radius_px):
+def head_pixel(frame, background, ball_pixel, ball_radius_px, ignore=None):
     """Centroid of the club head: pixels that changed either way, at ground level behind the ball."""
     gray = club_vision.to_gray(frame)
     difference = cv2.GaussianBlur(cv2.absdiff(gray, background), (3, 3), 0)
     _, mask = cv2.threshold(difference, HEAD_CHANGE_THRESHOLD, 255, cv2.THRESH_BINARY)
+    if ignore is not None:
+        mask[ignore > 0] = 0
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
     height, width = mask.shape
@@ -145,12 +147,15 @@ def measure(lower_frames, upper_frames, impact_index, lower, upper, lower_backgr
         if depth <= 0:
             raise ValueError("Ball is behind a camera; recalibrate both cameras.")
         views.append((_project(camera, [ball_center])[0], RADIUS * camera["K"][0, 0] / depth))
+    window = range(max(0, impact_index - SEARCH_FRAMES), impact_index)
+    ignore = [club_vision.persistent_change([burst[index][1] for index in window], background)
+              for burst, background in ((lower_frames, lower_background), (upper_frames, upper_background))]
     located = {}
     for name, locate in (("hosel", hosel_pixel), ("head", head_pixel)):
         samples, gaps = [], []
-        for index in range(max(0, impact_index - SEARCH_FRAMES), impact_index):
-            lower_px = locate(lower_frames[index][1], lower_background, *views[0])
-            upper_px = locate(upper_frames[index][1], upper_background, *views[1])
+        for index in window:
+            lower_px = locate(lower_frames[index][1], lower_background, *views[0], ignore[0])
+            upper_px = locate(upper_frames[index][1], upper_background, *views[1], ignore[1])
             if lower_px is None or upper_px is None:
                 continue
             point, gap = _triangulate(_ray(lower, lower_px), _ray(upper, upper_px))

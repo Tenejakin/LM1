@@ -3,6 +3,7 @@ import os
 import sys
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -382,3 +383,32 @@ class BackgroundJobTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipIf(cv2 is None, "OpenCV is required")
+class CaptureClipTests(unittest.TestCase):
+    def test_clip_crops_every_frame_the_same_and_stays_small(self):
+        import base64
+        from ball_detector import CLIP_MAX_BYTES, capture_clip
+        with TemporaryDirectory() as directory, patch.dict(os.environ, {"PINPOINT_ROLLING_CAPTURE_PATH": directory}):
+            capture = Path(directory) / "capture-123"
+            capture.mkdir()
+            rng = np.random.default_rng(1)
+            for index in range(12):
+                frame = rng.integers(0, 40, (400, 640), dtype=np.uint8)
+                cv2.circle(frame, (150 + 10 * index, 250), 22, 230, -1)
+                cv2.imwrite(str(capture / f"frame-{index:04d}.jpg"), frame)
+            (capture / "capture.json").write_text(json.dumps(
+                {"frameCount": 12, "ballBounds": [128, 228, 44, 44], "impactFrameIndex": 6, "firstMovingFrameIndex": 6}))
+            clip = capture_clip("capture-123", 4, 8)
+            self.assertEqual([frame["frameIndex"] for frame in clip["frames"]], list(range(4, 12)))
+            self.assertEqual(clip["firstMovingFrameIndex"], 6)
+            x, y, w, h = clip["cropBox"]
+            self.assertLessEqual(x, 150 - 5 * 22)  # room behind the ball for the club
+            self.assertGreaterEqual(x + w, 150 + 8 * 22)  # and ahead for the flight
+            for frame in clip["frames"]:
+                self.assertLessEqual(len(base64.b64decode(frame["base64"])), CLIP_MAX_BYTES)
+            with self.assertRaises(ValueError):
+                capture_clip("capture-123", 0, 9)
+            with self.assertRaises(ValueError):
+                capture_clip("../etc", 0, 1)

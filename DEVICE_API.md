@@ -56,6 +56,17 @@ movement that cannot be a strike (ball speed under 2 m/s, direction more than 60
 off the target line, or a ground roll with no club seen); consumers must not
 promote or send it. Putting captures are never classified this way.
 
+Protocol 2.36.0 adds a `placement` readiness item (`status`, `detail` with the move to make,
+`clubFrames`, `ballFrames`, `ballDiameterPx`, `speedBasis`) and `diagnostics.surface` on each
+analysis (`source: resting-ball|calibration`, `offsetMm`, `rayGapMm`, `frameIndex`).
+
+Protocol 2.35.0 adds `{"id":"..","type":"captureClip","captureId":"capture-..","startFrame":100,"count":8}`
+(count 1-8). It returns `{captureId, mimeType, frameCount, cropBox:[x,y,w,h], frames:[{frameIndex,
+timeMs, base64}], impactFrameIndex, firstMovingFrameIndex, lastStationaryFrameIndex}`: lower-camera
+frames cropped to one fixed box around the resting ball (club approach behind it, flight ahead and
+above), 240 px wide, brightened for display only. Use a 30-second timeout; the first request can
+wait while the Pi finishes saving the burst.
+
 Protocol 2.34.0 adds named clubs. `setClub` and `arm` accept an optional
 `"bagClub": {"id": "bag-...", "name": "Vokey 56", "faceWidthMm": 78, "faceHeightMm": 50}`
 (id 1-64 of letters, digits, `-`, `_`; name 1-40 characters; face size optional but both or

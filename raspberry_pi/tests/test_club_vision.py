@@ -207,7 +207,13 @@ class TaglessClubTests(unittest.TestCase):
         _, metrics = self._measure(ball_speed=speed * 2.2)
         for key in ('clubSpeedMps', 'smashFactor', 'attackAngleDeg'):
             self.assertIsNone(metrics[key]['value'])
-        self.assertIn('above any real club', metrics['clubSpeedMps']['reason'])
+        self.assertIn('for any real strike', metrics['clubSpeedMps']['reason'])
+
+    def test_plausibility_gate(self):
+        # Replayed 2026-09-25 chip: a single-camera track gave a -37 deg attack angle.
+        self.assertIn('attack angle', club_vision.implausible_club(3.5, 5.1, -37.1))
+        self.assertIn('smash 0.20', club_vision.implausible_club(25.2, 5.1, -10.3))
+        self.assertIsNone(club_vision.implausible_club(10.0, 12.3, -8.0))
 
     def test_speed_and_attack_angle_match_the_rendered_motion(self):
         result, metrics = self._measure()

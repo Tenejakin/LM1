@@ -41,6 +41,26 @@ MEASURED_TRACK_FRAMES = 8
 # Above any real club's ball/club speed ratio (a driver at the COR limit reaches ~1.5):
 # the club track, not the ball, is wrong.
 MAX_PLAUSIBLE_SMASH = 1.55
+# Below this the club track, not the strike, is wrong: even a heavy mishit keeps
+# ball speed above ~0.7 of club speed with a lofted club.
+MIN_PLAUSIBLE_SMASH = 0.7
+# Attack angles beyond these are tracking errors (a -37 deg chip came from a bad
+# single-camera track on 2026-09-25); real ones sit within about -15..+10 deg.
+MIN_PLAUSIBLE_ATTACK_DEG = -25.0
+MAX_PLAUSIBLE_ATTACK_DEG = 15.0
+
+
+def implausible_club(speed_mps, ball_speed_mps, attack_deg):
+    """Why a club track cannot be right, or None."""
+    if not MIN_PLAUSIBLE_ATTACK_DEG <= attack_deg <= MAX_PLAUSIBLE_ATTACK_DEG:
+        return (f"Club attack angle {attack_deg:.0f}° is outside {MIN_PLAUSIBLE_ATTACK_DEG:.0f}..{MAX_PLAUSIBLE_ATTACK_DEG:.0f}°; "
+                "the club track is wrong.")
+    if isinstance(ball_speed_mps, (int, float)) and math.isfinite(ball_speed_mps) and speed_mps > 0:
+        smash = ball_speed_mps / speed_mps
+        if not MIN_PLAUSIBLE_SMASH <= smash <= MAX_PLAUSIBLE_SMASH:
+            return (f"Club speed {speed_mps:.1f} m/s with ball speed {ball_speed_mps:.1f} m/s gives smash {smash:.2f}, "
+                    f"outside {MIN_PLAUSIBLE_SMASH}-{MAX_PLAUSIBLE_SMASH} for any real strike; the club track is wrong.")
+    return None
 # Silhouette centroids are a softer feature than a tag corner; the ball path's
 # 8 mm gate would reject nearly every real swing.
 MAX_CLUB_FIT_RESIDUAL_M = 0.02

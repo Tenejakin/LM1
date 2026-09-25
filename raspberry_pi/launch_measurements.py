@@ -310,6 +310,32 @@ def ground_pose_calibration(detection, camera="primary"):
             "cameraPitchDeg": round(math.degrees(math.asin(float(np.clip(-optical_axis[2], -1, 1)))), 2)}
 
 
+def ground_tag_thickness_m():
+    """Height of the tag's printed face above the hitting surface (e.g. a 4 mm mounting plate)."""
+    try:
+        value = float(os.getenv("PINPOINT_GROUND_TAG_THICKNESS_MM", "0"))
+    except ValueError:
+        return 0.0
+    return value / 1000 if math.isfinite(value) and 0 <= value <= 50 else 0.0
+
+
+def ground_surface_pose(pose):
+    """Move the world origin from the tag's face down onto the surface the ball rests on.
+
+    Every ball model puts the resting centre one radius above z = 0. A tag on a 4 mm plate
+    lifts z = 0 by 4 mm, so a ball on the mat reads 4 mm low and fails the 5 mm stereo
+    resting-height gate. Shifting both cameras' world frames the same way leaves their
+    relative geometry, and so every triangulation, unchanged.
+    """
+    thickness = ground_tag_thickness_m()
+    if pose is None or not thickness:
+        return pose
+    rotation = np.asarray(pose["rotation"], float)
+    # A surface point at z = 0 is at z = -thickness in the tag frame: x_cam = R (p - t e_z) + T.
+    translation = np.asarray(pose["translation"], float) - thickness * rotation[:, 2]
+    return {**pose, "translation": translation, "groundTagThicknessMm": round(thickness * 1000, 2)}
+
+
 def stored_ground_pose(image_size, ground_id, size, matrix, distortion, camera="primary"):
     from apriltag_calibration import load_apriltag_calibration
     saved = load_apriltag_calibration(camera)
@@ -331,8 +357,9 @@ def stored_ground_pose(image_size, ground_id, size, matrix, distortion, camera="
                 or not math.isclose(np.linalg.det(rotation), 1., abs_tol=1e-5)
                 or not math.isfinite(error) or not 0 <= error <= MAX_ESTIMATED_TAG_POSE_ERROR_PX):
             raise ValueError("Stored ground pose invalid; recalibrate with the tag visible.")
-        return {"rotation": rotation, "translation": translation, "errorPx": error,
-                "frameIndex": None, "source": "stored-calibration", "capturedAt": saved.get("capturedAt")}
+        return ground_surface_pose({"rotation": rotation, "translation": translation, "errorPx": error,
+                                    "frameIndex": None, "source": "stored-calibration",
+                                    "capturedAt": saved.get("capturedAt")})
     except (KeyError, TypeError) as exc:
         raise ValueError("Stored ground calibration is incomplete; recalibrate with the tag visible.") from exc
 
@@ -460,7 +487,7 @@ def find_ground_tag_pose(frames, impact_index, ground_id, size, matrix, distorti
         candidates.append({"rotation": rotation, "translation": translation, "errorPx": error, "frameIndex": index})
         if len(candidates) >= MAX_GROUND_TAG_DETECTIONS:
             break
-    return min(candidates, key=lambda candidate: candidate["errorPx"]) if candidates else None
+    return ground_surface_pose(min(candidates, key=lambda candidate: candidate["errorPx"])) if candidates else None
 
 
 def to_gray(frame):
@@ -1693,11 +1720,10 @@ def measure_club_tagless(frames, impact_index, matrix, distortion, world_rotatio
         if not club_vision.MIN_CLUB_SPEED_MPS < speed < club_vision.MAX_CLUB_SPEED_MPS:
             raise ValueError(f"Tag-free club speed {speed:.1f} m/s is outside the supported range.")
         ball_speed = metrics["ballSpeedMps"]["value"]
-        if (isinstance(ball_speed, (int, float)) and math.isfinite(ball_speed)
-                and ball_speed / speed > club_vision.MAX_PLAUSIBLE_SMASH):
-            raise ValueError(f"Tag-free club speed {speed:.1f} m/s with ball speed {ball_speed:.1f} m/s gives smash "
-                             f"{ball_speed / speed:.2f}, above any real club ({club_vision.MAX_PLAUSIBLE_SMASH}); "
-                             "the head silhouette is not tracking the clubface.")
+        problem = club_vision.implausible_club(
+            speed, ball_speed, math.degrees(math.atan2(velocity[2], math.hypot(velocity[0], velocity[1]))))
+        if problem:
+            raise ValueError(f"Tag-free (single-camera) track: {problem}")
         result["clubTrack3d"] = [{"frameIndex": sample["frameIndex"], "positionM": sample["positionM"].tolist()}
                                  for sample in kept]
         diagnostics["clubSilhouette"].update(fitResidualMm=round(residual * 1000, 1), speedMps=round(speed, 3))
@@ -1760,10 +1786,9 @@ def measure_club_stereo(frames, impact_index, lower_camera, upper, ball_center, 
         if not club_vision.MIN_CLUB_SPEED_MPS < speed < club_vision.MAX_CLUB_SPEED_MPS:
             raise ValueError(f"Stereo club speed {speed:.1f} m/s is outside the supported range.")
         ball_speed = metrics["ballSpeedMps"]["value"]
-        if (isinstance(ball_speed, (int, float)) and math.isfinite(ball_speed)
-                and ball_speed / speed > club_vision.MAX_PLAUSIBLE_SMASH):
-            raise ValueError(f"Stereo club speed {speed:.1f} m/s with ball speed {ball_speed:.1f} m/s gives smash "
-                             f"{ball_speed / speed:.2f}, above any real club ({club_vision.MAX_PLAUSIBLE_SMASH}).")
+        problem = club_vision.implausible_club(speed, ball_speed, club_stereo.attack_angle_deg(velocity))
+        if problem:
+            raise ValueError(f"Two-camera track: {problem}")
     except (ValueError, IndexError, np.linalg.LinAlgError, cv2.error) as error:
         diagnostics["clubStereo"] = {"used": False, "failure": str(error), **getattr(error, "diagnostics", {})}
         for key in ("clubSpeedMps", "smashFactor", "attackAngleDeg", "clubPathDeg"):
@@ -1774,7 +1799,8 @@ def measure_club_stereo(frames, impact_index, lower_camera, upper, ball_center, 
     diagnostics["clubStereo"] = {"used": True, **info}
     result["clubTrack3d"] = [{"frameIndex": s["frameIndex"], "positionM": np.asarray(s["positionM"]).tolist()}
                              for s in stereo["track"]]
-    basis = (f"Shaft/hosel point triangulated by both cameras in {info['acceptedFrames']} frames before impact "
+    point = "Club head centre" if info.get("point") == "head" else "Shaft/hosel point"
+    basis = (f"{point} triangulated by both cameras in {info['acceptedFrames']} frames before impact "
              f"(median ray gap {info['medianRayGapMm']:.1f} mm, path residual {info['fitResidualMm']:.1f} mm, "
              f"{info['model']} fit). Measured at the hosel, which travels slightly slower than the face centre. "
              "Requires reference validation.")

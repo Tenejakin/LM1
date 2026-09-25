@@ -17,6 +17,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import launch_measurements  # noqa: E402
 from launch_measurements import RADIUS  # noqa: E402
 import readiness  # noqa: E402
 from stereo_check import _camera  # noqa: E402
@@ -65,6 +66,36 @@ class StereoRestTests(unittest.TestCase):
         result = self.check(np.array([0., .15, RADIUS]), bumped)
         self.assertEqual(result["status"], "fail")
         self.assertIn("recalibrate", result["detail"].lower())
+
+
+class GroundTagThicknessTests(unittest.TestCase):
+    """A tag on a 4 mm plate put z = 0 above the mat: balls read about 4 mm low (2026-09-25)."""
+
+    def setUp(self):
+        self.lower_pose, self.upper_pose = camera(.136), camera(.222)
+
+    def check(self, thickness_mm, tag_height_m):
+        # Calibrate as if the tag face were tag_height_m above the ground the ball rests on.
+        shift = lambda pose: (pose[0], pose[1] + pose[0] @ np.array([0, 0, tag_height_m]))
+        with patch.dict(os.environ, {"PINPOINT_GROUND_TAG_THICKNESS_MM": str(thickness_mm)}):
+            poses = [launch_measurements.ground_surface_pose({"rotation": r, "translation": t})
+                     for r, t in map(shift, (self.lower_pose, self.upper_pose))]
+        cameras = [_camera(MATRIX, DISTORTION, pose["rotation"], pose["translation"]) for pose in poses]
+        ball = np.array([0., .15, RADIUS])
+        lower_image, upper_image = still_views(ball, self.lower_pose, self.upper_pose)
+        return readiness.stereo_rest_check(*cameras, lower_image, upper_image, bounds_of(ball, self.lower_pose))
+
+    def test_uncorrected_plate_reads_the_ball_low(self):
+        self.assertAlmostEqual(self.check(0, 0.004)["heightErrorMm"], -4, delta=1)
+
+    def test_configured_thickness_puts_the_ball_back_on_the_surface(self):
+        result = self.check(4, 0.004)
+        self.assertAlmostEqual(result["heightErrorMm"], 0, delta=1)
+        self.assertEqual(result["status"], "ok")
+
+    def test_invalid_thickness_is_ignored(self):
+        with patch.dict(os.environ, {"PINPOINT_GROUND_TAG_THICKNESS_MM": "not-a-number"}):
+            self.assertEqual(launch_measurements.ground_tag_thickness_m(), 0.0)
 
 
 class ExposureTests(unittest.TestCase):

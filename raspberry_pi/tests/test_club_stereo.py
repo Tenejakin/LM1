@@ -106,6 +106,30 @@ class StereoHoselTests(unittest.TestCase):
         self.assertEqual(caught.exception.diagnostics["triangulatedFrames"], 2)
 
 
+class HeadPixelTests(unittest.TestCase):
+    """A chrome head over a light floor is darker than the background there."""
+
+    def scene(self, head_x, shade):
+        background = np.full((400, 640), 150, np.uint8)  # light tiled floor behind the ball
+        cv2.circle(background, (300, 220), 18, 235, -1)
+        frame = background.copy()
+        cv2.rectangle(frame, (head_x - 30, 200), (head_x + 30, 236), shade, -1)  # head
+        cv2.line(frame, (head_x - 20, 200), (head_x - 90, 20), 240, 3)         # shaft up to the hands
+        cv2.rectangle(frame, (420, 140), (470, 200), 60, -1)                    # the golfer's feet
+        return frame, background
+
+    def test_dark_head_on_light_floor_is_found_without_the_shaft_or_feet(self):
+        frame, background = self.scene(200, 70)
+        centre = club_stereo.head_pixel(frame, background, np.array([300.0, 220.0]), 18)
+        self.assertIsNotNone(centre)
+        self.assertAlmostEqual(centre[0], 200, delta=6)
+        self.assertAlmostEqual(centre[1], 218, delta=8)
+
+    def test_head_cut_by_the_image_edge_is_refused(self):
+        frame, background = self.scene(20, 70)
+        self.assertIsNone(club_stereo.head_pixel(frame, background, np.array([300.0, 220.0]), 18))
+
+
 class MotionFitTests(unittest.TestCase):
     def test_curved_fit_returns_velocity_at_impact_not_the_window_average(self):
         # Descending along an arc: 16 m/s² upward acceleration flattens the path into impact.

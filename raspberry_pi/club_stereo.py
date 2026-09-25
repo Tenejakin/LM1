@@ -1,4 +1,4 @@
-"""Two-camera club measurement from the shaft/hosel vertex. Version 1.0.0.
+"""Two-camera club measurement from the shaft/hosel vertex or the head. Version 1.1.0.
 
 On the stand the clubhead is dark against a dark mat and barely segments; what
 both cameras do see is the lit shaft and the hosel/top-line highlight, a "check"
@@ -11,6 +11,12 @@ it pinned the hosel, which sits nearer the golfer than the ball, to a plane
 through the ball. Replaying 15 real sand-wedge chips (2026-09-25) this path
 resolved 12 of 15, with smash mostly 1.16-1.38 against 1.35-1.61 before.
 
+A visible head (a chrome club, 2026-09-25) breaks the vertex: the lowest point then lies on
+the rounded sole, which the two cameras see at different spots, and over a light floor the
+head is darker than the background, so a brighter-only mask keeps just the shaft. The head
+is therefore also found by absolute change in a ground-level window behind the ball, and
+whichever point gives the longer consistent track is used.
+
 Three frames are the minimum. Every further consistent frame joins the fit; with
 five or more a constant-acceleration term follows the swing arc, so the velocity
 is the one at the last frame before impact rather than the window's average
@@ -21,6 +27,7 @@ from __future__ import annotations
 
 import math
 
+import cv2
 import numpy as np
 
 import club_vision
@@ -39,6 +46,12 @@ CURVED_FIT_FRAMES = 5
 MAX_FRAME_STEP = 2
 MAX_HOSEL_HEIGHT_M = 0.3
 EDGE_MARGIN_PX = 3
+# Head window around the resting ball, in ball radii: ground level only, so the
+# golfer's feet and the upper shaft are not part of the head.
+HEAD_WINDOW_ABOVE_RADII = 3.0
+HEAD_WINDOW_BELOW_RADII = 2.5
+HEAD_WINDOW_AHEAD_RADII = 1.0
+HEAD_CHANGE_THRESHOLD = 25
 # Measured-grade gates.
 MEASURED_FRAMES = 5
 MEASURED_RAY_GAP_MM = 6.0
@@ -57,6 +70,31 @@ def hosel_pixel(frame, background, ball_pixel, ball_radius_px):
     if not (EDGE_MARGIN_PX <= vertex[0] < width - EDGE_MARGIN_PX and lowest < height - EDGE_MARGIN_PX):
         return None
     return vertex
+
+
+def head_pixel(frame, background, ball_pixel, ball_radius_px):
+    """Centroid of the club head: pixels that changed either way, at ground level behind the ball."""
+    gray = club_vision.to_gray(frame)
+    difference = cv2.GaussianBlur(cv2.absdiff(gray, background), (3, 3), 0)
+    _, mask = cv2.threshold(difference, HEAD_CHANGE_THRESHOLD, 255, cv2.THRESH_BINARY)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
+    height, width = mask.shape
+    x_stop = int(min(width, ball_pixel[0] + HEAD_WINDOW_AHEAD_RADII * ball_radius_px))
+    y_start = int(max(0, ball_pixel[1] - HEAD_WINDOW_ABOVE_RADII * ball_radius_px))
+    y_stop = int(min(height, ball_pixel[1] + HEAD_WINDOW_BELOW_RADII * ball_radius_px))
+    window = np.zeros_like(mask)
+    window[y_start:y_stop, :x_stop] = mask[y_start:y_stop, :x_stop]
+    cv2.circle(window, tuple(int(round(v)) for v in ball_pixel), int(ball_radius_px * 1.15), 0, -1)
+    count, _, stats, centroids = cv2.connectedComponentsWithStats(window)
+    if count < 2:
+        return None
+    blob = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+    if stats[blob, cv2.CC_STAT_AREA] < max(40.0, 0.4 * ball_radius_px ** 2):
+        return None
+    if stats[blob, cv2.CC_STAT_LEFT] <= EDGE_MARGIN_PX:
+        return None  # The head is still entering the view: its centroid is biased.
+    return centroids[blob].astype(float)
 
 
 def fit_motion(times, positions):
@@ -102,25 +140,40 @@ def measure(lower_frames, upper_frames, impact_index, lower, upper, lower_backgr
         if depth <= 0:
             raise ValueError("Ball is behind a camera; recalibrate both cameras.")
         views.append((_project(camera, [ball_center])[0], RADIUS * camera["K"][0, 0] / depth))
-    samples, gaps = [], []
-    for index in range(max(0, impact_index - SEARCH_FRAMES), impact_index):
-        lower_px = hosel_pixel(lower_frames[index][1], lower_background, *views[0])
-        upper_px = hosel_pixel(upper_frames[index][1], upper_background, *views[1])
-        if lower_px is None or upper_px is None:
-            continue
-        point, gap = _triangulate(_ray(lower, lower_px), _ray(upper, upper_px))
-        gaps.append(round(gap * 1000, 1))
-        if gap > MAX_RAY_GAP_M or not -0.01 <= point[2] <= MAX_HOSEL_HEIGHT_M:
-            continue
-        samples.append({"frameIndex": index, "time": lower_frames[index][0], "positionM": point,
-                        "rayGapMm": gap * 1000, "lowerPx": lower_px.tolist(), "upperPx": upper_px.tolist()})
-    diagnostics = {"method": "stereo-hosel-v1", "candidateFrames": len(gaps), "rayGapsMm": gaps,
-                   "triangulatedFrames": len(samples)}
-    run = consistent_run(samples)
+    tracks = {}
+    for name, locate in (("hosel", hosel_pixel), ("head", head_pixel)):
+        samples, gaps = [], []
+        for index in range(max(0, impact_index - SEARCH_FRAMES), impact_index):
+            lower_px = locate(lower_frames[index][1], lower_background, *views[0])
+            upper_px = locate(upper_frames[index][1], upper_background, *views[1])
+            if lower_px is None or upper_px is None:
+                continue
+            point, gap = _triangulate(_ray(lower, lower_px), _ray(upper, upper_px))
+            gaps.append(round(gap * 1000, 1))
+            if gap > MAX_RAY_GAP_M or not -0.01 <= point[2] <= MAX_HOSEL_HEIGHT_M:
+                continue
+            samples.append({"frameIndex": index, "time": lower_frames[index][0], "positionM": point,
+                            "rayGapMm": gap * 1000, "lowerPx": list(map(float, lower_px)),
+                            "upperPx": list(map(float, upper_px))})
+        tracks[name] = (samples, gaps, consistent_run(samples))
+
+    def quality(name):
+        run = tracks[name][2]
+        if len(run) < MIN_FRAMES:
+            return (len(run), 0.0)
+        _, residuals = fit_motion([s["time"] for s in run], [s["positionM"] for s in run])
+        return (len(run), -float(residuals.max()))
+    point_used = max(tracks, key=quality)
+    samples, gaps, run = tracks[point_used]
+    diagnostics = {"method": "stereo-hosel-v1" if point_used == "hosel" else "stereo-head-v1",
+                   "point": point_used, "candidateFrames": len(gaps), "rayGapsMm": gaps,
+                   "triangulatedFrames": len(samples),
+                   "runsByPoint": {name: len(track[2]) for name, track in tracks.items()}}
     if len(run) < MIN_FRAMES:
         error = ValueError(
-            f"Both cameras resolved the shaft/hosel in {len(samples)} of the {SEARCH_FRAMES} frames before impact, "
-            f"with {len(run)} following one smooth path; at least {MIN_FRAMES} are required.")
+            f"Both cameras resolved the club ({point_used}) in {len(samples)} of the {SEARCH_FRAMES} frames before "
+            f"impact, with {len(run)} following one smooth path; at least {MIN_FRAMES} are required. The head is "
+            "in full view only briefly behind the ball: more room behind the ball in the image gives it more frames.")
         error.diagnostics = diagnostics
         raise error
     velocity, residuals = fit_motion([s["time"] for s in run], [s["positionM"] for s in run])

@@ -42,9 +42,10 @@ def replay(folder, original, manifest):
     def pose(image_size, ground_id, size, matrix, distortion, camera="primary"):
         c = calibrations[camera == "secondary"]
         p = c["groundPose"]
-        return {"rotation": np.array(p["rotation"]), "translation": np.array(p["translationM"]),
-                "errorPx": p["errorPx"], "capturedAt": c["capturedAt"],
-                "source": "stored-calibration", "frameIndex": None}
+        # Same ground-surface shift as a live analysis (PINPOINT_GROUND_TAG_THICKNESS_MM).
+        return lm.ground_surface_pose({"rotation": np.array(p["rotation"]), "translation": np.array(p["translationM"]),
+                                       "errorPx": p["errorPx"], "capturedAt": c["capturedAt"],
+                                       "source": "stored-calibration", "frameIndex": None})
     secondary = json.loads((folder / "camera-secondary/capture.json").read_text())
     # Independently zeroing each camera's timestamps would erase their timing offset.
     epoch = manifest["frameMetadata"][0]["SensorTimestamp"]

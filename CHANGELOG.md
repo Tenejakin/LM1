@@ -1,5 +1,14 @@
 # Changelog
 
+## Pi service 0.50.0 - 2026-09-25
+
+- Track the club head as well as the shaft/hosel point. A visible chrome head broke the hosel point: its lowest point lies on the rounded sole, seen at different spots by the two cameras (13-20 mm ray gaps), and over the light floor the head is darker than the background, so the brighter-only mask kept just the shaft. The head is found by change in either direction in a ground-level window behind the ball, and the point giving the longer consistent track is used. Replay: morning dark-wedge chips 13 of 15 with club data (one recovered by the head point); today's chrome-head chips still 1 of 5, limited by the head being in full view for only 2-4 frames with the ball 18% from the image edge.
+- Reject club tracks with an attack angle outside -25..+15° or smash outside 0.7-1.55, for both camera paths. A single-camera track had reported a -34° attack angle on a chip.
+
+## Pi service 0.49.1 - 2026-09-25
+
+- Add `PINPOINT_GROUND_TAG_THICKNESS_MM`: the height of the ground tag's printed face above the hitting surface. With the tag on a 4 mm plate every resting ball read about 4 mm low and failed the 5 mm stereo resting-height gate; on five real chips the error moved from -1..-6 mm to -2..+3 mm with 4 mm set. Both cameras' world frames shift together, so triangulation is unchanged. Saved-capture replays apply the same shift.
+
 ## App 3.38.0 / Pi service 0.49.0 / protocol 2.34.0 - 2026-09-25
 
 - Add named clubs ("My clubs" in the club picker): a name, the club type the models use, optional loft and the measured face size, with a how-to-measure guide. Clubs are stored on the device and in the signed-in account.

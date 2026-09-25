@@ -15,6 +15,7 @@ import { ContactSheet } from '@/components/ContactSheet';
 import { DIRECTION_SIGN_NOTE, directionLabel } from '@/utils/direction';
 import { measuredAttackAngle, measuredClubPath, measuredClubSpeed, measuredSmash, measuredStrike } from '@/utils/shotValues';
 import { shotEstimates } from '@/utils/carry';
+import { shotClubLabel } from '@/utils/bagClubs';
 
 export function ShotDetailModal({ shot, onClose }: { shot: Shot | null; onClose: () => void }) {
   return (
@@ -99,7 +100,7 @@ function ShotDetail({ shot, onClose }: { shot: Shot; onClose: () => void }) {
           <View>
             <Eyebrow>Shot review</Eyebrow>
             <Text style={styles.title}>Shot #{shot.number}</Text>
-            <Text style={styles.clubName}>{getClub(shot.clubId).label}</Text>
+            <Text style={styles.clubName}>{shotClubLabel(shot)}</Text>
           </View>
           <IconButton icon="close" label="Close shot details" onPress={onClose} />
         </View>

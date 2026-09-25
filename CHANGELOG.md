@@ -1,5 +1,12 @@
 # Changelog
 
+## App 3.38.0 / Pi service 0.49.0 / protocol 2.34.0 - 2026-09-25
+
+- Add named clubs ("My clubs" in the club picker): a name, the club type the models use, optional loft and the measured face size, with a how-to-measure guide. Clubs are stored on the device and in the signed-in account.
+- Send the selected named club with `setClub`/`arm`; the Pi echoes `bagClubId`/`bagClubName` on each capture so a shot is credited to the club that was selected on the Pi, and writes its face size as the club profile the strike analysis reads (never replacing a hand-made profile).
+- Group session statistics, dispersion and gapping by named club, so two sand wedges keep separate numbers. Shot lists, details and the Monitor card show the club's name.
+- Strike location still needs the clubhead to stand out from the mat: replaying 15 real chips with a 78 x 50 mm profile found only the 50-54 mm shaft/hosel highlight, which the face-span check rejects.
+
 ## App 3.37.0 / Pi service 0.48.0 - 2026-09-25
 
 - Replace the flight model in both the app and the Pi. Checked against Trackman PGA Tour averages, the old model carried a driver 190 yd instead of 275 with a 13 yd apex; the new spin- and speed-dependent aerodynamics carry driver to wedge within 1-7%, with height and landing angle close. App and Pi produce identical carry.

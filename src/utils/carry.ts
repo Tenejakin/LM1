@@ -185,6 +185,7 @@ export function estimateShotFromCapture(capture: CaptureAnalysis, fallbackClub: 
     number,
     capturedAt: capture.capturedAt,
     clubId,
+    ...(capture.bagClubId ? { bagClubId: capture.bagClubId, bagClubName: capture.bagClubName ?? undefined } : {}),
     ballSpeedMps,
     clubSpeedMps,
     smashFactor,

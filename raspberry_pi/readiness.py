@@ -152,8 +152,11 @@ def camera_checks(lower_image: Any, upper_image: Any, bounds: tuple[int, int, in
     return items
 
 
-def club_profile_check(club_id: str, mode: str) -> dict[str, Any] | None:
-    """Strike location needs the measured face size of the club in use."""
+def club_profile_check(club_id: str, mode: str, club_name: str | None = None) -> dict[str, Any] | None:
+    """Strike location needs the measured face size of the club in use.
+
+    ``club_id`` is the active club key: a named bag club's id when one is selected.
+    """
     if mode == "putting":
         return None
     from club_vision import load_club_profile
@@ -161,21 +164,25 @@ def club_profile_check(club_id: str, mode: str) -> dict[str, Any] | None:
     label = "Strike location"
     if profile is None:
         return _item("club-profile", label, "warn",
-                     "No clubface measurement saved, so strike location will be unavailable. Measure the face "
-                     "(heel-toe width and face height) and save it as the club profile.")
+                     f"No face measurement for {club_name or club_id}, so strike location will be unavailable. "
+                     "Add the heel-toe width and face height to this club in the app.")
     if profile.get("clubId") and profile["clubId"] != club_id:
         return _item("club-profile", label, "warn",
-                     f"The saved face measurement is for {profile['clubId']}, not {club_id}; strike location "
-                     "may be rejected. Measure this club's face.")
+                     f"The saved face measurement is for {profile.get('clubName') or profile['clubId']}, not "
+                     f"{club_name or club_id}; strike location may be rejected. Add this club's face size in the app.")
     return _item("club-profile", label, "ok",
                  f"Face profile {profile['faceWidthMm']:.0f} × {profile['faceHeightMm']:.0f} mm.")
 
 
 def readiness(camera_items: list[dict[str, Any]] | None, exposure_us: float | None,
-              club_id: str, mode: str) -> dict[str, Any]:
-    """Combine the camera checks from the last arming with the current club and exposure."""
+              club_id: str, mode: str, bag_club: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Combine the camera checks from the last arming with the current club and exposure.
+
+    ``club_id`` is the club type (for speed); ``bag_club`` the named club, if any.
+    """
     items = [exposure_check(exposure_us, club_id, mode), *(camera_items or [])]
-    profile = club_profile_check(club_id, mode)
+    profile = club_profile_check(bag_club["id"] if bag_club else club_id, mode,
+                                 bag_club["name"] if bag_club else None)
     if profile is not None:
         items.append(profile)
     return summarize(items)

@@ -4,11 +4,10 @@ import Svg, { Circle, Line, Text as SvgText } from 'react-native-svg';
 
 import { Eyebrow, Surface } from '@/components/ui';
 import { useUnits } from '@/context/UnitsContext';
-import { getClub } from '@/data/clubs';
 import { colors, spacing } from '@/theme';
-import { ClubId, Shot } from '@/types';
+import { Shot } from '@/types';
 import { shotEstimates } from '@/utils/carry';
-import { clubSummaries, includedShots } from '@/utils/session';
+import { clubKey, clubSummaries, includedShots } from '@/utils/session';
 
 const PALETTE: string[] = [colors.accent, colors.cyan, colors.orange, colors.red, colors.white, colors.textMuted];
 
@@ -18,8 +17,8 @@ export function SessionClubs({ shots }: { shots: Shot[] }) {
   const summaries = useMemo(() => clubSummaries(shots), [shots]);
   const excluded = shots.filter((shot) => shot.excluded).length;
   const color = useMemo(() => {
-    const map = new Map<ClubId, string>();
-    summaries.forEach((summary, index) => map.set(summary.clubId, PALETTE[index % PALETTE.length] ?? colors.textMuted));
+    const map = new Map<string, string>();
+    summaries.forEach((summary, index) => map.set(summary.key, PALETTE[index % PALETTE.length] ?? colors.textMuted));
     return map;
   }, [summaries]);
   if (!summaries.length) return null;
@@ -31,13 +30,12 @@ export function SessionClubs({ shots }: { shots: Shot[] }) {
       <Text style={styles.title}>Averages, dispersion and gapping</Text>
       <DispersionPlot shots={shots} color={color} />
       {summaries.map((summary) => {
-        const club = getClub(summary.clubId);
         const offline = summary.offlineM.mean;
         return (
-          <View key={summary.clubId} style={styles.club}>
+          <View key={summary.key} style={styles.club}>
             <View style={styles.clubHeader}>
-              <View style={[styles.swatch, { backgroundColor: color.get(summary.clubId) }]} />
-              <Text style={styles.clubName}>{club.label}</Text>
+              <View style={[styles.swatch, { backgroundColor: color.get(summary.key) }]} />
+              <Text style={styles.clubName} numberOfLines={1}>{summary.label}</Text>
               <Text style={styles.count}>{summary.shots} {summary.shots === 1 ? 'shot' : 'shots'}</Text>
             </View>
             <Text style={styles.line}>
@@ -72,11 +70,11 @@ export function SessionClubs({ shots }: { shots: Shot[] }) {
   );
 }
 
-function DispersionPlot({ shots, color }: { shots: Shot[]; color: Map<ClubId, string> }) {
+function DispersionPlot({ shots, color }: { shots: Shot[]; color: Map<string, string> }) {
   const units = useUnits();
   const points = useMemo(() => includedShots(shots).flatMap((shot) => {
     const estimate = shotEstimates(shot);
-    return estimate ? [{ id: shot.id, clubId: shot.clubId, x: estimate.flight.offlineM, y: estimate.flight.carryM }] : [];
+    return estimate ? [{ id: shot.id, key: clubKey(shot), x: estimate.flight.offlineM, y: estimate.flight.carryM }] : [];
   }), [shots]);
   if (points.length < 2) return null;
   const width = 300;
@@ -92,7 +90,7 @@ function DispersionPlot({ shots, color }: { shots: Shot[]; color: Map<ClubId, st
         <Line x1={width / 2} y1={pad / 2} x2={width / 2} y2={height - pad} stroke={colors.line} strokeDasharray="4 4" />
         <Line x1={pad} y1={height - pad} x2={width - pad} y2={height - pad} stroke={colors.line} />
         {points.map((point) => (
-          <Circle key={point.id} cx={sx(point.x)} cy={sy(point.y)} r={4} fill={color.get(point.clubId) ?? colors.textMuted} opacity={0.85} />
+          <Circle key={point.id} cx={sx(point.x)} cy={sy(point.y)} r={4} fill={color.get(point.key) ?? colors.textMuted} opacity={0.85} />
         ))}
         <SvgText x={pad} y={height - 6} fill={colors.textDim} fontSize={10}>L</SvgText>
         <SvgText x={width - pad} y={height - 6} fill={colors.textDim} fontSize={10} textAnchor="end">R</SvgText>

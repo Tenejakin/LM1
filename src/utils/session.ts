@@ -1,5 +1,6 @@
 import { clubs } from '@/data/clubs';
 import { ClubId, Shot } from '@/types';
+import { shotClubLabel } from '@/utils/bagClubs';
 import { shotEstimates } from '@/utils/carry';
 import { measuredClubSpeed, measuredSmash } from '@/utils/shotValues';
 
@@ -13,6 +14,10 @@ export interface Spread {
 }
 
 export interface ClubSummary {
+  /** Named bag club id, or the club type for shots hit without one. */
+  key: string;
+  label: string;
+  /** Club type, for ordering and models. */
   clubId: ClubId;
   shots: number;
   ballSpeedMps: Spread;
@@ -44,12 +49,20 @@ export function includedShots(shots: Shot[]): Shot[] {
   return shots.filter((shot) => !shot.excluded && !shot.simulated);
 }
 
+/** Groups shots by named bag club, falling back to the club type. */
+export function clubKey(shot: Pick<Shot, 'bagClubId' | 'clubId'>): string {
+  return shot.bagClubId ?? shot.clubId;
+}
+
 /** Per-club averages, dispersion and gapping, longest club first. */
 export function clubSummaries(shots: Shot[]): ClubSummary[] {
-  const byClub = new Map<ClubId, Shot[]>();
-  for (const shot of includedShots(shots)) byClub.set(shot.clubId, [...(byClub.get(shot.clubId) ?? []), shot]);
+  const byClub = new Map<string, Shot[]>();
+  for (const shot of includedShots(shots)) byClub.set(clubKey(shot), [...(byClub.get(clubKey(shot)) ?? []), shot]);
   const summaries: ClubSummary[] = [];
-  for (const [clubId, group] of byClub) {
+  for (const [key, group] of byClub) {
+    // The newest shot carries the current name after a rename.
+    const newest = group.reduce((latest, shot) => (shot.capturedAt > latest.capturedAt ? shot : latest));
+    const clubId = newest.clubId;
     const estimates = group.map((shot) => ({ shot, estimate: shotEstimates(shot) }));
     const flown = estimates.filter((item) => item.estimate !== null);
     const numbers = (values: (number | null | undefined)[]) =>
@@ -57,6 +70,8 @@ export function clubSummaries(shots: Shot[]): ClubSummary[] {
     const carry = spread(flown.map((item) => item.estimate!.flight.carryM));
     if (!carry) continue;
     summaries.push({
+      key,
+      label: shotClubLabel(newest),
       clubId,
       shots: group.length,
       ballSpeedMps: spread(group.map((shot) => shot.ballSpeedMps))!,

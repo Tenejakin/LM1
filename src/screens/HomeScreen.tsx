@@ -20,10 +20,10 @@ import { directionLabel, ShotRow, StrikeMap, TrajectoryChart } from '@/component
 import { Eyebrow, HelpText, MetricTile, PrimaryButton, SectionHeader, StepRow, Surface } from '@/components/ui';
 import { useLaunchMonitor } from '@/context/LaunchMonitorContext';
 import { useUnits } from '@/context/UnitsContext';
-import { getClub } from '@/data/clubs';
 import { colors, radii, spacing } from '@/theme';
 import { Shot } from '@/types';
 import { shotEstimates } from '@/utils/carry';
+import { shotClubLabel } from '@/utils/bagClubs';
 import { measuredAttackAngle, measuredClubPath, measuredClubSpeed, measuredSmash } from '@/utils/shotValues';
 
 export function HomeScreen({
@@ -231,7 +231,7 @@ export function HomeScreen({
             <View>
               <Eyebrow>{activeShot.measurementSource ? 'Camera estimate' : activeShot.simulated ? 'Test shot' : 'Latest shot'}</Eyebrow>
               <Text style={styles.shotTitle}>Shot #{activeShot.number}</Text>
-              <Text style={styles.shotClub}>{getClub(activeShot.clubId).label}</Text>
+              <Text style={styles.shotClub}>{shotClubLabel(activeShot)}</Text>
             </View>
             <Pressable
               accessibilityRole="button"

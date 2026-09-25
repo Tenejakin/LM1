@@ -133,7 +133,13 @@ const shotValueExports = {};
 vm.runInNewContext(compile('src/utils/shotValues.ts'), { exports: shotValueExports, require() { return {}; } });
 const sessionExports = {};
 const clubList = [{ id: 'pitching-wedge' }, { id: 'sand-wedge' }];
+const bagExports = {};
+vm.runInNewContext(compile('src/utils/bagClubs.ts'), { exports: bagExports, require(name) {
+  assert.equal(name, '@/data/clubs');
+  return { getClub: (id) => ({ label: id === 'sand-wedge' ? 'Sand Wedge' : 'Pitching Wedge' }), isClubId: (id) => ['sand-wedge', 'pitching-wedge'].includes(id) };
+} });
 vm.runInNewContext(compile('src/utils/session.ts'), { exports: sessionExports, require(name) {
+  if (name === '@/utils/bagClubs') return bagExports;
   if (name === '@/data/clubs') return { clubs: clubList };
   if (name === '@/utils/carry') return moduleExports;
   if (name === '@/utils/shotValues') return shotValueExports;
@@ -156,4 +162,32 @@ assert.ok(Math.abs(summaries[0].gapToNextM - (summaries[0].carryM.mean - wedge.c
 assert.equal(summaries[0].clubSpeedMps.count, 1, 'club averages use only camera-resolved club speeds');
 assert.ok(wedge.offlineM.mean < 0, 'offline keeps the left sign of start direction');
 assert.equal(sessionExports.spread([5]).sd, null);
+// Two named sand wedges keep separate dispersion; the label follows the newest name.
+const wedges = sessionExports.clubSummaries([
+  sessionShot('v1', 'sand-wedge', 12, { bagClubId: 'bag-v', bagClubName: 'Vokey 56', capturedAt: '2026-09-25T10:00:00Z' }),
+  sessionShot('v2', 'sand-wedge', 12.5, { bagClubId: 'bag-v', bagClubName: 'Vokey 56 bent', capturedAt: '2026-09-25T11:00:00Z' }),
+  sessionShot('c1', 'sand-wedge', 14, { bagClubId: 'bag-c', bagClubName: 'RTX 58', startDirectionDeg: 3 }),
+  sessionShot('p1', 'sand-wedge', 13),
+]);
+assert.deepEqual(Array.from(wedges, (item) => item.key).sort(), ['bag-c', 'bag-v', 'sand-wedge']);
+assert.equal(wedges.find((item) => item.key === 'bag-v').label, 'Vokey 56 bent');
+assert.equal(wedges.find((item) => item.key === 'sand-wedge').label, 'Sand Wedge');
+// Named-club drafts are validated with the Pi's own face-size limits.
+const draft = { name: ' Vokey 56 ', baseClubId: 'sand-wedge', loftDeg: '56', faceWidthMm: '78', faceHeightMm: '50' };
+const saved = bagExports.bagClubFromDraft(draft);
+assert.equal(saved.name, 'Vokey 56');
+assert.deepEqual({ ...bagExports.bagClubCommand(saved) }, { id: saved.id, name: 'Vokey 56', faceWidthMm: 78, faceHeightMm: 50 });
+assert.match(bagExports.bagClubFromDraft({ ...draft, faceWidthMm: '30' }), /Face width/);
+assert.match(bagExports.bagClubFromDraft({ ...draft, faceHeightMm: '' }), /both/);
+assert.match(bagExports.bagClubFromDraft({ ...draft, name: '' }), /name/);
+assert.deepEqual({ ...bagExports.bagClubCommand({ ...saved, faceWidthMm: null, faceHeightMm: null }) }, { id: saved.id, name: 'Vokey 56' });
+assert.equal(bagExports.parseBagClubs('not json').length, 0);
+assert.equal(bagExports.parseBagClubs(JSON.stringify([saved, { id: 'x', name: 'y', baseClubId: 'putter' }])).length, 1);
+// A capture from a named club lands on the shot.
+capture.measurements.metrics.ballSpeedMps.value = 11.6;
+capture.measurements.shotEvidence.status = 'club-motion-observed';
+capture.bagClubId = 'bag-v'; capture.bagClubName = 'Vokey 56';
+const bagShot = moduleExports.estimateShotFromCapture(capture, club.id, 3);
+assert.equal(bagShot.bagClubId, 'bag-v');
+assert.equal(bagShot.bagClubName, 'Vokey 56');
 console.log('Camera shot requires camera-derived launch inputs.');

@@ -8,6 +8,7 @@ import json
 import logging
 import math
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -54,8 +55,8 @@ from wifi_manager import (
 )
 
 
-SERVICE_VERSION = "0.48.0"
-PROTOCOL_VERSION = "2.33.0"
+SERVICE_VERSION = "0.49.0"
+PROTOCOL_VERSION = "2.34.0"
 MAX_HISTORY = 10
 MAX_COMMAND_BYTES = 4096
 BLE_CHUNK_BYTES = 20
@@ -248,6 +249,34 @@ def encode_message_chunks(
     return [encoded[offset : offset + chunk_size] for offset in range(0, len(encoded), chunk_size)]
 
 
+BAG_CLUB_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+MAX_BAG_CLUB_NAME = 40
+
+
+def parse_bag_club(value: Any) -> dict[str, Any] | None:
+    """Validate a named club sent by the app; None clears the selection."""
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise CommandError("bagClub must be an object.")
+    club_id, name = value.get("id"), value.get("name")
+    if not isinstance(club_id, str) or not BAG_CLUB_ID.match(club_id):
+        raise CommandError("bagClub.id must be 1-64 letters, digits, dashes or underscores.")
+    if not isinstance(name, str) or not name.strip() or len(name) > MAX_BAG_CLUB_NAME:
+        raise CommandError(f"bagClub.name must be 1-{MAX_BAG_CLUB_NAME} characters.")
+    club = {"id": club_id, "name": name.strip()}
+    width, height = value.get("faceWidthMm"), value.get("faceHeightMm")
+    if width is not None or height is not None:
+        from club_vision import MAX_FACE_HEIGHT_MM, MAX_FACE_WIDTH_MM, MIN_FACE_HEIGHT_MM, MIN_FACE_WIDTH_MM
+        numbers = all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in (width, height))
+        if (not numbers or not MIN_FACE_WIDTH_MM <= width <= MAX_FACE_WIDTH_MM
+                or not MIN_FACE_HEIGHT_MM <= height <= MAX_FACE_HEIGHT_MM):
+            raise CommandError(f"Face size must be {MIN_FACE_WIDTH_MM:.0f}-{MAX_FACE_WIDTH_MM:.0f} mm wide and "
+                               f"{MIN_FACE_HEIGHT_MM:.0f}-{MAX_FACE_HEIGHT_MM:.0f} mm high.")
+        club.update(faceWidthMm=float(width), faceHeightMm=float(height))
+    return club
+
+
 class PinpointProtocol:
     def __init__(
         self,
@@ -274,6 +303,9 @@ class PinpointProtocol:
             raise ValueError("PINPOINT_CAPTURE_BACKEND must be 'simulator' or 'camera'")
         self.state = "ready"
         self.club_id = "driver"
+        # A named club from the player's bag: {"id", "name"} plus optional face size.
+        # club_id stays the club type the flight and spin models use.
+        self.bag_club: dict[str, Any] | None = None
         self.capture_mode = "full-shot"
         self.shots: list[dict[str, Any]] = []
         self.putts: list[dict[str, Any]] = []
@@ -308,7 +340,7 @@ class PinpointProtocol:
             exposure = camera_diagnostics().get("exposureUs") if uses_csi() else None
             if not exposure:
                 exposure = configured_exposure_us() if uses_csi() else int(os.getenv("PINPOINT_EXPOSURE_US", "0"))
-            return readiness(self._readiness_items, exposure, self.club_id, self.capture_mode)
+            return readiness(self._readiness_items, exposure, self.club_id, self.capture_mode, self.bag_club)
         except Exception:  # Status must always answer; a broken check is logged, not fatal.
             LOGGER.exception("Readiness check failed")
             return None
@@ -337,6 +369,8 @@ class PinpointProtocol:
             "captureBackend": self.capture_backend,
             "captureMode": self.capture_mode,
             "selectedClubId": self.club_id,
+            "selectedBagClub": ({"id": self.bag_club["id"], "name": self.bag_club["name"]}
+                                if self.bag_club else None),
             "cameraConnected": camera_connected,
             "fps": int(os.getenv("PINPOINT_CAMERA_FPS", default_fps)) if camera_connected else 0,
             "exposureUs": (
@@ -853,8 +887,10 @@ class PinpointProtocol:
             club_id = "putter"
         elif club_id not in VALID_CLUBS:
             raise CommandError("Unknown clubId.")
+        bag_club = parse_bag_club(command.get("bagClub")) if capture_mode != "putting" else None
 
         self.club_id = club_id
+        self._apply_bag_club(bag_club)
         self.capture_mode = capture_mode
         self.state = "armed"
         status = self.status()
@@ -867,11 +903,43 @@ class PinpointProtocol:
         club_id = command.get("clubId")
         if club_id not in VALID_CLUBS:
             raise CommandError("Unknown clubId.")
+        bag_club = parse_bag_club(command.get("bagClub"))
         self.club_id = club_id
+        self._apply_bag_club(bag_club)
         self.capture_mode = "full-shot"
         status = self.status()
         await self._respond(request_id, status)
         await self.send_message({"type": "status", "data": status})
+
+    def _apply_bag_club(self, bag_club: dict[str, Any] | None) -> None:
+        """Select a named club and make its face size the profile the analysis reads.
+
+        Only a profile this service wrote (``source: app``) is ever replaced or removed;
+        a hand-made club-profile.json is left alone when the club has no face size.
+        """
+        self.bag_club = bag_club
+        path = Path(os.getenv("PINPOINT_CLUB_PROFILE_PATH", "/var/lib/pinpoint/club-profile.json"))
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            existing = None
+        written_by_app = isinstance(existing, dict) and existing.get("source") == "app"
+        try:
+            if bag_club and "faceWidthMm" in bag_club:
+                if existing is not None and not written_by_app:
+                    LOGGER.info("Keeping the hand-made club profile at %s", path)
+                    return
+                profile = {"version": 1, "source": "app", "clubId": bag_club["id"], "clubName": bag_club["name"],
+                           "faceWidthMm": bag_club["faceWidthMm"], "faceHeightMm": bag_club["faceHeightMm"]}
+                if existing != profile:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    temporary = path.with_suffix(".tmp")
+                    temporary.write_text(json.dumps(profile), encoding="utf-8")
+                    temporary.replace(path)
+            elif written_by_app:
+                path.unlink(missing_ok=True)
+        except OSError:
+            LOGGER.warning("Could not update the club face profile at %s", path)
 
     async def _disarm(self, request_id: str) -> None:
         if self.state == "processing":
@@ -943,6 +1011,8 @@ class PinpointProtocol:
         result = {**analysis, "id": capture_id or f"capture-unsaved-{uuid4().hex}",
                   "captureId": capture_id, "capturedAt": utc_now(),
                   "clubId": self.club_id, "mode": self.capture_mode}
+        if self.bag_club and self.capture_mode == "full-shot":
+            result.update(bagClubId=self.bag_club["id"], bagClubName=self.bag_club["name"])
         measurements = result.get("measurements", {})
         evidence = shot_evidence(measurements, self.capture_mode)
         if evidence:
@@ -1040,6 +1110,8 @@ class PinpointProtocol:
             self._shot_number += 1
         result = {"id": capture["id"], "number": self._putt_number if putting else self._shot_number,
                   "capturedAt": capture["capturedAt"], "clubId": self.club_id,
+                  **({"bagClubId": capture["bagClubId"], "bagClubName": capture.get("bagClubName")}
+                     if capture.get("bagClubId") else {}),
                   "ballSpeedMps": values["ballSpeedMps"], "putterSpeedMps" if putting else "clubSpeedMps": values["clubSpeedMps"],
                   "smashFactor": values["smashFactor"], "launchAngleDeg": values["launchAngleDeg"],
                   "launchDirectionDeg" if putting else "startDirectionDeg": values["startDirectionDeg"],

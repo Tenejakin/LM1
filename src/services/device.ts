@@ -27,6 +27,8 @@ import {
 const REQUEST_TIMEOUT_MS = 20_000;
 const WIFI_CONNECT_TIMEOUT_MS = 50_000;
 
+export type BagClubCommand = { id: string; name: string; faceWidthMm?: number; faceHeightMm?: number };
+
 type WireResponse = { type: 'response'; id: string; data: unknown };
 type WireError = { type: 'error'; id?: string; message: string };
 type WireMessage = DeviceEvent | WireResponse | WireError;
@@ -82,12 +84,13 @@ export class DeviceClient {
     return this.request<DevicePutt[]>({ type: 'listPutts' });
   }
 
-  async arm(clubId: ClubId | 'putter', mode: CaptureMode = 'full-shot'): Promise<DeviceStatus> {
-    return this.request<DeviceStatus>({ type: 'arm', clubId, mode });
+  async arm(clubId: ClubId | 'putter', mode: CaptureMode = 'full-shot', bagClub?: BagClubCommand): Promise<DeviceStatus> {
+    return this.request<DeviceStatus>({ type: 'arm', clubId, mode, ...(bagClub ? { bagClub } : {}) });
   }
 
-  async setClub(clubId: ClubId): Promise<DeviceStatus> {
-    return this.request<DeviceStatus>({ type: 'setClub', clubId });
+  /** A named bag club rides along so the Pi can label captures and load its face size. */
+  async setClub(clubId: ClubId, bagClub?: BagClubCommand): Promise<DeviceStatus> {
+    return this.request<DeviceStatus>({ type: 'setClub', clubId, ...(bagClub ? { bagClub } : {}) });
   }
 
   async disarm(): Promise<DeviceStatus> {

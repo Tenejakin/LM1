@@ -3,21 +3,25 @@ import React, { useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { BagClubEditor } from '@/components/BagClubEditor';
 import { clubCategories, clubs, getClub } from '@/data/clubs';
 import { useLaunchMonitor } from '@/context/LaunchMonitorContext';
 import { colors, radii, spacing } from '@/theme';
-import { ClubId } from '@/types';
+import { BagClub, ClubId } from '@/types';
 
 export function ClubSelector({ disabled = false }: { disabled?: boolean }) {
-  const { selectedClub, selectClub } = useLaunchMonitor();
+  const { selectedClub, selectClub, bagClubs, selectedBagClub, selectBagClub, saveBagClub, deleteBagClub } = useLaunchMonitor();
   const [open, setOpen] = useState(false);
+  // undefined: editor closed; null: adding a new club.
+  const [editing, setEditing] = useState<BagClub | null | undefined>(undefined);
   const club = getClub(selectedClub);
+  const label = selectedBagClub?.name ?? club.label;
 
   return (
     <>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Selected club: ${club.label}. Change club`}
+        accessibilityLabel={`Selected club: ${label}. Change club`}
         accessibilityState={{ disabled }}
         disabled={disabled}
         onPress={() => setOpen(true)}
@@ -32,7 +36,8 @@ export function ClubSelector({ disabled = false }: { disabled?: boolean }) {
         </View>
         <View style={styles.selectorCopy}>
           <Text style={styles.selectorEyebrow}>Selected club</Text>
-          <Text style={styles.selectorValue}>{club.label}</Text>
+          <Text style={styles.selectorValue} numberOfLines={1}>{label}</Text>
+          {selectedBagClub ? <Text style={styles.selectorType}>{club.label}{selectedBagClub.loftDeg ? ` · ${selectedBagClub.loftDeg}°` : ''}</Text> : null}
         </View>
         <View style={styles.changePill}>
           <Text style={styles.changeText}>{disabled ? 'Locked' : 'Change'}</Text>
@@ -45,12 +50,38 @@ export function ClubSelector({ disabled = false }: { disabled?: boolean }) {
       </Pressable>
 
       <ClubPickerModal
-        selectedClub={selectedClub}
+        selectedClub={selectedBagClub ? null : selectedClub}
+        bagClubs={bagClubs}
+        selectedBagClubId={selectedBagClub?.id ?? null}
         visible={open}
         onClose={() => setOpen(false)}
         onSelect={(clubId) => {
           selectClub(clubId);
           setOpen(false);
+        }}
+        onSelectBag={(bagClubId) => {
+          selectBagClub(bagClubId);
+          setOpen(false);
+        }}
+        onEditBag={(bagClub) => {
+          setOpen(false);
+          setEditing(bagClub);
+        }}
+      />
+      <BagClubEditor
+        club={editing ?? null}
+        defaultClubId={selectedClub}
+        visible={editing !== undefined}
+        onClose={() => setEditing(undefined)}
+        onSave={(saved) => {
+          const isNew = !bagClubs.some((item) => item.id === saved.id);
+          saveBagClub(saved);
+          if (isNew) selectBagClub(saved.id);
+          setEditing(undefined);
+        }}
+        onDelete={(bagClubId) => {
+          deleteBagClub(bagClubId);
+          setEditing(undefined);
         }}
       />
     </>
@@ -59,14 +90,23 @@ export function ClubSelector({ disabled = false }: { disabled?: boolean }) {
 
 function ClubPickerModal({
   selectedClub,
+  bagClubs,
+  selectedBagClubId,
   visible,
   onClose,
   onSelect,
+  onSelectBag,
+  onEditBag,
 }: {
-  selectedClub: ClubId;
+  /** Null while a named bag club is selected. */
+  selectedClub: ClubId | null;
+  bagClubs: BagClub[];
+  selectedBagClubId: string | null;
   visible: boolean;
   onClose: () => void;
   onSelect: (clubId: ClubId) => void;
+  onSelectBag: (bagClubId: string) => void;
+  onEditBag: (bagClub: BagClub | null) => void;
 }) {
   const insets = useSafeAreaInsets();
   return (
@@ -98,6 +138,45 @@ function ClubPickerModal({
             The selected club is saved with the shot and used by the estimated carry model.
           </Text>
           <ScrollView contentContainerStyle={styles.clubList} showsVerticalScrollIndicator={false}>
+            <View style={styles.category}>
+              <View style={styles.bagHeader}>
+                <Text style={styles.categoryTitle}>My clubs</Text>
+                <Pressable accessibilityRole="button" accessibilityLabel="Add a named club" hitSlop={8} onPress={() => onEditBag(null)}
+                  style={({ pressed }) => [styles.addButton, pressed && styles.clubOptionPressed]}>
+                  <Ionicons name="add" size={15} color={colors.accent} />
+                  <Text style={styles.addText}>Add club</Text>
+                </Pressable>
+              </View>
+              {bagClubs.length ? bagClubs.map((bagClub) => {
+                const selected = bagClub.id === selectedBagClubId;
+                const type = getClub(bagClub.baseClubId);
+                const measured = bagClub.faceWidthMm != null && bagClub.faceHeightMm != null;
+                return (
+                  <View key={bagClub.id} style={[styles.bagRow, selected && styles.clubOptionSelected]}>
+                    <Pressable
+                      accessibilityRole="radio"
+                      accessibilityLabel={`${bagClub.name}, ${type.label}`}
+                      accessibilityState={{ checked: selected }}
+                      onPress={() => onSelectBag(bagClub.id)}
+                      style={styles.bagSelect}
+                    >
+                      <Text style={[styles.clubOptionShort, selected && styles.clubOptionShortSelected]}>{type.shortLabel}</Text>
+                      <View style={styles.bagCopy}>
+                        <Text style={[styles.bagName, selected && styles.clubOptionLabelSelected]} numberOfLines={1}>{bagClub.name}</Text>
+                        <Text style={[styles.bagMeta, selected && styles.clubOptionLabelSelected]}>
+                          {type.label}{bagClub.loftDeg ? ` · ${bagClub.loftDeg}°` : ''}{measured ? ` · face ${bagClub.faceWidthMm}×${bagClub.faceHeightMm} mm` : ' · face not measured'}
+                        </Text>
+                      </View>
+                    </Pressable>
+                    <Pressable accessibilityRole="button" accessibilityLabel={`Edit ${bagClub.name}`} hitSlop={8} onPress={() => onEditBag(bagClub)} style={styles.editButton}>
+                      <Ionicons name="create-outline" size={18} color={selected ? colors.accentInk : colors.textMuted} />
+                    </Pressable>
+                  </View>
+                );
+              }) : (
+                <Text style={styles.bagEmpty}>Add the clubs you are testing, e.g. two sand wedges, to compare their dispersion.</Text>
+              )}
+            </View>
             {clubCategories.map((category) => (
               <View key={category} style={styles.category}>
                 <Text style={styles.categoryTitle}>{category}</Text>
@@ -170,6 +249,20 @@ const styles = StyleSheet.create({
   selectorCopy: { flex: 1 },
   selectorEyebrow: { color: colors.textDim, fontSize: 9, fontWeight: '800', letterSpacing: 0.9, textTransform: 'uppercase' },
   selectorValue: { color: colors.text, fontSize: 16, fontWeight: '700', marginTop: 3 },
+  selectorType: { color: colors.textMuted, fontSize: 11, marginTop: 1 },
+  bagHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.sm },
+  addButton: { alignItems: 'center', flexDirection: 'row', gap: 3 },
+  addText: { color: colors.accent, fontSize: 12, fontWeight: '800' },
+  bagRow: {
+    alignItems: 'center', backgroundColor: colors.surfaceRaised, borderColor: colors.line, borderRadius: radii.md,
+    borderWidth: 1, flexDirection: 'row', marginBottom: 8, paddingRight: spacing.sm,
+  },
+  bagSelect: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: spacing.sm, padding: spacing.sm },
+  bagCopy: { flex: 1 },
+  bagName: { color: colors.text, fontSize: 14, fontWeight: '700' },
+  bagMeta: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
+  editButton: { padding: 6 },
+  bagEmpty: { color: colors.textMuted, fontSize: 12, lineHeight: 18 },
   changePill: { alignItems: 'center', flexDirection: 'row', gap: 4 },
   changeText: { color: colors.textMuted, fontSize: 11, fontWeight: '700' },
   modalRoot: { flex: 1, justifyContent: 'flex-end' },

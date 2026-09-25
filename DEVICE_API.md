@@ -56,6 +56,14 @@ movement that cannot be a strike (ball speed under 2 m/s, direction more than 60
 off the target line, or a ground roll with no club seen); consumers must not
 promote or send it. Putting captures are never classified this way.
 
+Protocol 2.34.0 adds named clubs. `setClub` and `arm` accept an optional
+`"bagClub": {"id": "bag-...", "name": "Vokey 56", "faceWidthMm": 78, "faceHeightMm": 50}`
+(id 1-64 of letters, digits, `-`, `_`; name 1-40 characters; face size optional but both or
+neither, 55-135 x 20-80 mm). `clubId` stays the club type. Captures and legacy shot events then
+carry `bagClubId` and `bagClubName`, and `status.selectedBagClub` reports `{id, name}` or null.
+A face size is written to the club profile with `"source": "app"`; a profile without that
+marker is never replaced or removed. Omitting `bagClub` clears the named club.
+
 Protocol 2.32.0 also adds pre-shot readiness. When a ball arms, the Pi checks the
 resting ball in both cameras and sends
 `{"type":"readiness","data":{"version":1,"status":"ok|warn|fail","items":[...],"checkedAt":"..."}}`.

@@ -9,6 +9,7 @@ import { Shot } from '@/types';
 import { useUnits } from '@/context/UnitsContext';
 import { directionLabel } from '@/utils/direction';
 import { measuredSmash, measuredStrike } from '@/utils/shotValues';
+import { shotClubLabel } from '@/utils/bagClubs';
 
 export { directionLabel } from '@/utils/direction';
 
@@ -117,7 +118,7 @@ export function ShotRow({ shot, onPress }: { shot: Shot; onPress: () => void }) 
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Open shot ${shot.number}, ${club.label}, ball speed ${units.speed(shot.ballSpeedMps)} ${units.spokenSpeedLabel}, estimated carry ${units.distance(shot.estimatedCarryM)} ${units.spokenDistanceLabel}${shot.excluded ? ', excluded from session stats' : ''}`}
+      accessibilityLabel={`Open shot ${shot.number}, ${shotClubLabel(shot)}, ball speed ${units.speed(shot.ballSpeedMps)} ${units.spokenSpeedLabel}, estimated carry ${units.distance(shot.estimatedCarryM)} ${units.spokenDistanceLabel}${shot.excluded ? ', excluded from session stats' : ''}`}
       onPress={onPress}
       style={({ pressed }) => [styles.shotRow, shot.excluded && styles.shotRowExcluded, pressed && styles.shotRowPressed]}
     >
@@ -127,7 +128,7 @@ export function ShotRow({ shot, onPress }: { shot: Shot; onPress: () => void }) 
       </View>
       <View style={styles.shotMain}>
         <Text style={styles.shotSpeed}>{units.speed(shot.ballSpeedMps)}</Text>
-        <Text style={styles.shotUnit}>{club.shortLabel} · {units.speedLabel}{shot.excluded ? ' · excluded' : ''}</Text>
+        <Text style={styles.shotUnit} numberOfLines={1}>{shot.bagClubName ?? club.shortLabel} · {units.speedLabel}{shot.excluded ? ' · excluded' : ''}</Text>
       </View>
       <View style={styles.shotMeta}>
         <Text style={styles.shotSmash}>{measuredSmash(shot)?.toFixed(2) ?? '—'} smash</Text>

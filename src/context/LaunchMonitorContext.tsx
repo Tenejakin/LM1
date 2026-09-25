@@ -16,6 +16,7 @@ import { isClubId } from '@/data/clubs';
 import { DeviceClient } from '@/services/device';
 import {
   AprilTagCalibration,
+  BagClub,
   CalibrationCamera,
   CalibrationCaptureStatus,
   CalibrationImageResult,
@@ -42,6 +43,7 @@ import {
   WifiNetwork,
 } from '@/types';
 import { estimateShotFromCapture, normalizeShot } from '@/utils/carry';
+import { bagClubCommand, parseBagClubs } from '@/utils/bagClubs';
 import { puttFromCapture } from '@/utils/puttCapture';
 import { useOpenGolfSim } from '@/context/OpenGolfSimContext';
 import { useCloudSync } from '@/context/CloudSyncContext';
@@ -49,6 +51,10 @@ import { useCloudSync } from '@/context/CloudSyncContext';
 const DEVICE_ID_KEY = '@pinpoint/ble-device-id';
 const DEMO_KEY = '@pinpoint/demo-mode';
 const CLUB_KEY = '@pinpoint/selected-club';
+const BAG_CLUBS_KEY = '@pinpoint/bag-clubs';
+const SELECTED_BAG_CLUB_KEY = '@pinpoint/selected-bag-club';
+/** Cloud preference key; the list follows the signed-in account. */
+const BAG_CLUBS_PREFERENCE = 'bagClubs';
 const RECONNECT_DELAY_MS = 3_000;
 
 interface LaunchMonitorContextValue {
@@ -62,6 +68,10 @@ interface LaunchMonitorContextValue {
   activePutt: Putt | null;
   captureMode: CaptureMode;
   selectedClub: ClubId;
+  /** Named clubs the player added, e.g. several sand wedges under test. */
+  bagClubs: BagClub[];
+  /** The selected named club, or null when a plain club type is selected. */
+  selectedBagClub: BagClub | null;
   deviceId: string | null;
   isDemo: boolean;
   error: string | null;
@@ -108,13 +118,16 @@ interface LaunchMonitorContextValue {
   connectWifi: (ssid: string, password: string, hidden?: boolean) => Promise<WifiConnectionStatus>;
   selectShot: (shot: Shot) => void;
   selectClub: (clubId: ClubId) => void;
+  selectBagClub: (bagClubId: string) => void;
+  saveBagClub: (club: BagClub) => void;
+  deleteBagClub: (bagClubId: string) => void;
   clearError: () => void;
 }
 
 const LaunchMonitorContext = createContext<LaunchMonitorContextValue | null>(null);
 
 export function LaunchMonitorProvider({ children }: PropsWithChildren) {
-  const { session, syncShots, syncPutts, restoreShots, restorePutts, uploadShotCapture, repairShotImage, beginFrameUpload, getUploadedFrameIndices, savePreference } = useCloudSync();
+  const { session, syncShots, syncPutts, restoreShots, restorePutts, uploadShotCapture, repairShotImage, beginFrameUpload, getUploadedFrameIndices, savePreference, restorePreferences } = useCloudSync();
   const {
     state: openGolfSimState,
     config: openGolfSimConfig,
@@ -130,6 +143,8 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
   const mounted = useRef(true);
   const demoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selectedClubRef = useRef<ClubId>('driver');
+  const selectedBagClubRef = useRef<BagClub | null>(null);
+  const bagClubsRef = useRef<BagClub[]>([]);
   const captureModeRef = useRef<CaptureMode>('full-shot');
   const openGolfSimStateRef = useRef(openGolfSimState);
   const openGolfSimAutoSendRef = useRef(openGolfSimConfig.autoSend);
@@ -156,6 +171,8 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
   const [activePutt, setActivePutt] = useState<Putt | null>(null);
   const [captureMode, setCaptureMode] = useState<CaptureMode>('full-shot');
   const [selectedClub, setSelectedClub] = useState<ClubId>('driver');
+  const [bagClubs, setBagClubs] = useState<BagClub[]>([]);
+  const [selectedBagClub, setSelectedBagClub] = useState<BagClub | null>(null);
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [isDemo, setIsDemo] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -425,7 +442,7 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
 
         if (!mounted.current) return;
         if (nextStatus.state === 'ready' && nextStatus.captureMode !== 'putting') {
-          nextStatus = await client.current.setClub(selectedClubRef.current);
+          nextStatus = await client.current.setClub(selectedClubRef.current, bagClubCommand(selectedBagClubRef.current));
         }
         const connectedDeviceId = client.current.connectedDeviceId;
         setDeviceId(connectedDeviceId);
@@ -553,16 +570,61 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
     reconnect.current = connect;
   }, [connect]);
 
-  const selectClub = useCallback((clubId: ClubId) => {
+  /** Select a club type, or a named bag club of that type, and tell the Pi. */
+  const applyClub = useCallback((clubId: ClubId, bagClub: BagClub | null) => {
     selectedClubRef.current = clubId;
+    selectedBagClubRef.current = bagClub;
     setSelectedClub(clubId);
+    setSelectedBagClub(bagClub);
     void AsyncStorage.setItem(CLUB_KEY, clubId);
+    void (bagClub ? AsyncStorage.setItem(SELECTED_BAG_CLUB_KEY, bagClub.id) : AsyncStorage.removeItem(SELECTED_BAG_CLUB_KEY));
     if (client.current.connectedDeviceId) {
-      void client.current.setClub(clubId).catch((caught) => {
+      void client.current.setClub(clubId, bagClubCommand(bagClub)).catch((caught) => {
         setError(caught instanceof Error ? caught.message : 'Could not update the selected club on LM1.');
       });
     }
   }, []);
+
+  const selectClub = useCallback((clubId: ClubId) => applyClub(clubId, null), [applyClub]);
+
+  const selectBagClub = useCallback((bagClubId: string) => {
+    const club = bagClubsRef.current.find((item) => item.id === bagClubId);
+    if (club) applyClub(club.baseClubId, club);
+  }, [applyClub]);
+
+  const storeBagClubs = useCallback((next: BagClub[], sync = true) => {
+    bagClubsRef.current = next;
+    setBagClubs(next);
+    void AsyncStorage.setItem(BAG_CLUBS_KEY, JSON.stringify(next));
+    if (sync && session?.user) void savePreference(BAG_CLUBS_PREFERENCE, JSON.stringify(next)).catch(() => {});
+  }, [session?.user, savePreference]);
+
+  const saveBagClub = useCallback((club: BagClub) => {
+    const exists = bagClubsRef.current.some((item) => item.id === club.id);
+    storeBagClubs(exists ? bagClubsRef.current.map((item) => (item.id === club.id ? club : item)) : [...bagClubsRef.current, club]);
+    // Re-send an edited selected club so the Pi uses its new face size at once.
+    if (selectedBagClubRef.current?.id === club.id) applyClub(club.baseClubId, club);
+  }, [applyClub, storeBagClubs]);
+
+  const deleteBagClub = useCallback((bagClubId: string) => {
+    storeBagClubs(bagClubsRef.current.filter((item) => item.id !== bagClubId));
+    if (selectedBagClubRef.current?.id === bagClubId) applyClub(selectedClubRef.current, null);
+  }, [applyClub, storeBagClubs]);
+
+  // The account's club list wins over a device that has none; clubs only on this
+  // device are kept and pushed up.
+  useEffect(() => {
+    if (!session?.user) return;
+    let cancelled = false;
+    void restorePreferences().then((preferences) => {
+      if (cancelled) return;
+      const cloud = parseBagClubs(preferences[BAG_CLUBS_PREFERENCE]);
+      const local = bagClubsRef.current;
+      const merged = [...cloud.filter((club) => !local.some((item) => item.id === club.id)), ...local];
+      if (merged.length !== local.length || cloud.length !== merged.length) storeBagClubs(merged);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [session?.user, restorePreferences, storeBagClubs]);
 
   const enableDemo = useCallback(() => {
     if (!demoOriginalShots.current) demoOriginalShots.current = shotsRef.current;
@@ -591,14 +653,21 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
     mounted.current = true;
     const currentClient = client.current;
     void (async () => {
-      const [savedDeviceId, savedDemo, savedClub] = await Promise.all([
+      const [savedDeviceId, savedDemo, savedClub, savedBagClubs, savedBagClubId] = await Promise.all([
         AsyncStorage.getItem(DEVICE_ID_KEY),
         AsyncStorage.getItem(DEMO_KEY),
         AsyncStorage.getItem(CLUB_KEY),
+        AsyncStorage.getItem(BAG_CLUBS_KEY),
+        AsyncStorage.getItem(SELECTED_BAG_CLUB_KEY),
       ]);
       if (!mounted.current) return;
       if (savedDeviceId) setDeviceId(savedDeviceId);
-      if (isClubId(savedClub)) selectClub(savedClub);
+      const restoredBag = parseBagClubs(savedBagClubs);
+      bagClubsRef.current = restoredBag;
+      setBagClubs(restoredBag);
+      const savedBagClub = restoredBag.find((club) => club.id === savedBagClubId);
+      if (savedBagClub) selectBagClub(savedBagClub.id);
+      else if (isClubId(savedClub)) selectClub(savedClub);
       if (savedDemo === 'true') enableDemo();
     })();
 
@@ -608,7 +677,7 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
       if (demoTimer.current) clearTimeout(demoTimer.current);
       currentClient.disconnect();
     };
-  }, [clearReconnectTimer, enableDemo, selectClub]);
+  }, [clearReconnectTimer, enableDemo, selectClub, selectBagClub]);
 
   const disconnect = useCallback(() => {
     intentionalDisconnect.current = true;
@@ -640,7 +709,7 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
       return;
     }
     try {
-      const nextStatus = await client.current.arm(selectedClub, 'full-shot');
+      const nextStatus = await client.current.arm(selectedClub, 'full-shot', bagClubCommand(selectedBagClubRef.current));
       captureModeRef.current = 'full-shot';
       setCaptureMode('full-shot');
       setStatus(nextStatus);
@@ -957,6 +1026,8 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
       activePutt,
       captureMode,
       selectedClub,
+      bagClubs,
+      selectedBagClub,
       deviceId,
       isDemo,
       error,
@@ -1001,6 +1072,9 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
       connectWifi,
       selectShot: setActiveShot,
       selectClub,
+      selectBagClub,
+      saveBagClub,
+      deleteBagClub,
       clearError: () => setError(null),
     }),
     [
@@ -1014,6 +1088,8 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
       activePutt,
       captureMode,
       selectedClub,
+      bagClubs,
+      selectedBagClub,
       deviceId,
       isDemo,
       error,
@@ -1057,6 +1133,9 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
       scanWifi,
       connectWifi,
       selectClub,
+      selectBagClub,
+      saveBagClub,
+      deleteBagClub,
     ],
   );
 

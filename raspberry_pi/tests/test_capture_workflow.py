@@ -1,5 +1,6 @@
 """Evidence-driven workflow regressions; synthetic frames are test fixtures only."""
 import asyncio
+import json
 import os
 from pathlib import Path
 import sys
@@ -406,6 +407,46 @@ class CameraWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('spinRpm', shot)
         self.assertGreater(shot['estimatedCarryM'], 0)
         self.assertIn('assumed', self.protocol.captures[0]['measurements']['metrics']['estimatedCarryM']['reason'])
+
+    async def test_named_club_is_echoed_and_its_face_size_becomes_the_profile(self):
+        from launch_measurements import unavailable
+        profile = Path(self.capture_directory.name) / 'club-profile.json'
+        with patch.dict(os.environ, {'PINPOINT_CLUB_PROFILE_PATH': str(profile)}):
+            vokey = {'id': 'bag-vokey-56', 'name': 'Vokey 56', 'faceWidthMm': 78, 'faceHeightMm': 50}
+            await self.protocol._set_club('c1', {'clubId': 'sand-wedge', 'bagClub': vokey})
+            saved = json.loads(profile.read_text())
+            self.assertEqual((saved['clubId'], saved['faceWidthMm'], saved['source']), ('bag-vokey-56', 78.0, 'app'))
+            self.assertEqual(self.protocol.status()['selectedBagClub'], {'id': 'bag-vokey-56', 'name': 'Vokey 56'})
+
+            analysis = analyze_departure(burst(), (31, 61, 19, 19), 8)
+            metrics = unavailable('test fixture')
+            for key, value in {'ballSpeedMps': 12, 'launchAngleDeg': 29, 'startDirectionDeg': -2}.items():
+                metrics[key].update(value=value, status='estimated')
+            analysis['measurements'] = {'metrics': metrics}
+            await self.protocol.ball_presence_changed(True)
+            await self.protocol.ball_presence_changed(False, analysis=analysis)
+            await self.protocol._capture_task
+            capture = next(message['data'] for message in self.messages if message['type'] == 'capture')
+            self.assertEqual((capture['clubId'], capture['bagClubId'], capture['bagClubName']),
+                             ('sand-wedge', 'bag-vokey-56', 'Vokey 56'))
+
+            # A named club without a face size removes the profile this service wrote...
+            await self.protocol._set_club('c2', {'clubId': 'sand-wedge', 'bagClub': {'id': 'bag-cleveland', 'name': 'RTX 58'}})
+            self.assertFalse(profile.exists())
+            # ...but never a hand-made one.
+            profile.write_text(json.dumps({'version': 1, 'clubId': 'sand-wedge', 'faceWidthMm': 80, 'faceHeightMm': 48}))
+            await self.protocol._set_club('c3', {'clubId': 'sand-wedge'})
+            await self.protocol._set_club('c4', {'clubId': 'sand-wedge', 'bagClub': vokey})
+            self.assertNotIn('source', json.loads(profile.read_text()))
+
+    async def test_invalid_named_club_is_rejected(self):
+        from pinpoint_protocol import CommandError
+        with patch.dict(os.environ, {'PINPOINT_CLUB_PROFILE_PATH': str(Path(self.capture_directory.name) / 'p.json')}):
+            for bag in ({'id': 'has space', 'name': 'x'}, {'id': 'ok', 'name': ''}, {'id': 'ok', 'name': 'x' * 41},
+                        {'id': 'ok', 'name': 'Wedge', 'faceWidthMm': 20, 'faceHeightMm': 50},
+                        {'id': 'ok', 'name': 'Wedge', 'faceWidthMm': 78}):
+                with self.assertRaises(CommandError, msg=str(bag)):
+                    await self.protocol._set_club('bad', {'clubId': 'sand-wedge', 'bagClub': bag})
 
     async def test_mismatched_club_calibration_blocks_complete_shot(self):
         from launch_measurements import unavailable

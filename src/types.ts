@@ -62,6 +62,23 @@ export type ShotMetricKey =
 
 export type CaptureMode = 'full-shot' | 'putting';
 
+/**
+ * A named club in the player's bag, e.g. two sand wedges tested side by side.
+ * baseClubId is the club type the flight and spin models use.
+ */
+export interface BagClub {
+  id: string;
+  name: string;
+  baseClubId: ClubId;
+  /** Static loft as stamped on the club, for reference against dynamic loft. */
+  loftDeg?: number | null;
+  /** Heel-toe width of the face; enables strike location with faceHeightMm. */
+  faceWidthMm?: number | null;
+  /** Face height at the centre, leading edge to top line. */
+  faceHeightMm?: number | null;
+  createdAt: string;
+}
+
 /** Club values that are shown only when the camera resolved them. */
 export type ClubValueKey = 'clubSpeedMps' | 'smashFactor' | 'strike' | 'attackAngleDeg' | 'clubPathDeg';
 
@@ -103,6 +120,10 @@ export interface Shot {
   number: number;
   capturedAt: string;
   clubId: ClubId;
+  /** The named bag club that hit this shot; clubId is its type. */
+  bagClubId?: string;
+  /** Name at the time of the shot, so history reads correctly after a rename or delete. */
+  bagClubName?: string;
   ballSpeedMps: number;
   /** Null when the camera did not resolve the club; never filled from a club profile. */
   clubSpeedMps: number | null;
@@ -212,6 +233,9 @@ export interface CaptureAnalysis {
   captureId: string | null;
   capturedAt: string;
   clubId: string;
+  /** Named bag club the Pi had selected (service 0.49.0+). */
+  bagClubId?: string;
+  bagClubName?: string;
   mode: CaptureMode;
   classification: 'motion-observed' | 'unconfirmed-departure';
   frameCount: number;
@@ -459,6 +483,7 @@ export interface DeviceStatus {
   captureBackend?: 'camera' | 'simulator';
   captureMode?: CaptureMode;
   selectedClubId?: ClubId;
+  selectedBagClub?: { id: string; name: string } | null;
   cameraConnected: boolean;
   camera?: CameraDiagnostics;
   fps: number;

@@ -101,7 +101,7 @@ When no `club-marker.json` exists, the analysis falls back to tracking the clubh
 
 This requires the camera to look **across** the swing, not along it. A camera whose rays lie inside the swing plane cannot resolve clubhead depth at all; that geometry is refused with a message rather than answered, and no amount of lighting fixes it.
 
-Face contact needs one more number that a silhouette cannot supply: how wide the clubhead actually is. Measure the face once per club and save `/var/lib/pinpoint/club-profile.json` (or `PINPOINT_CLUB_PROFILE_PATH`). No tag and no mounting are involved:
+Face contact needs one more number that a silhouette cannot supply: how wide the clubhead actually is. Since app 3.38.0 enter it per named club in the app ("My clubs"); the Pi writes it to `/var/lib/pinpoint/club-profile.json` (or `PINPOINT_CLUB_PROFILE_PATH`) when that club is selected. A hand-made file in the format below is still honoured and never overwritten. No tag and no mounting are involved:
 
 ```json
 {

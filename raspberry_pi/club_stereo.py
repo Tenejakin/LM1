@@ -52,6 +52,9 @@ HEAD_WINDOW_ABOVE_RADII = 3.0
 HEAD_WINDOW_BELOW_RADII = 2.5
 HEAD_WINDOW_AHEAD_RADII = 1.0
 HEAD_CHANGE_THRESHOLD = 25
+# The last frame before the ball moves can show the club already touching it. Neither
+# keeping nor dropping it was better on real chips (2 shots each way), so both are tried.
+CONTACT_FRAME_OPTIONS = (0, 1)
 # Measured-grade gates.
 MEASURED_FRAMES = 5
 MEASURED_RAY_GAP_MM = 6.0
@@ -125,12 +128,14 @@ def consistent_run(samples):
 
 
 def measure(lower_frames, upper_frames, impact_index, lower, upper, lower_background, upper_background,
-            ball_center):
+            ball_center, accept=None):
     """Triangulated hosel track before impact and its velocity at the last tracked frame.
 
     ``lower``/``upper`` are stereo_check camera dicts; ``ball_center`` is the resting
-    ball's world centre, used to mask it out of both views. Raises ValueError with the
-    reason when fewer than three consistent frames survive.
+    ball's world centre, used to mask it out of both views. ``accept(velocity)`` returns a
+    reason a track is physically impossible, or None. Tracks are ranked by length and
+    residual; a lower-ranked one is used only when every better one is impossible. Raises
+    ValueError with the reason when no track of three consistent frames is acceptable.
     """
     if len(upper_frames) != len(lower_frames):
         raise ValueError("Top-camera burst does not pair frame-for-frame with the lower camera.")
@@ -140,7 +145,7 @@ def measure(lower_frames, upper_frames, impact_index, lower, upper, lower_backgr
         if depth <= 0:
             raise ValueError("Ball is behind a camera; recalibrate both cameras.")
         views.append((_project(camera, [ball_center])[0], RADIUS * camera["K"][0, 0] / depth))
-    tracks = {}
+    located = {}
     for name, locate in (("hosel", hosel_pixel), ("head", head_pixel)):
         samples, gaps = [], []
         for index in range(max(0, impact_index - SEARCH_FRAMES), impact_index):
@@ -155,20 +160,40 @@ def measure(lower_frames, upper_frames, impact_index, lower, upper, lower_backgr
             samples.append({"frameIndex": index, "time": lower_frames[index][0], "positionM": point,
                             "rayGapMm": gap * 1000, "lowerPx": list(map(float, lower_px)),
                             "upperPx": list(map(float, upper_px))})
-        tracks[name] = (samples, gaps, consistent_run(samples))
+        located[name] = (samples, gaps)
 
-    def quality(name):
-        run = tracks[name][2]
-        if len(run) < MIN_FRAMES:
-            return (len(run), 0.0)
-        _, residuals = fit_motion([s["time"] for s in run], [s["positionM"] for s in run])
-        return (len(run), -float(residuals.max()))
-    point_used = max(tracks, key=quality)
-    samples, gaps, run = tracks[point_used]
+    candidates = []
+    for name, (samples, gaps) in located.items():
+        for excluded in CONTACT_FRAME_OPTIONS:
+            run = consistent_run([s for s in samples if s["frameIndex"] < impact_index - excluded])
+            if len(run) < MIN_FRAMES:
+                candidates.append((len(run), 0.0, name, excluded, run, None))
+                continue
+            velocity, residuals = fit_motion([s["time"] for s in run], [s["positionM"] for s in run])
+            candidates.append((len(run), -float(residuals.max()), name, excluded, run, velocity))
+    candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    rejections = []
+    chosen = None
+    for length, _, name, excluded, run, velocity in candidates:
+        if length < MIN_FRAMES:
+            break
+        problem = accept(velocity) if accept else None
+        if problem is None:
+            chosen = (name, excluded, run)
+            break
+        rejections.append(f"{name}{' without contact frame' if excluded else ''}: {problem}")
+    best = candidates[0]
+    point_used, excluded, run = chosen if chosen else (best[2], best[3], best[4])
+    samples, gaps = located[point_used]
     diagnostics = {"method": "stereo-hosel-v1" if point_used == "hosel" else "stereo-head-v1",
-                   "point": point_used, "candidateFrames": len(gaps), "rayGapsMm": gaps,
-                   "triangulatedFrames": len(samples),
-                   "runsByPoint": {name: len(track[2]) for name, track in tracks.items()}}
+                   "point": point_used, "contactFrameExcluded": bool(excluded),
+                   "candidateFrames": len(gaps), "rayGapsMm": gaps, "triangulatedFrames": len(samples),
+                   "runsByPoint": {name: max(len(item[4]) for item in candidates if item[2] == name) for name in located},
+                   "rejectedTracks": rejections}
+    if chosen is None and best[0] >= MIN_FRAMES:
+        error = ValueError(f"Every consistent club track is physically impossible: {rejections[0]}")
+        error.diagnostics = diagnostics
+        raise error
     if len(run) < MIN_FRAMES:
         error = ValueError(
             f"Both cameras resolved the club ({point_used}) in {len(samples)} of the {SEARCH_FRAMES} frames before "

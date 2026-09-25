@@ -97,6 +97,21 @@ class StereoHoselTests(unittest.TestCase):
         self.assertNotIn(29, result["diagnostics"]["frameIndices"])
         self.assertAlmostEqual(float(np.linalg.norm(result["velocity"])), float(np.linalg.norm(velocity)), delta=0.3)
 
+    def test_an_impossible_best_track_falls_back_or_is_refused(self):
+        velocity = np.array([9.0, 0.0, -0.8])
+        (lower, upper), backgrounds = self.render(velocity)
+        seen = []
+
+        def reject_first(candidate):
+            seen.append(candidate)
+            return "impossible" if len(seen) == 1 else None
+        result = club_stereo.measure(lower, upper, 30, *self.cameras, *backgrounds, BALL, accept=reject_first)
+        self.assertGreaterEqual(len(seen), 2)
+        self.assertEqual(len(result["diagnostics"]["rejectedTracks"]), 1)
+        with self.assertRaises(ValueError) as caught:
+            club_stereo.measure(lower, upper, 30, *self.cameras, *backgrounds, BALL, accept=lambda _: "impossible")
+        self.assertIn("physically impossible", str(caught.exception))
+
     def test_fewer_than_three_frames_is_refused_with_a_reason(self):
         (lower, upper), backgrounds = self.render(np.array([9.0, 0.0, -0.8]))
         upper = [(t, backgrounds[1].copy()) if index < 28 else (t, image) for index, (t, image) in enumerate(upper)]

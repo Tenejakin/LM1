@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from launch_measurements import GRAVITY, RADIUS, grade_metrics, unavailable  # noqa: E402
 import launch_measurements as measurements  # noqa: E402
-from stereo_check import StereoTrackingError, _circle_candidates, stereo_cross_check  # noqa: E402
+from stereo_check import StereoTrackingError, _circle_candidates, start_anchor, stereo_cross_check  # noqa: E402
 
 MATRIX = np.array([[560., 0, 320], [0, 560., 200], [0, 0, 1]])
 DISTORTION = np.zeros(5)
@@ -50,6 +50,29 @@ def render(points, cameras, count):
             frames.append((index / FPS, image))
         bursts.append(frames)
     return bursts
+
+
+class StartAnchorTests(unittest.TestCase):
+    """Contact falls anywhere between the last still frame and the first moving frame."""
+
+    REST = np.array([0.0, 0.15, RADIUS])
+    VELOCITY = np.array([10.9, 0.0, 3.0])
+
+    def test_late_contact_within_the_frame_window_is_not_an_error(self):
+        # Replayed 2026-09-25 12:57 chip: contact ~3.7 ms after the last still frame.
+        start = self.REST - self.VELOCITY * 0.0037
+        error, contact_ms = start_anchor(start, self.VELOCITY, self.REST, 1 / 242)
+        self.assertLess(error, 0.5)
+        self.assertAlmostEqual(contact_ms, 3.7, places=1)
+
+    def test_a_track_that_misses_the_resting_ball_still_fails(self):
+        start = self.REST - self.VELOCITY * 0.002 + np.array([0.0, 0.035, 0.0])  # 35 mm sideways
+        self.assertAlmostEqual(start_anchor(start, self.VELOCITY, self.REST, 1 / 242)[0], 35, delta=0.5)
+
+    def test_contact_after_the_first_moving_frame_is_an_error(self):
+        start = self.REST - self.VELOCITY * 0.009  # two frame intervals late
+        error, _ = start_anchor(start, self.VELOCITY, self.REST, 1 / 242)
+        self.assertGreater(error, 30)
 
 
 class StereoCrossCheckTests(unittest.TestCase):

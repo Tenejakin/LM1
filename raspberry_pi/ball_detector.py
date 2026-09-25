@@ -43,7 +43,9 @@ DEFAULT_CAPTURE_RETENTION = 100
 # leave ~0.6 s of resting-ball background for launch analysis.
 DEFAULT_PRE_IMPACT_FRAMES = 120
 DEFAULT_POST_IMPACT_FRAMES = 30
-DEFAULT_FULL_SHOT_TAIL_FRAMES = 48
+# 64, not 48: the stereo ball check needs ~60 empty frames after the shot, so a shorter
+# saved burst could never be replayed through it.
+DEFAULT_FULL_SHOT_TAIL_FRAMES = 64
 DEFAULT_DEPARTURE_TIMEOUT_SECONDS = 0.5
 DEFAULT_CALIBRATION_IMAGE_PATH = Path("/var/lib/pinpoint/calibration-images")
 

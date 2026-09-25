@@ -1,5 +1,11 @@
 # Changelog
 
+## Pi service 0.51.0 - 2026-09-25
+
+- Stereo start check allows for contact timing. Contact happens anywhere between the last still and first moving frames (4.1 ms), so the fitted start can sit up to speed x 4.1 ms back along the flight (45 mm at 10.9 m/s); the old plain distance to the resting ball failed good shots against its 30 mm limit. The check now measures the distance to the nearest start any contact time in that window could produce, and reports the implied contact time. On ten recent shots offsets of 17-29 mm became 1-3 mm, with contact 1.3-3.1 ms after the last still frame.
+- Club tracking tries both points (hosel, head) with and without the frame just before the ball moves, and uses the best-ranked track that passes the attack-angle, smash and speed checks. Club data on the last ten shots: 5 (was 3); the morning's 15 chips unchanged at 13.
+- Save 64 frames after impact (was 48) so saved captures can be replayed through the stereo ball check.
+
 ## Pi service 0.50.0 - 2026-09-25
 
 - Track the club head as well as the shaft/hosel point. A visible chrome head broke the hosel point: its lowest point lies on the rounded sole, seen at different spots by the two cameras (13-20 mm ray gaps), and over the light floor the head is darker than the background, so the brighter-only mask kept just the shaft. The head is found by change in either direction in a ground-level window behind the ball, and the point giving the longer consistent track is used. Replay: morning dark-wedge chips 13 of 15 with club data (one recovered by the head point); today's chrome-head chips still 1 of 5, limited by the head being in full view for only 2-4 frames with the ball 18% from the image edge.

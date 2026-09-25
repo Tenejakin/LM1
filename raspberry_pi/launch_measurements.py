@@ -1286,7 +1286,8 @@ def stereo_measurement(frames, secondary_frames, rest_px, fit, observations, sta
     if abs(stereo["restHeightErrorMm"]) > MAX_REST_HEIGHT_ERROR_MM:
         problems.append(f"Stereo resting-ball height error {stereo['restHeightErrorMm']:.1f} mm exceeds {MAX_REST_HEIGHT_ERROR_MM:.1f} mm.")
     if stereo["startAnchorErrorMm"] > MAX_START_ANCHOR_ERROR_MM:
-        problems.append(f"Stereo trajectory starts {stereo['startAnchorErrorMm']:.1f} mm from the resting ball.")
+        problems.append(f"Stereo trajectory misses the resting ball by {stereo['startAnchorErrorMm']:.1f} mm "
+                        "for any contact time between the last still and first moving frames.")
     if stereo["rmsPx"] > MAX_STEREO_RMS_PX:
         problems.append(f"Stereo trajectory reprojection residual {stereo['rmsPx']:.1f} px exceeds {MAX_STEREO_RMS_PX:.1f} px.")
     if not 0.1 <= stereo["speedMps"] <= 100:
@@ -1778,17 +1779,19 @@ def measure_club_stereo(frames, impact_index, lower_camera, upper, ball_center, 
     diagnostics = result.setdefault("diagnostics", {})
     upper_frames, upper_camera = upper
     try:
+        ball_speed = metrics["ballSpeedMps"]["value"]
+
+        def implausible(velocity):
+            speed = float(np.linalg.norm(velocity))
+            if not club_vision.MIN_CLUB_SPEED_MPS < speed < club_vision.MAX_CLUB_SPEED_MPS:
+                return f"club speed {speed:.1f} m/s is outside the supported range."
+            return club_vision.implausible_club(speed, ball_speed, club_stereo.attack_angle_deg(velocity))
+
         stereo = club_stereo.measure(frames, upper_frames, impact_index, _camera(*lower_camera), _camera(*upper_camera),
                                      ball_background(frames, impact_index), ball_background(upper_frames, impact_index),
-                                     np.asarray(ball_center, float))
+                                     np.asarray(ball_center, float), accept=implausible)
         velocity = np.asarray(stereo["velocity"], float)
         speed = float(np.linalg.norm(velocity))
-        if not club_vision.MIN_CLUB_SPEED_MPS < speed < club_vision.MAX_CLUB_SPEED_MPS:
-            raise ValueError(f"Stereo club speed {speed:.1f} m/s is outside the supported range.")
-        ball_speed = metrics["ballSpeedMps"]["value"]
-        problem = club_vision.implausible_club(speed, ball_speed, club_stereo.attack_angle_deg(velocity))
-        if problem:
-            raise ValueError(f"Two-camera track: {problem}")
     except (ValueError, IndexError, np.linalg.LinAlgError, cv2.error) as error:
         diagnostics["clubStereo"] = {"used": False, "failure": str(error), **getattr(error, "diagnostics", {})}
         for key in ("clubSpeedMps", "smashFactor", "attackAngleDeg", "clubPathDeg"):

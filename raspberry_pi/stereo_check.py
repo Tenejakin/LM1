@@ -357,6 +357,24 @@ def _find_rest_from_lower(lower, frames, approximate_px):
     return rest_px, rest_end
 
 
+def start_anchor(start, velocity, rest_point, window_s):
+    """Distance (mm) from the fitted start to the nearest start contact could have produced.
+
+    The fit places the ball at ``start`` at the last still frame. Contact happens some
+    time Δ later, no later than the first tracked moving frame (``window_s``), so every
+    physically possible start lies on rest - velocity * Δ for Δ in [0, window]. At 10.9 m/s
+    a 4.1 ms frame interval allows up to 45 mm along the flight, which a plain distance to
+    the resting ball wrongly failed against its 30 mm limit (2026-09-25). Also returns the
+    implied contact time after the last still frame, in ms.
+    """
+    start, velocity, rest_point = (np.asarray(v, float) for v in (start, velocity, rest_point))
+    speed_squared = float(velocity @ velocity)
+    implied = float((rest_point - start) @ velocity / speed_squared) if speed_squared > 1e-12 else 0.0
+    delta = min(max(implied, 0.0), max(0.0, float(window_s)))
+    nearest = rest_point - velocity * delta
+    return float(np.linalg.norm(start - nearest) * 1000), implied * 1000
+
+
 def _fit(lower, upper, observations, start_time, gravity):
     """Joint least-squares flight in both views: start point and launch velocity."""
     t_lower = np.array([o["lowerTime"] for o in observations]) - start_time
@@ -529,7 +547,8 @@ def stereo_cross_check(lower_frames, upper_frames, lower_camera, upper_camera, r
     heading_sigma = math.sqrt(max(0.0, float(heading_gradient @ covariance @ heading_gradient)))
     median_ray_gap = float(np.median([o["rayGapMm"] for o in observations]))
     max_pair_offset = max(abs(o["upperTime"] - o["lowerTime"]) for o in observations) * 1e6
-    start_anchor_error = float(np.linalg.norm(params[:3] - rest_point) * 1000)
+    start_anchor_error, contact_ms = start_anchor(params[:3], params[3:6], rest_point,
+                                                 observations[0]["lowerTime"] - start_time)
     rms = float(np.sqrt(np.mean(np.concatenate((lower_errors, upper_errors)) ** 2)))
     return {
         "method": "shared-tag-epipolar-v2",
@@ -551,6 +570,8 @@ def stereo_cross_check(lower_frames, upper_frames, lower_camera, upper_camera, r
         "lowerRmsPx": round(float(np.sqrt(np.mean(lower_errors ** 2))), 3),
         "upperRmsPx": round(float(np.sqrt(np.mean(upper_errors ** 2))), 3),
         "startAnchorErrorMm": round(start_anchor_error, 2),
+        "rawStartOffsetMm": round(float(np.linalg.norm(params[:3] - rest_point) * 1000), 2),
+        "impliedContactMs": round(contact_ms, 2),
         "maxPairOffsetUs": round(max_pair_offset, 2),
         "speedMps": round(speed, 4),
         "speedSigmaMps": round(math.sqrt(max(0.0, float(unit @ covariance[3:6, 3:6] @ unit))), 4),

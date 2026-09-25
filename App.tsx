@@ -1,16 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Platform, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 
 import { BottomNav } from '@/components/BottomNav';
 import { ShotDetailModal } from '@/components/ShotDetailModal';
 import { LaunchMonitorProvider, useLaunchMonitor } from '@/context/LaunchMonitorContext';
+import { CloudSyncProvider, useCloudSync } from '@/context/CloudSyncContext';
 import { N8nProvider } from '@/context/N8nContext';
 import { OpenGolfSimProvider } from '@/context/OpenGolfSimContext';
 import { UnitsProvider } from '@/context/UnitsContext';
 import { DeviceScreen } from '@/screens/DeviceScreen';
 import { CalculatorScreen } from '@/screens/CalculatorScreen';
+import { CloudAccountScreen } from '@/screens/CloudAccountScreen';
 import { CalibrationScreen } from '@/screens/CalibrationScreen';
 import { HistoryScreen } from '@/screens/HistoryScreen';
 import { HomeScreen } from '@/screens/HomeScreen';
@@ -21,22 +23,35 @@ import { AppTab, Shot } from '@/types';
 export default function App() {
   return (
     <SafeAreaProvider>
-      <UnitsProvider>
-        <OpenGolfSimProvider>
-          <N8nProvider>
-            <LaunchMonitorProvider>
-              <StatusBar style="light" />
-              <AppShell />
-            </LaunchMonitorProvider>
-          </N8nProvider>
-        </OpenGolfSimProvider>
-      </UnitsProvider>
+      <CloudSyncProvider>
+        <StatusBar style="light" />
+        <AuthenticationGate />
+      </CloudSyncProvider>
     </SafeAreaProvider>
   );
 }
 
+function AuthenticationGate() {
+  const { authReady, session } = useCloudSync();
+  if (!authReady) {
+    return <View style={styles.authLoading}><ActivityIndicator color={colors.accent} /><Text style={styles.authLoadingText}>Restoring your account…</Text></View>;
+  }
+  if (!session) return <View style={styles.authRoot}><CloudAccountScreen /></View>;
+  return (
+    <UnitsProvider>
+      <OpenGolfSimProvider>
+        <N8nProvider>
+          <LaunchMonitorProvider>
+            <AppShell />
+          </LaunchMonitorProvider>
+        </N8nProvider>
+      </OpenGolfSimProvider>
+    </UnitsProvider>
+  );
+}
+
 function AppShell() {
-  const { ballDetected, liveShot, selectShot } = useLaunchMonitor();
+  const { arm, ballDetected, liveShot, selectShot } = useLaunchMonitor();
   const [tab, setTab] = useState<AppTab>('home');
   const [detailShot, setDetailShot] = useState<Shot | null>(null);
   const shownLiveShotId = useRef<string | null>(null);
@@ -68,15 +83,20 @@ function AppShell() {
             onOpenShot={openShot}
           />
         ) : tab === 'putting' ? (
-          <PuttingScreen onOpenDevice={() => setTab('device')} />
+          <PuttingScreen
+            onOpenDevice={() => setTab('device')}
+            onOpenNormalShot={() => { void arm(); setTab('home'); }}
+          />
         ) : tab === 'calibration' ? (
           <CalibrationScreen />
         ) : tab === 'history' ? (
           <HistoryScreen onOpenShot={openShot} onOpenCalculator={() => setTab('calculator')} />
         ) : tab === 'calculator' ? (
           <CalculatorScreen />
-        ) : (
+        ) : tab === 'device' ? (
           <DeviceScreen />
+        ) : (
+          <CloudAccountScreen />
         )}
       </View>
       <BottomNav active={tab} onChange={setTab} />
@@ -92,6 +112,9 @@ const styles = StyleSheet.create({
     flex: 1,
     ...(Platform.OS === 'web' ? { maxWidth: 520, width: '100%', alignSelf: 'center' } : null),
   },
+  authRoot: { backgroundColor: colors.background, flex: 1, justifyContent: 'center', padding: 20 },
+  authLoading: { alignItems: 'center', backgroundColor: colors.background, flex: 1, gap: 12, justifyContent: 'center' },
+  authLoadingText: { color: colors.textMuted, fontSize: 14 },
   screen: { flex: 1 },
   ballDetectedBorder: {
     borderColor: '#35D66B',

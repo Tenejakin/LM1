@@ -2,10 +2,12 @@ import { connectBle } from '@/services/bleTransport';
 import type { BleConnection } from '@/services/bleTransport.types';
 import {
   AprilTagCalibration,
+  CalibrationCamera,
   CalibrationCaptureStatus,
   CaptureAnalysis,
   CaptureMode,
   CaptureFramePreview,
+  FrameUploadProgress,
   CapturePreview,
   ClubId,
   DeviceEvent,
@@ -13,6 +15,10 @@ import {
   DeviceShot,
   DeviceStatus,
   LensCalibrationResult,
+  StereoCalibrationAction,
+  StereoCalibrationOptions,
+  StereoCalibrationStatus,
+  ShotCoverage,
   TargetLine,
   WifiConnectionStatus,
   WifiNetwork,
@@ -117,16 +123,24 @@ export class DeviceClient {
     return this.request<AprilTagCalibration>({ type: 'captureAprilTagCalibration' }, 30_000);
   }
 
-  async captureCalibrationImage(): Promise<void> {
-    await this.request<{ accepted: boolean }>({ type: 'captureCalibrationImage' });
+  async captureCalibrationImage(camera: CalibrationCamera = 'primary'): Promise<void> {
+    await this.request<{ accepted: boolean }>({ type: 'captureCalibrationImage', camera });
   }
 
-  async clearCalibrationImages(): Promise<CalibrationCaptureStatus> {
-    return this.request<CalibrationCaptureStatus>({ type: 'clearCalibrationImages' });
+  async clearCalibrationImages(camera: CalibrationCamera = 'primary'): Promise<CalibrationCaptureStatus> {
+    return this.request<CalibrationCaptureStatus>({ type: 'clearCalibrationImages', camera });
   }
 
-  async runLensCalibration(): Promise<LensCalibrationResult> {
-    return this.request<LensCalibrationResult>({ type: 'runLensCalibration' }, 30_000);
+  async stereoCalibration(action: StereoCalibrationAction, options: StereoCalibrationOptions = {}): Promise<StereoCalibrationStatus> {
+    return this.request<StereoCalibrationStatus>({ type: 'stereoCalibration', action, ...options }, 120_000);
+  }
+
+  async runLensCalibration(camera: CalibrationCamera = 'primary'): Promise<LensCalibrationResult> {
+    return this.request<LensCalibrationResult>({ type: 'runLensCalibration', camera }, 30_000);
+  }
+
+  async getShotCoverage(): Promise<ShotCoverage> {
+    return this.request<ShotCoverage>({ type: 'shotCoverage' }, 15_000);
   }
 
   async setTargetLine(): Promise<TargetLine> {
@@ -150,6 +164,14 @@ export class DeviceClient {
 
   async getCaptureContactSheet(captureId: string): Promise<CapturePreview> {
     return this.request<CapturePreview>({ type: 'captureContactSheet', captureId }, 45_000);
+  }
+
+  async uploadCaptureFrames(captureId: string, frameCount: number, ticket: string, indices: number[]): Promise<FrameUploadProgress> {
+    return this.request<FrameUploadProgress>({ type: 'uploadCaptureFrames', captureId, frameCount, ticket, indices }, 45_000);
+  }
+
+  async getCaptureFrameUploadStatus(): Promise<FrameUploadProgress | null> {
+    return this.request<FrameUploadProgress | null>({ type: 'captureFrameUploadStatus' });
   }
 
   async getWifiStatus(): Promise<WifiConnectionStatus> {

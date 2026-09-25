@@ -45,6 +45,7 @@ export function DeviceScreen() {
     isDemo,
     error,
     previewFrame,
+    secondaryPreviewFrame,
     previewDetection,
     connect,
     disconnect,
@@ -95,7 +96,7 @@ export function DeviceScreen() {
   const detectionLabel = !previewFresh ? 'Waiting for camera' :
     detection?.state === 'detected' ? 'Ball detected' :
     detection?.state === 'calibrating' ? 'Calibrating - keep area empty' :
-    detection?.state === 'waiting' ? 'Waiting for ball' :
+    detection?.state === 'waiting' ? 'Place ball in left green zone' :
     detection?.state === 'disabled' ? 'Ball detection off' : 'Detection unavailable';
 
   const connected = Boolean(status);
@@ -468,11 +469,25 @@ export function DeviceScreen() {
                       purpose: it only has to help you aim.
                     </Text>
                   </View>
+                  <HelpText>The green box is the left-half placement zone. Keep the whole ball inside it; the orange ring is the preferred start. The right half stays open for left-to-right flight.</HelpText>
                   {status.camera?.model ? (
                     <View style={{ padding: spacing.md, gap: spacing.sm }}>
                       <Text style={styles.previewMetaText}>
                         {status.camera.model.toUpperCase()} · {status.camera.width}×{status.camera.height} · {status.fps} fps
                       </Text>
+                      {status.camera.cameraCount === 2 ? <>
+                        <Text style={styles.previewMetaText}>
+                          Lower camera triggers both views · {previewFresh && status.camera.syncReady ? 'Timing matched' : 'Waiting for matched frames'}
+                        </Text>
+                        <Text style={styles.previewMetaText}>
+                          Matched capture rate · {previewFresh ? status.camera.pairedFps ?? '…' : '…'} fps
+                        </Text>
+                        <Text style={styles.previewMetaText}>
+                          Upper camera · {status.camera.secondaryFps ?? '…'} fps · frame offset {previewFresh ? Math.abs(status.camera.syncOffsetUs ?? 0).toFixed(0) : '…'} μs
+                        </Text>
+                        {secondaryPreviewFrame && previewFresh ? <Image accessibilityLabel="Upper camera live view" source={{ uri: secondaryPreviewFrame }} style={{ width: '100%', aspectRatio: 1.6 }} /> : <Text style={styles.previewMetaText}>Waiting for upper camera preview…</Text>}
+                        <HelpText>The lower camera arms from the green left-half zone. Also check that the ball and its early flight stay visible in the upper camera. Exposure and brightness boost apply to both.</HelpText>
+                      </> : null}
                       <Text style={styles.previewMetaText}>
                         Sharpness score: {status.camera.focusScore ?? '…'} · {status.camera.autoExposure ? 'Brightness set automatically' : 'Brightness set by hand'}
                       </Text>

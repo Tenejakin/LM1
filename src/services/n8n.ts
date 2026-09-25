@@ -1,6 +1,6 @@
 import type { CaptureAnalysis, N8nCapturePayload, N8nShotPayload, Shot } from '@/types';
 
-const APP_VERSION = '3.9.1';
+const APP_VERSION = '3.12.0';
 const REQUEST_TIMEOUT_MS = 15_000;
 
 export function normalizeWebhookUrl(value: string): string {

@@ -1,4 +1,5 @@
 import { Putt } from '@/types';
+import { directionLabel } from '@/utils/direction';
 
 const STIMP_REFERENCE_SPEED_MPS = 1.83;
 
@@ -25,6 +26,5 @@ export function paceLabel(rollDistanceM: number, targetDistanceM: number): strin
 }
 
 export function startLineLabel(directionDeg: number): string {
-  if (Math.abs(directionDeg) < 0.05) return 'Straight';
-  return `${Math.abs(directionDeg).toFixed(1)}° ${directionDeg > 0 ? 'R' : 'L'}`;
+  return directionLabel(directionDeg);
 }

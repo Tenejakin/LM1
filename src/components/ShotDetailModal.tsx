@@ -1,16 +1,20 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, GestureResponderEvent, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, GestureResponderEvent, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { StrikeMap, TrajectoryChart } from '@/components/ShotVisuals';
-import { Eyebrow, IconButton, MetricTile, Surface } from '@/components/ui';
+import { Eyebrow, IconButton, MeasurementBadge, MeasurementLabel, MetricTile, Surface } from '@/components/ui';
 import { getClub } from '@/data/clubs';
 import { useLaunchMonitor } from '@/context/LaunchMonitorContext';
+import { useCloudSync } from '@/context/CloudSyncContext';
 import { useUnits } from '@/context/UnitsContext';
 import { colors, radii, spacing } from '@/theme';
-import { CaptureFramePreview, Shot, ShotMetricKey } from '@/types';
+import { CaptureFramePreview, ClubValueKey, MetricConfidence, Shot, ShotMetricKey } from '@/types';
 import { ContactSheet } from '@/components/ContactSheet';
+import { DIRECTION_SIGN_NOTE, directionLabel } from '@/utils/direction';
+import { measuredAttackAngle, measuredClubPath, measuredClubSpeed, measuredSmash, measuredStrike } from '@/utils/shotValues';
+import { shotEstimates } from '@/utils/carry';
 
 export function ShotDetailModal({ shot, onClose }: { shot: Shot | null; onClose: () => void }) {
   return (
@@ -20,9 +24,71 @@ export function ShotDetailModal({ shot, onClose }: { shot: Shot | null; onClose:
   );
 }
 
+interface MetricInfo {
+  metric: ShotMetricKey;
+  title: string;
+  value: string;
+}
+
 function ShotDetail({ shot, onClose }: { shot: Shot; onClose: () => void }) {
+  const { retryShotImage, frameUploadProgress, startShotFrameUpload, setShotExcluded } = useLaunchMonitor();
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const compact = width < 600;
   const units = useUnits();
+  const [info, setInfo] = useState<MetricInfo | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [imageUploadError, setImageUploadError] = useState<string | null>(null);
+  const [uploadedImagePath, setUploadedImagePath] = useState<string | null>(null);
+  const [frameUploadError, setFrameUploadError] = useState<string | null>(null);
+  const [startingFrames, setStartingFrames] = useState(false);
+  useEffect(() => {
+    setUploadedImagePath(null);
+    setImageUploadError(null);
+    setFrameUploadError(null);
+  }, [shot.id]);
+  const imageShot: Shot = uploadedImagePath ? { ...shot, cloudImagePath: uploadedImagePath } : shot;
+  const retryImage = async () => {
+    setUploadingImage(true);
+    setImageUploadError(null);
+    try {
+      setUploadedImagePath(await retryShotImage(shot));
+    } catch (caught) {
+      setImageUploadError(caught instanceof Error ? caught.message : 'Could not upload the saved image.');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+  const uploadFrames = async () => {
+    setStartingFrames(true);
+    setFrameUploadError(null);
+    try {
+      await startShotFrameUpload(shot);
+    } catch (caught) {
+      setFrameUploadError(caught instanceof Error ? caught.message : 'Could not start the frame upload.');
+    } finally {
+      setStartingFrames(false);
+    }
+  };
+  const frameProgress = shot.captureId ? frameUploadProgress[shot.captureId] : undefined;
+  // Only values the device graded can explain themselves; older shots have no grades.
+  const explain = (metric: ShotMetricKey, title: string, value: string | null) =>
+    qualityOf(shot, metric) ? () => setInfo({ metric, title,
+      value: value === null || (metric !== 'estimatedCarryM' && qualityOf(shot, metric)?.source === 'club-estimate') ? 'Unavailable' : value }) : undefined;
+  const summary = measurementSummary(shot);
+  const tile = (metric: ShotMetricKey, title: string, value: string | null, unit?: string) => ({
+    label: title,
+    value: value === null || shot.metricConfidence?.[metric]?.source === 'club-estimate' ? '—' : value,
+    unit,
+    measurement: measurementOf(shot, metric),
+    onPress: explain(metric, title, value === null ? null : unit ? `${value} ${unit}` : value),
+  });
+  const clubSpeed = measuredClubSpeed(shot);
+  const smash = measuredSmash(shot);
+  const strike = measuredStrike(shot);
+  const estimates = shotEstimates(shot);
+  const attack = measuredAttackAngle(shot);
+  const clubPath = measuredClubPath(shot);
   return (
     <View style={styles.root}>
       <ScrollView
@@ -39,7 +105,7 @@ function ShotDetail({ shot, onClose }: { shot: Shot; onClose: () => void }) {
         </View>
 
         <Surface style={styles.hero}>
-          <View style={styles.heroTop}>
+          <View style={[styles.heroTop, compact && styles.heroTopCompact]}>
             <View>
               <Eyebrow>Ball speed</Eyebrow>
               <View style={styles.speedRow}>
@@ -47,37 +113,134 @@ function ShotDetail({ shot, onClose }: { shot: Shot; onClose: () => void }) {
                 <Text style={styles.unit}>{units.speedLabel}</Text>
               </View>
               <Text style={styles.mph}>{units.altSpeedWithUnit(shot.ballSpeedMps)}</Text>
-              <ConfidenceNote shot={shot} metric="ballSpeedMps" />
+              <HeroMeasurement
+                shot={shot}
+                metric="ballSpeedMps"
+                onPress={explain('ballSpeedMps', 'Ball speed', `${units.speed(shot.ballSpeedMps)} ${units.speedLabel}`)}
+              />
             </View>
-            <View style={styles.heroAside}>
+            <View style={[styles.heroAside, compact && styles.heroAsideCompact]}>
               <Text style={styles.carryLabel}>Estimated carry</Text>
               <View style={styles.carryRow}>
                 <Text style={styles.carryValue}>{units.distance(shot.estimatedCarryM)}</Text>
                 <Text style={styles.carryUnit}>{units.distanceLabel}</Text>
               </View>
               <Text style={styles.carryYards}>{units.altDistanceWithUnit(shot.estimatedCarryM)}</Text>
-              <ConfidenceNote shot={shot} metric="estimatedCarryM" />
+              <HeroMeasurement
+                shot={shot}
+                metric="estimatedCarryM"
+                onPress={explain('estimatedCarryM', 'Estimated carry', `${units.distance(shot.estimatedCarryM)} ${units.distanceLabel}`)}
+              />
+              {shot.metricConfidence?.spinRpm?.source === 'club-estimate' ? (
+                <Text style={styles.spinAssumption}>Carry uses assumed {Math.round(shot.spinRpm ?? 0).toLocaleString()} rpm backspin</Text>
+              ) : null}
               <View style={styles.quality}>
                 <Ionicons name="shield-checkmark" size={14} color={colors.accent} />
-                <Text style={styles.qualityValue}>{shot.measurementSource ? 'Estimate' : `${Math.round(shot.confidence * 100)}%`}</Text>
-                <Text style={styles.qualityLabel}>{shot.measurementSource ? 'Unvalidated' : 'confidence'}</Text>
+                {summary ? (
+                  <Text style={styles.qualityValue}>
+                    {summary.measured} measured <Text style={styles.qualityLabel}>·</Text> {summary.estimated} estimated
+                    {summary.unavailable ? ` · ${summary.unavailable} unavailable` : ''}
+                  </Text>
+                ) : (
+                  <>
+                    <Text style={styles.qualityValue}>{shot.measurementSource ? 'Estimate' : `${Math.round(shot.confidence * 100)}%`}</Text>
+                    <Text style={styles.qualityLabel}>{shot.measurementSource ? 'Unvalidated' : 'confidence'}</Text>
+                  </>
+                )}
               </View>
             </View>
           </View>
           <View style={styles.metricRow}>
-            <MetricTile label="Club speed" value={units.speed(shot.clubSpeedMps)} unit={units.speedLabel} note={confidenceText(shot, 'clubSpeedMps')} />
-            <MetricTile label="Smash" value={shot.smashFactor.toFixed(2)} accent note={confidenceText(shot, 'smashFactor')} />
-            <MetricTile label="Launch" value={shot.launchAngleDeg.toFixed(1)} unit="deg" note={confidenceText(shot, 'launchAngleDeg')} />
+            <MetricTile {...tile('clubSpeedMps', 'Club speed', clubSpeed === null ? null : units.speed(clubSpeed), units.speedLabel)} />
+            <MetricTile {...tile('smashFactor', 'Smash', smash === null ? null : smash.toFixed(2))} accent />
+            <MetricTile {...tile('launchAngleDeg', 'Launch', shot.launchAngleDeg.toFixed(1), 'deg')} />
           </View>
           <View style={styles.metricRowSecondary}>
-            <MetricTile label="Backspin" value={Math.round(shot.spinRpm ?? 0).toLocaleString()} unit="rpm" note={confidenceText(shot, 'spinRpm')} />
-            <MetricTile label="Spin axis" value={(shot.spinAxisDeg ?? 0).toFixed(1)} unit="deg" note={confidenceText(shot, 'spinAxisDeg')} />
-            <MetricTile label="Direction" value={shot.startDirectionDeg.toFixed(1)} unit="deg" note={confidenceText(shot, 'startDirectionDeg')} />
+            <MetricTile {...tile('attackAngleDeg', 'Attack angle', attack === null ? null : attack.toFixed(1), 'deg')} />
+            <MetricTile {...tile('clubPathDeg', 'Club path', clubPath === null ? null : directionLabel(clubPath))} />
           </View>
-          <Text style={styles.carryNote}>Estimated values use the selected club and available launch data. The small percentage on each value is its confidence.</Text>
+          <View style={styles.metricRowSecondary}>
+            <MetricTile {...tile('spinRpm', 'Backspin', Math.round(shot.spinRpm ?? 0).toLocaleString(), 'rpm')} />
+            <MetricTile {...tile('spinAxisDeg', 'Spin axis', (shot.spinAxisDeg ?? 0).toFixed(1), 'deg')} />
+            <MetricTile {...tile('startDirectionDeg', 'Direction', directionLabel(shot.startDirectionDeg))} />
+          </View>
+          <Text style={styles.directionNote}>{DIRECTION_SIGN_NOTE}</Text>
+          <Text style={styles.carryNote}>
+            {summary
+              ? 'Measured values passed the camera checks. Estimated values did not pass every check; this is not a probability of accuracy. Tap a value to see its evidence.'
+              : 'Estimated values use the selected club and available launch data.'}
+          </Text>
         </Surface>
 
-        {shot.captureId ? <ContactSheet captureId={shot.captureId} card /> : null}
+        {estimates ? (
+          <Surface style={styles.estimatesCard}>
+            <Eyebrow>Model estimates</Eyebrow>
+            <Text style={styles.visualTitle}>Flight and impact</Text>
+            <View style={styles.metricRowSecondary}>
+              <MetricTile label="Total" value={units.distance(estimates.totalM)} unit={units.distanceLabel} />
+              <MetricTile label="Roll" value={units.distance(estimates.rollM, 1)} unit={units.distanceLabel} />
+              <MetricTile label="Offline" value={offlineLabel(estimates.flight.offlineM, units.distance)} unit={units.distanceLabel} />
+            </View>
+            <View style={styles.metricRowSecondary}>
+              <MetricTile label="Apex" value={units.distance(estimates.flight.apexM, 1)} unit={units.distanceLabel} />
+              <MetricTile label="Landing angle" value={estimates.flight.descentDeg.toFixed(0)} unit="deg" />
+              <MetricTile label="Hang time" value={estimates.flight.flightTimeS.toFixed(1)} unit="s" />
+            </View>
+            <View style={styles.metricRowSecondary}>
+              <MetricTile label="Dynamic loft" value={estimates.dynamicLoftDeg === null ? '—' : estimates.dynamicLoftDeg.toFixed(1)} unit="deg" />
+              <MetricTile label="Spin loft" value={estimates.spinLoftDeg === null ? '—' : estimates.spinLoftDeg.toFixed(1)} unit="deg" />
+            </View>
+            <Text style={styles.carryNote}>
+              Calculated, not observed: still-air flight fitted to tour averages, then roll on an assumed {estimates.surface}.
+              Offline is the straight start line; curve is not modeled. Lofts come from launch and attack angle
+              {estimates.spinLoftDeg === null
+                ? (attack === null ? ' and need a measured attack angle.' : '; launch sits too far above this attack angle for the impact model, so the attack angle is likely off.')
+                : ' with a rolling-contact impact model.'}
+            </Text>
+          </Surface>
+        ) : null}
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityHint="Session averages, dispersion and gapping ignore excluded shots"
+          onPress={() => setShotExcluded(shot.id, !shot.excluded)}
+          style={({ pressed }) => [styles.excludeButton, pressed && styles.donePressed]}
+        >
+          <Ionicons name={shot.excluded ? 'eye' : 'eye-off'} size={16} color={colors.textMuted} />
+          <Text style={styles.excludeText}>{shot.excluded ? 'Excluded from session stats · include again' : 'Exclude from session stats'}</Text>
+        </Pressable>
+
+        {imageShot.cloudImagePath ? <CloudShotImages shot={imageShot} /> : shot.captureId ? <ContactSheet captureId={shot.captureId} card /> : null}
+
+        {shot.captureId && !imageShot.cloudImagePath ? (
+          <Surface style={styles.visualCard}>
+            <Text style={styles.visualTitle}>Cloud image missing</Text>
+            <Text style={styles.replayNote}>Upload this saved capture from the connected Pi to your private Bunny storage.</Text>
+            <Pressable accessibilityRole="button" disabled={uploadingImage} onPress={() => void retryImage()}
+              style={({ pressed }) => [styles.imageRetryButton, (pressed || uploadingImage) && styles.donePressed]}>
+              {uploadingImage ? <ActivityIndicator color={colors.background} /> : <Text style={styles.doneText}>Upload shot image</Text>}
+            </Pressable>
+            {imageUploadError ? <Text style={styles.imageUploadError}>{imageUploadError}</Text> : null}
+          </Surface>
+        ) : null}
+
+        {shot.captureId && shot.frameCount > 0 ? (
+          <Surface style={styles.visualCard}>
+            <Text style={styles.visualTitle}>Original camera frames</Text>
+            <Text style={styles.replayNote}>
+              {frameProgress ? `${frameProgress.uploaded} of ${frameProgress.total} full-resolution frames stored in Bunny`
+                : `${shot.frameCount} full-resolution frames per camera are saved on the Pi.`}
+            </Text>
+            {frameProgress?.state === 'running' ? <ActivityIndicator color={colors.accent} /> : (
+              <Pressable accessibilityRole="button" disabled={startingFrames} onPress={() => void uploadFrames()}
+                style={({ pressed }) => [styles.imageRetryButton, (pressed || startingFrames) && styles.donePressed]}>
+                {startingFrames ? <ActivityIndicator color={colors.background} />
+                  : <Text style={styles.doneText}>{frameProgress?.state === 'complete' ? 'Check cloud frames' : 'Upload all original frames'}</Text>}
+              </Pressable>
+            )}
+            {frameUploadError || frameProgress?.message ? <Text style={styles.imageUploadError}>{frameUploadError ?? frameProgress?.message}</Text> : null}
+          </Surface>
+        ) : null}
 
         {shot.captureId ? <ShotFrameReview shot={shot} /> : null}
 
@@ -101,6 +264,11 @@ function ShotDetail({ shot, onClose }: { shot: Shot; onClose: () => void }) {
             <Ionicons name="locate" size={19} color={colors.accent} />
           </View>
           <StrikeMap shot={shot} />
+          <HeroMeasurement
+            shot={shot}
+            metric="strike"
+            onPress={explain('strike', 'Clubface strike', strike ? `${strike.xMm.toFixed(0)} mm toe · ${strike.yMm.toFixed(0)} mm high` : null)}
+          />
         </Surface>
 
         <View style={styles.technicalHeader}>
@@ -110,7 +278,13 @@ function ShotDetail({ shot, onClose }: { shot: Shot; onClose: () => void }) {
         <Surface style={styles.technicalCard}>
           <DetailRow label="Frames retained" value={`${shot.frameCount}`} />
           <DetailRow label="Capture window" value={`${shot.captureDurationMs} ms`} />
-          <DetailRow label="Confidence" value={shot.measurementSource ? 'Not validated' : `${Math.round(shot.confidence * 100)}%`} accent />
+          <DetailRow
+            label={shot.measurementSource ? 'Camera accuracy' : summary ? 'Lowest estimate' : 'Confidence'}
+            value={shot.measurementSource ? 'Not validated' : summary
+              ? summary.lowest === undefined ? 'All measured' : `${Math.round(summary.lowest * 100)}%`
+              : `${Math.round(shot.confidence * 100)}%`}
+            accent
+          />
           <DetailRow label="Captured" value={formatTimestamp(shot.capturedAt)} last />
         </Surface>
 
@@ -122,24 +296,151 @@ function ShotDetail({ shot, onClose }: { shot: Shot; onClose: () => void }) {
           <Text style={styles.doneText}>Done</Text>
         </Pressable>
       </ScrollView>
+      {info ? <MetricInfoWindow shot={shot} info={info} onClose={() => setInfo(null)} /> : null}
     </View>
   );
 }
 
-function confidenceText(shot: Shot, metric: ShotMetricKey): string | undefined {
-  const quality = shot.metricConfidence?.[metric];
-  if (!quality) return undefined;
-  const label = quality.source === 'measured' ? 'measured' : quality.source === 'device-estimate' ? 'camera estimate' : 'club estimate';
-  return `${Math.round(quality.confidence * 100)}% · ${label}`;
+function CloudShotImages({ shot }: { shot: Shot }) {
+  const { getShotImage } = useCloudSync();
+  const [primaryUri, setPrimaryUri] = useState<string | null>(null);
+  const [secondaryUri, setSecondaryUri] = useState<string | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setPrimaryUri(null);
+    setSecondaryUri(null);
+    setImageError(null);
+    void getShotImage(shot.id).then((uri) => { if (!cancelled) setPrimaryUri(uri); })
+      .catch((caught) => { if (!cancelled) setImageError(caught instanceof Error ? caught.message : 'Could not load the shot image.'); });
+    if (shot.cloudSecondaryImagePath) {
+      void getShotImage(shot.id, 'secondary').then((uri) => { if (!cancelled) setSecondaryUri(uri); })
+        .catch((caught) => { if (!cancelled) setImageError(caught instanceof Error ? caught.message : 'Could not load the upper camera image.'); });
+    }
+    return () => { cancelled = true; };
+  }, [getShotImage, shot.id, shot.cloudSecondaryImagePath]);
+  return <Surface style={styles.visualCard}>
+    <Text style={styles.visualTitle}>Shot capture</Text>
+    {primaryUri ? <Image accessibilityLabel="Shot capture image" source={{ uri: primaryUri }} style={styles.cloudImage} /> : imageError ? null : <ActivityIndicator color={colors.accent} />}
+    {secondaryUri ? <Image accessibilityLabel="Upper camera shot capture image" source={{ uri: secondaryUri }} style={styles.cloudImage} /> : null}
+    {imageError ? <Text style={{ color: colors.red }}>{imageError}</Text> : null}
+  </Surface>;
 }
 
-function ConfidenceNote({ shot, metric }: { shot: Shot; metric: ShotMetricKey }) {
-  const value = confidenceText(shot, metric);
-  return value ? <Text style={styles.confidenceNote}>{value}</Text> : null;
+/** Signed offline distance as "1.2 L" / "0.8 R"; negative is left, matching start direction. */
+function offlineLabel(meters: number, format: (meters: number, digits?: number) => string): string {
+  if (Math.abs(meters) < 0.05) return '0';
+  return `${format(Math.abs(meters), 1)} ${meters < 0 ? 'L' : 'R'}`;
+}
+
+function measurementOf(shot: Shot, metric: ShotMetricKey): MeasurementLabel | undefined {
+  const quality = shot.metricConfidence?.[metric];
+  if (!quality) return undefined;
+  if (metric !== 'estimatedCarryM' && quality.source === 'club-estimate') return undefined;
+  const measured = quality.source === 'measured';
+  return { measured, confidence: measured || shot.measurementSource ? undefined : quality.confidence };
+}
+
+const CLUB_VALUE_KEYS: ClubValueKey[] = ['clubSpeedMps', 'smashFactor', 'strike', 'attackAngleDeg', 'clubPathDeg'];
+
+/** The device grade, or for a value the camera did not resolve, the reason it is missing. */
+function qualityOf(shot: Shot, metric: ShotMetricKey): MetricConfidence | undefined {
+  const quality = shot.metricConfidence?.[metric];
+  if (quality) return quality;
+  const reason = CLUB_VALUE_KEYS.includes(metric as ClubValueKey)
+    ? shot.unavailableReasons?.[metric as ClubValueKey] : undefined;
+  return reason ? { confidence: 0, source: 'club-estimate', reason } : undefined;
+}
+
+function measurementSummary(shot: Shot) {
+  const entries = Object.entries(shot.metricConfidence ?? {});
+  const unavailable = entries.filter(([key, item]) => key !== 'estimatedCarryM' && item?.source === 'club-estimate').length
+    + Object.keys(shot.unavailableReasons ?? {}).length;
+  const qualities = entries.filter(([key, item]) => key === 'estimatedCarryM' || item?.source !== 'club-estimate').map(([, item]) => item).filter((item) => item !== undefined);
+  if (!qualities.length) return null;
+  const estimates = qualities.filter((item) => item.source !== 'measured');
+  return {
+    measured: qualities.length - estimates.length,
+    unavailable,
+    estimated: estimates.length,
+    lowest: estimates.length ? Math.min(...estimates.map((item) => item.confidence)) : undefined,
+  };
+}
+
+function HeroMeasurement({ shot, metric, onPress }: { shot: Shot; metric: ShotMetricKey; onPress?: () => void }) {
+  const label = measurementOf(shot, metric);
+  if (!label) return null;
+  return (
+    <Pressable
+      accessibilityHint="Shows how this value was measured or estimated"
+      accessibilityRole="button"
+      disabled={!onPress}
+      hitSlop={8}
+      onPress={onPress}
+      style={({ pressed }) => [styles.heroMeasurement, pressed && styles.heroMeasurementPressed]}
+    >
+      <MeasurementBadge label={label} />
+      {onPress ? <Ionicons name="information-circle-outline" size={14} color={colors.textDim} style={styles.heroInfoIcon} /> : null}
+    </Pressable>
+  );
+}
+
+const SOURCE_TEXT = {
+  'measured': 'Tracked by the camera and passed every quality check.',
+  'device-estimate': 'Worked out by the camera, but at least one quality check did not pass.',
+  'model-estimate': 'Calculated from camera-measured values with a physics model; not observed directly.',
+  'club-estimate': 'The camera did not resolve this value. Details below describe the model assumptions.',
+} as const;
+
+function MetricInfoWindow({ shot, info, onClose }: { shot: Shot; info: MetricInfo; onClose: () => void }) {
+  const quality = qualityOf(shot, info.metric);
+  const missing = !shot.metricConfidence?.[info.metric];
+  const label = measurementOf(shot, info.metric);
+  if (!quality) return null;
+  return (
+    <View style={styles.infoOverlay}>
+      <Pressable accessibilityLabel="Close explanation" onPress={onClose} style={styles.infoBackdrop} />
+      <View accessibilityViewIsModal style={styles.infoCard}>
+        <View style={styles.infoHeader}>
+          <View style={styles.infoHeading}>
+            <Eyebrow>{info.title}</Eyebrow>
+            <Text style={styles.infoValue}>{info.value}</Text>
+          </View>
+          <IconButton icon="close" label="Close explanation" onPress={onClose} />
+        </View>
+        {label ? <MeasurementBadge label={label} /> : <Text style={styles.infoSource}>Unavailable</Text>}
+        <Text style={styles.infoSource}>{missing ? 'The camera did not resolve this value on this shot.' : SOURCE_TEXT[quality.source]}</Text>
+        <ScrollView style={styles.infoBody} contentContainerStyle={styles.infoBodyContent}>
+          {quality.checks?.length ? (
+            <View>
+              <Text style={styles.infoSectionTitle}>Quality checks</Text>
+              {quality.checks.map((check) => (
+                <View key={check.label} style={styles.infoCheck}>
+                  <Ionicons
+                    name={check.passed ? 'checkmark-circle' : 'close-circle'}
+                    size={15}
+                    color={check.passed ? colors.accent : colors.orange}
+                  />
+                  <Text style={styles.infoCheckText}>{check.label}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
+          {quality.reason ? (
+            <View>
+              <Text style={styles.infoSectionTitle}>{missing ? 'Why it is unavailable' : 'How it was worked out'}</Text>
+              <Text style={styles.infoReason}>{quality.reason}</Text>
+            </View>
+          ) : null}
+        </ScrollView>
+      </View>
+    </View>
+  );
 }
 
 function ShotFrameReview({ shot }: { shot: Shot }) {
   const { getCaptureFrame } = useLaunchMonitor();
+  const { getCloudShotFrame } = useCloudSync();
   const initialIndex = Math.max(0, Math.min(shot.frameCount - 1, shot.firstMovingFrameIndex ?? shot.impactFrameIndex ?? 0));
   const [frameIndex, setFrameIndex] = useState(initialIndex);
   const [frame, setFrame] = useState<CaptureFramePreview | null>(null);
@@ -167,7 +468,7 @@ function ShotFrameReview({ shot }: { shot: Shot }) {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    void getCaptureFrame(shot.captureId, frameIndex)
+    void getCloudShotFrame(shot.id, frameIndex).catch(() => getCaptureFrame(shot.captureId!, frameIndex))
       .then((nextFrame) => {
         if (cancelled) return;
         cache.current.set(frameIndex, nextFrame);
@@ -180,7 +481,7 @@ function ShotFrameReview({ shot }: { shot: Shot }) {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [frameIndex, getCaptureFrame, shot.captureId]);
+  }, [frameIndex, getCaptureFrame, getCloudShotFrame, shot.captureId, shot.id]);
 
   const frameCount = frame?.frameCount ?? shot.frameCount;
   const selectFromTimeline = (event: GestureResponderEvent) => {
@@ -206,6 +507,12 @@ function ShotFrameReview({ shot }: { shot: Shot }) {
         {previewUri ? <Image source={{ uri: previewUri }} style={styles.frameImage} /> : null}
         {loading ? <View style={styles.frameLoading}><ActivityIndicator color={colors.accent} /></View> : null}
       </View>
+      {frame?.secondaryBase64 ? <>
+        <Eyebrow>Upper camera · matching frame</Eyebrow>
+        <View style={styles.frameViewport}>
+          <Image accessibilityLabel="Upper camera matching capture frame" source={{ uri: `data:${frame.mimeType};base64,${frame.secondaryBase64}` }} style={styles.frameImage} />
+        </View>
+      </> : null}
       <Pressable
         accessibilityLabel="Select capture frame"
         accessibilityRole="adjustable"
@@ -282,30 +589,55 @@ const styles = StyleSheet.create({
   clubName: { color: colors.accent, fontSize: 11, fontWeight: '800', marginTop: 2 },
   hero: { padding: spacing.lg },
   heroTop: { alignItems: 'flex-start', flexDirection: 'row', justifyContent: 'space-between' },
+  heroTopCompact: { flexDirection: 'column' },
   speedRow: { alignItems: 'baseline', flexDirection: 'row', gap: 7, marginTop: 1 },
   speed: { color: colors.text, fontSize: 58, fontWeight: '700', letterSpacing: -3.4 },
   unit: { color: colors.textMuted, fontSize: 16, fontWeight: '700' },
   mph: { color: colors.textDim, fontSize: 11, fontWeight: '700', marginTop: -5 },
-  heroAside: { alignItems: 'flex-end' },
+  heroAside: { alignItems: 'flex-end', flexShrink: 1, minWidth: 0 },
+  heroAsideCompact: { alignItems: 'flex-start', alignSelf: 'stretch', borderTopColor: colors.line, borderTopWidth: 1, marginTop: spacing.lg, paddingTop: spacing.md },
+  spinAssumption: { color: colors.textDim, fontSize: 10, lineHeight: 15, marginTop: spacing.xs },
   carryLabel: { color: colors.textMuted, fontSize: 9, fontWeight: '800', letterSpacing: 0.7, textTransform: 'uppercase' },
   carryRow: { alignItems: 'baseline', flexDirection: 'row', gap: 4, marginTop: 2 },
   carryValue: { color: colors.accent, fontSize: 35, fontWeight: '700', letterSpacing: -1.4 },
   carryUnit: { color: colors.textMuted, fontSize: 12, fontWeight: '700' },
   carryYards: { color: colors.textDim, fontSize: 10, fontWeight: '700', marginTop: -4 },
-  quality: { alignItems: 'center', flexDirection: 'row', gap: 4, marginTop: 8 },
-  qualityValue: { color: colors.text, fontSize: 11, fontWeight: '800' },
+  quality: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 8, maxWidth: '100%' },
+  qualityValue: { color: colors.text, flexShrink: 1, fontSize: 11, fontWeight: '800' },
   qualityLabel: { color: colors.textDim, fontSize: 9, fontWeight: '600' },
   metricRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg },
   metricRowSecondary: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
-  confidenceNote: { color: colors.textDim, fontSize: 8, fontWeight: '700', marginTop: 3 },
+  heroMeasurement: { alignItems: 'center', alignSelf: 'flex-start', flexDirection: 'row', gap: 4 },
+  heroMeasurementPressed: { opacity: 0.7 },
+  heroInfoIcon: { marginTop: 6 },
+  infoOverlay: { bottom: 0, justifyContent: 'center', left: 0, padding: spacing.md, position: 'absolute', right: 0, top: 0 },
+  infoBackdrop: { backgroundColor: 'rgba(0, 0, 0, 0.6)', bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },
+  infoCard: { backgroundColor: colors.surfaceRaised, borderColor: colors.lineStrong, borderRadius: radii.lg, borderWidth: 1, maxHeight: '75%', padding: spacing.lg },
+  infoHeader: { alignItems: 'flex-start', flexDirection: 'row', justifyContent: 'space-between' },
+  infoHeading: { flex: 1, paddingRight: spacing.sm },
+  infoValue: { color: colors.text, fontSize: 24, fontWeight: '700', letterSpacing: -0.8, marginTop: 3 },
+  infoSource: { color: colors.textMuted, fontSize: 12, lineHeight: 17, marginTop: spacing.sm },
+  infoBody: { marginTop: spacing.md },
+  infoBodyContent: { gap: spacing.md },
+  infoSectionTitle: { color: colors.textMuted, fontSize: 10, fontWeight: '800', letterSpacing: 0.8, marginBottom: spacing.xs, textTransform: 'uppercase' },
+  infoCheck: { alignItems: 'flex-start', flexDirection: 'row', gap: 7, paddingVertical: 4 },
+  infoCheckText: { color: colors.text, flex: 1, fontSize: 12, lineHeight: 17 },
+  infoReason: { color: colors.textMuted, fontSize: 12, lineHeight: 18 },
   carryNote: { color: colors.textDim, fontSize: 9, lineHeight: 13, marginTop: spacing.sm },
+  directionNote: { color: colors.textDim, fontSize: 10, lineHeight: 15, marginTop: spacing.sm },
   visualCard: { marginTop: spacing.sm, overflow: 'hidden', padding: spacing.lg },
   replayCard: { gap: spacing.md, marginTop: spacing.sm, overflow: 'hidden', padding: spacing.lg },
   visualHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
   visualTitle: { color: colors.text, fontSize: 19, fontWeight: '700', marginTop: 3 },
+  estimatesCard: { gap: spacing.xs, marginTop: spacing.md, padding: spacing.lg },
+  excludeButton: { alignItems: 'center', alignSelf: 'flex-start', flexDirection: 'row', gap: spacing.xs, marginTop: spacing.md, paddingVertical: spacing.xs },
+  excludeText: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
   frameCounter: { color: colors.accent, fontSize: 12, fontWeight: '800' },
   frameViewport: { aspectRatio: 1.6, backgroundColor: colors.background, borderRadius: radii.sm, overflow: 'hidden', position: 'relative', width: '100%' },
   frameImage: { height: '100%', resizeMode: 'cover', width: '100%' },
+  cloudImage: { width: '100%', aspectRatio: 1.6, resizeMode: 'contain' },
+  imageRetryButton: { alignItems: 'center', alignSelf: 'flex-start', backgroundColor: colors.accent, borderRadius: radii.sm, justifyContent: 'center', marginTop: spacing.md, minHeight: 42, paddingHorizontal: spacing.md },
+  imageUploadError: { color: colors.red, fontSize: 12, marginTop: spacing.sm },
   frameLoading: { alignItems: 'center', backgroundColor: 'rgba(8, 11, 12, 0.55)', bottom: 0, justifyContent: 'center', left: 0, position: 'absolute', right: 0, top: 0 },
   timeline: { backgroundColor: colors.line, borderRadius: 4, height: 14, justifyContent: 'center', overflow: 'visible' },
   timelineProgress: { backgroundColor: colors.accent, borderRadius: 4, height: 6 },

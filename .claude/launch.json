@@ -4,7 +4,26 @@
     {
       "name": "lm1-web",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["expo", "start", "--web", "--port", "8081"],
+      "runtimeArgs": [
+        "expo",
+        "start",
+        "--web",
+        "--port",
+        "8081"
+      ],
+      "port": 8081
+    },
+    {
+      "name": "lm1-dev-client",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "expo",
+        "start",
+        "--dev-client",
+        "--lan",
+        "--port",
+        "8081"
+      ],
       "port": 8081
     }
   ]

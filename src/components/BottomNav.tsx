@@ -17,6 +17,7 @@ const tabs: {
   { key: 'calibration', label: 'Calibrate', icon: 'scan-outline', activeIcon: 'scan' },
   { key: 'history', label: 'Sessions', icon: 'stats-chart-outline', activeIcon: 'stats-chart' },
   { key: 'device', label: 'Device', icon: 'hardware-chip-outline', activeIcon: 'hardware-chip' },
+  { key: 'cloud', label: 'Cloud', icon: 'cloud-outline', activeIcon: 'cloud' },
 ];
 
 export function BottomNav({ active, onChange }: { active: AppTab; onChange: (tab: AppTab) => void }) {

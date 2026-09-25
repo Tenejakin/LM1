@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from apriltag_calibration import AprilTagDetector, load_apriltag_calibration
-from camera_source import CsiCapture, auto_calibrate_camera, record_camera_diagnostics, uses_csi
+from camera_source import CsiCapture, DualCsiCapture, auto_calibrate_camera, record_camera_diagnostics, uses_csi
 
 try:
     import cv2
@@ -34,6 +34,7 @@ DEFAULT_PREVIEW_WIDTH = 160
 DEFAULT_PREVIEW_HEIGHT = 120
 DEFAULT_PREVIEW_QUALITY = 20
 DEFAULT_PREVIEW_MAX_BYTES = 2200
+DEFAULT_BALL_ROI = "0,0.30,0.50,0.98"
 DEFAULT_ROLLING_CAPTURE_PATH = Path("/var/lib/pinpoint/rolling-captures")
 DEFAULT_CAPTURE_RETENTION = 100
 # At 200 fps a struck ball crosses the view in about 40 ms. The buffer is
@@ -42,6 +43,7 @@ DEFAULT_CAPTURE_RETENTION = 100
 # leave ~0.6 s of resting-ball background for launch analysis.
 DEFAULT_PRE_IMPACT_FRAMES = 120
 DEFAULT_POST_IMPACT_FRAMES = 30
+DEFAULT_FULL_SHOT_TAIL_FRAMES = 48
 DEFAULT_DEPARTURE_TIMEOUT_SECONDS = 0.5
 DEFAULT_CALIBRATION_IMAGE_PATH = Path("/var/lib/pinpoint/calibration-images")
 
@@ -73,10 +75,37 @@ def latest_rolling_capture_preview() -> dict[str, Any] | None:
     return _contact_sheet_payload(captures[0].name, preview)
 
 
+# The result is sent before a burst's frames reach the disk, so the app can ask for
+# a burst that is still being written. Those requests wait for the write instead.
+_pending_saves: dict[str, threading.Event] = {}
+_pending_saves_lock = threading.Lock()
+CAPTURE_SAVE_WAIT_S = 30.0
+
+
+def _begin_capture_save(capture_id: str) -> None:
+    with _pending_saves_lock:
+        _pending_saves[capture_id] = threading.Event()
+
+
+def _finish_capture_save(capture_id: str) -> None:
+    with _pending_saves_lock:
+        done = _pending_saves.pop(capture_id, None)
+    if done is not None:
+        done.set()
+
+
+def _wait_for_capture_save(capture_id: str) -> None:
+    with _pending_saves_lock:
+        pending = _pending_saves.get(capture_id)
+    if pending is not None:
+        pending.wait(CAPTURE_SAVE_WAIT_S)
+
+
 def capture_contact_sheet(capture_id: str) -> dict[str, Any]:
     """Return the saved contact sheet of one specific burst for BLE review."""
     if not re.fullmatch(r"capture-\d+", capture_id):
         raise ValueError("Invalid capture id")
+    _wait_for_capture_save(capture_id)
     root = Path(os.getenv("PINPOINT_ROLLING_CAPTURE_PATH", str(DEFAULT_ROLLING_CAPTURE_PATH)))
     preview = root / capture_id / "contact-sheet.jpg"
     if not preview.exists():
@@ -92,8 +121,35 @@ def _contact_sheet_payload(capture_id: str, preview: Path) -> dict[str, Any]:
     }
 
 
-def _calibration_root() -> Path:
-    return Path(os.getenv("PINPOINT_CALIBRATION_IMAGE_PATH", str(DEFAULT_CALIBRATION_IMAGE_PATH)))
+CALIBRATION_CAMERAS = ("primary", "secondary")
+
+
+def _camera_key(camera: str | None) -> str:
+    key = (camera or "primary").lower()
+    if key not in CALIBRATION_CAMERAS:
+        raise ValueError("Calibration camera must be 'primary' or 'secondary'.")
+    return key
+
+
+def _migrate_legacy_calibration_images(root: Path) -> None:
+    """Move pre-per-camera views into the primary folder so counts survive the upgrade."""
+    legacy_manifest = root / "manifest.json"
+    if not legacy_manifest.exists():
+        return
+    destination = root / "primary"
+    try:
+        destination.mkdir(parents=True, exist_ok=True)
+        for path in [*sorted(root.glob("calib-*.jpg")), legacy_manifest]:
+            path.replace(destination / path.name)
+    except OSError as error:
+        # Status reads call this; a read-only folder must not break them.
+        LOGGER.warning("Could not move legacy calibration views into %s: %s", destination, error)
+
+
+def _calibration_root(camera: str = "primary") -> Path:
+    root = Path(os.getenv("PINPOINT_CALIBRATION_IMAGE_PATH", str(DEFAULT_CALIBRATION_IMAGE_PATH)))
+    _migrate_legacy_calibration_images(root)
+    return root / _camera_key(camera)
 
 
 def _calibration_manifest(root: Path) -> list[dict[str, Any]]:
@@ -107,29 +163,67 @@ def _calibration_manifest(root: Path) -> list[dict[str, Any]]:
     return manifest if isinstance(manifest, list) else []
 
 
-def calibration_capture_status() -> dict[str, Any]:
-    manifest = _calibration_manifest(_calibration_root())
+def _camera_capture_status(camera: str) -> dict[str, Any]:
+    manifest = _calibration_manifest(_calibration_root(camera))
     return {
+        "camera": _camera_key(camera),
         "totalSaved": len(manifest),
         "totalWithCorners": sum(1 for entry in manifest if entry.get("cornersFound")),
     }
 
 
-def clear_calibration_images() -> dict[str, Any]:
-    """Discard saved checkerboard views so a bad batch can be redone from scratch."""
-    root = _calibration_root()
+def calibration_capture_status(camera: str | None = None) -> dict[str, Any]:
+    """Counts for one camera, or every camera with the primary kept at the top level."""
+    if camera is not None:
+        return _camera_capture_status(camera)
+    cameras = {key: _camera_capture_status(key) for key in CALIBRATION_CAMERAS}
+    return {**cameras["primary"], "cameras": cameras}
+
+
+def _intrinsics_path(camera: str) -> Path:
+    if _camera_key(camera) == "primary":
+        return Path(os.getenv("PINPOINT_INTRINSICS_PATH", "/var/lib/pinpoint/intrinsics.json"))
+    return Path(
+        os.getenv("PINPOINT_SECONDARY_INTRINSICS_PATH", "/var/lib/pinpoint/intrinsics-secondary.json")
+    )
+
+
+def lens_calibration_status() -> dict[str, dict[str, Any]]:
+    """Report the installed intrinsics per camera so the app can show what is calibrated."""
+    status: dict[str, dict[str, Any]] = {}
+    for camera in CALIBRATION_CAMERAS:
+        path = _intrinsics_path(camera)
+        try:
+            saved = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(saved, dict) or "cameraMatrix" not in saved:
+            continue
+        status[camera] = {
+            "rmsPx": saved.get("rmsPx"),
+            "imageSize": saved.get("imageSize"),
+            "views": len(saved.get("views") or []),
+            "savedTo": str(path),
+        }
+    return status
+
+
+def clear_calibration_images(camera: str = "primary") -> dict[str, Any]:
+    """Discard one camera's saved checkerboard views so a bad batch can be redone."""
+    root = _calibration_root(camera)
     shutil.rmtree(root, ignore_errors=True)
     root.mkdir(parents=True, exist_ok=True)
-    return calibration_capture_status()
+    return calibration_capture_status(camera)
 
 
-def save_calibration_frame(frame: Any) -> dict[str, Any]:
+def save_calibration_frame(frame: Any, camera: str = "primary") -> dict[str, Any]:
     """Save one on-demand full-resolution frame and report whether its checkerboard resolved.
 
     Runs inline in the camera thread so the app gets near-instant feedback per shutter
     press, instead of discovering hours later (via SSH) that a whole batch was unusable.
+    Each camera keeps its own folder and manifest; their views are never mixed.
     """
-    root = _calibration_root()
+    root = _calibration_root(camera)
     root.mkdir(parents=True, exist_ok=True)
     manifest = _calibration_manifest(root)
     columns = int(os.getenv("PINPOINT_CALIBRATION_COLUMNS", "5"))
@@ -142,25 +236,22 @@ def save_calibration_frame(frame: Any) -> dict[str, Any]:
         raise RuntimeError(f"Could not save calibration frame {filename}")
     manifest.append({"file": filename, "cornersFound": bool(found)})
     (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-    status = {
-        "totalSaved": len(manifest),
-        "totalWithCorners": sum(1 for entry in manifest if entry.get("cornersFound")),
-    }
     return {
         "index": index,
         "cornersFound": bool(found),
         "columns": columns,
         "rows": rows,
         "image": {"mimeType": "image/jpeg", "base64": base64.b64encode(encode_ble_preview(frame)).decode("ascii")},
-        **status,
+        **calibration_capture_status(camera),
     }
 
 
-def run_lens_calibration() -> dict[str, Any]:
-    """Run the checkerboard solve over every saved view and install the result."""
+def run_lens_calibration(camera: str = "primary") -> dict[str, Any]:
+    """Run the checkerboard solve over one camera's saved views and install the result."""
     from lens_calibration import calibrate_from_images
 
-    root = _calibration_root()
+    key = _camera_key(camera)
+    root = _calibration_root(key)
     manifest = _calibration_manifest(root)
     if not manifest:
         raise ValueError("No calibration images saved yet. Capture at least 12 diverse checkerboard views first.")
@@ -169,10 +260,11 @@ def run_lens_calibration() -> dict[str, Any]:
     square_mm = float(os.getenv("PINPOINT_CALIBRATION_SQUARE_MM", "25"))
     paths = [root / entry["file"] for entry in manifest]
     result = calibrate_from_images(paths, columns, rows, square_mm)
-    destination = Path(os.getenv("PINPOINT_INTRINSICS_PATH", "/var/lib/pinpoint/intrinsics.json"))
+    destination = _intrinsics_path(key)
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(json.dumps(result, indent=2), encoding="utf-8")
     return {
+        "camera": key,
         "rmsPx": result["rmsPx"],
         "viewsUsed": len(result["views"]),
         "viewsTotal": len(manifest),
@@ -207,8 +299,18 @@ class RollingFrameBuffer:
     def __init__(self, max_frames: int) -> None:
         self.frames: deque[tuple[float, Any]] = deque(maxlen=max(1, max_frames))
         self.metadata: deque[dict[str, Any]] = deque(maxlen=max(1, max_frames))
+        self.secondary: RollingFrameBuffer | None = None
 
-    def append(self, frame: Any, captured_at: float | None = None, metadata: dict[str, Any] | None = None) -> None:
+    def append(self, frame: Any, captured_at: float | None = None, metadata: dict[str, Any] | None = None,
+               *, secondary_frame: Any = None, secondary_metadata: dict[str, Any] | None = None) -> None:
+        if secondary_frame is not None:
+            if self.secondary is None:
+                if self.frames:
+                    raise RuntimeError("Cannot add a second camera halfway through a burst")
+                self.secondary = RollingFrameBuffer(self.frames.maxlen)
+            self.secondary.append(secondary_frame, metadata=secondary_metadata)
+        elif self.secondary is not None:
+            raise RuntimeError("Second camera frame missing from paired burst")
         metadata = {key: value for key, value in (metadata or {}).items() if key in ("SensorTimestamp", "ExposureTime", "FrameDuration", "AnalogueGain") and isinstance(value, (int, float))}
         if metadata.get("SensorTimestamp"):
             captured_at = metadata["SensorTimestamp"] / 1e9
@@ -222,6 +324,16 @@ class RollingFrameBuffer:
     def clear(self) -> None:
         self.frames.clear()
         self.metadata.clear()
+        if self.secondary is not None:
+            self.secondary.clear()
+
+    def trim_after(self, last_index: int) -> None:
+        """Discard detector-confirmation frames beyond the useful shot window."""
+        while len(self.frames) > last_index + 1:
+            self.frames.pop()
+            self.metadata.pop()
+        if self.secondary is not None:
+            self.secondary.trim_after(last_index)
 
     def save(
         self,
@@ -233,6 +345,8 @@ class RollingFrameBuffer:
         last_stationary_frame_index: int | None = None,
         first_moving_frame_index: int | None = None,
         ball_bounds: tuple[int, int, int, int] | None = None,
+        include_calibration: bool = True,
+        capture_id: str | None = None,
     ) -> int:
         if cv2 is None or not self.frames:
             return 0
@@ -251,7 +365,7 @@ class RollingFrameBuffer:
                 raise RuntimeError(f"Could not write rolling capture frame {image_path}")
         self._save_contact_sheet(destination, impact_frame_index)
         manifest = {
-            "captureId": destination.name,
+            "captureId": capture_id or destination.name,
             "capturedAtUnix": time.time() if self.timestamp_source == "sensor" else started_at,
             "timestampSource": self.timestamp_source,
             "frameMetadata": list(self.metadata),
@@ -267,9 +381,33 @@ class RollingFrameBuffer:
             "ballBounds": list(ball_bounds) if ball_bounds is not None else None,
             "purpose": "Ball departure evidence; physical launch metrics require validated tracking and calibration",
         }
-        apriltag_calibration = load_apriltag_calibration()
+        if self.secondary is not None:
+            if len(self.secondary.frames) != len(self.frames) or self.timestamp_source != "sensor" or self.secondary.timestamp_source != "sensor":
+                raise RuntimeError("Paired capture has incomplete frames or sensor timestamps")
+            self.secondary.save(destination / "camera-secondary", fps, impact_frame_index,
+                                include_calibration=False, capture_id=destination.name)
+            offsets = [(b["SensorTimestamp"] - a["SensorTimestamp"]) / 1000
+                       for a, b in zip(self.metadata, self.secondary.metadata)]
+            absolute_offsets = sorted(abs(value) for value in offsets)
+            manifest["dualCamera"] = {
+                "mode": "software", "frameCount": len(offsets),
+                "primaryCameraIndex": int(os.getenv("PINPOINT_CAMERA_INDEX", "0")),
+                "secondaryCameraIndex": int(os.getenv("PINPOINT_SECONDARY_CAMERA_INDEX", "1")),
+                "secondaryPath": "camera-secondary", "pairOffsetsUs": offsets,
+                "maxAbsOffsetUs": max(absolute_offsets),
+                "medianAbsOffsetUs": absolute_offsets[len(absolute_offsets) // 2],
+                "stereoCalibrated": False,
+                "note": "Both views share the trigger. Stereo measurements are not calibrated.",
+            }
+        apriltag_calibration = load_apriltag_calibration() if include_calibration else None
         if apriltag_calibration is not None:
             manifest["aprilTagCalibration"] = apriltag_calibration
+        secondary_calibration = load_apriltag_calibration("secondary") if include_calibration and self.secondary else None
+        if secondary_calibration is not None:
+            manifest["secondaryAprilTagCalibration"] = secondary_calibration
+        if include_calibration and self.secondary:
+            from stereo_calibration import read, root
+            manifest["stereoCalibration"] = read(root() / "active.json")
         (destination / "capture.json").write_text(
             json.dumps(manifest, indent=2),
             encoding="utf-8",
@@ -311,7 +449,7 @@ class DetectionConfig:
     @classmethod
     def from_environment(cls) -> "DetectionConfig":
         return cls(
-            roi=parse_roi(os.getenv("PINPOINT_BALL_ROI", "0.05,0.30,0.95,0.98")),
+            roi=parse_roi(os.getenv("PINPOINT_BALL_ROI", DEFAULT_BALL_ROI)),
             calibration_frames=int(os.getenv("PINPOINT_BALL_CALIBRATION_FRAMES", "20")),
             present_frames=int(os.getenv("PINPOINT_BALL_PRESENT_FRAMES", "8")),
             absent_frames=int(os.getenv("PINPOINT_BALL_ABSENT_FRAMES", "5")),
@@ -366,6 +504,7 @@ def capture_frame_preview(capture_id: str, frame_index: int) -> dict[str, Any]:
         raise RuntimeError("OpenCV is required for capture replay")
     if not re.fullmatch(r"capture-\d+", capture_id):
         raise ValueError("Invalid capture id")
+    _wait_for_capture_save(capture_id)
     root = Path(os.getenv("PINPOINT_ROLLING_CAPTURE_PATH", str(DEFAULT_ROLLING_CAPTURE_PATH)))
     capture = root / capture_id
     manifest_path = capture / "capture.json"
@@ -378,7 +517,7 @@ def capture_frame_preview(capture_id: str, frame_index: int) -> dict[str, Any]:
     frame = cv2.imread(str(capture / f"frame-{frame_index:04d}.jpg"))
     if frame is None:
         raise ValueError("Capture frame is missing")
-    return {
+    result = {
         "mimeType": "image/jpeg",
         "base64": base64.b64encode(encode_ble_preview(frame)).decode("ascii"),
         "captureId": capture_id,
@@ -390,6 +529,13 @@ def capture_frame_preview(capture_id: str, frame_index: int) -> dict[str, Any]:
         "lastStationaryFrameIndex": manifest.get("lastStationaryFrameIndex"),
         "firstMovingFrameIndex": manifest.get("firstMovingFrameIndex"),
     }
+    if manifest.get("dualCamera"):
+        other = cv2.imread(str(capture / "camera-secondary" / f"frame-{frame_index:04d}.jpg"))
+        if other is None:
+            raise ValueError("Second camera capture frame is missing")
+        result["secondaryBase64"] = base64.b64encode(encode_ble_preview(other)).decode("ascii")
+        result["pairOffsetUs"] = manifest["dualCamera"]["pairOffsetsUs"][frame_index]
+    return result
 
 
 def ball_template_similarity(
@@ -662,7 +808,7 @@ def analyze_departure(
     exposure = max(exposures) if exposures and all(isinstance(v, (int, float)) and v > 0 for v in exposures) else None
     measurements = measure_launch(
         frames, bounds, analysis_index, buffer.timestamp_source, exposure,
-        motion_track=track,
+        motion_track=track, secondary_frames=list(buffer.secondary.frames) if buffer.secondary is not None else None,
     )
     measurements.setdefault("diagnostics", {})["preprocessing"] = {
         "version": 1, "denoise": os.getenv("PINPOINT_ANALYSIS_DENOISE", "bilateral"),
@@ -678,7 +824,11 @@ def analyze_departure(
     if measurements.get("failure"):
         warnings.append(measurements["failure"])
     warnings.extend(warning for warning in measurements.get("warnings", []) if warning not in warnings)
-    warnings.append("Monocular measurements are estimates pending physical reference validation.")
+    stereo = measurements.get("diagnostics", {}).get("stereo") or {}
+    if "speedMps" in stereo:
+        warnings.append("Ball depth cross-checked by the top camera; values still need validation against a reference launch monitor.")
+    else:
+        warnings.append("Monocular measurements are estimates pending physical reference validation.")
     tracked = [p["centerPx"] for p in measurements.get("ballTrack3d", []) if p.get("centerPx")]
     motion_observed = len(moving) >= 3 or len(tracked) >= 3
     if not motion_observed:
@@ -989,6 +1139,7 @@ class BallMonitor:
         )
         self.pre_impact_frames = max(1, int(os.getenv("PINPOINT_PRE_IMPACT_FRAMES", str(DEFAULT_PRE_IMPACT_FRAMES))))
         self.post_impact_frames = max(1, int(os.getenv("PINPOINT_POST_IMPACT_FRAMES", str(DEFAULT_POST_IMPACT_FRAMES))))
+        self.full_shot_tail_frames = max(1, int(os.getenv("PINPOINT_FULL_SHOT_TAIL_FRAMES", str(DEFAULT_FULL_SHOT_TAIL_FRAMES))))
         self.departure_timeout_s = float(
             os.getenv("PINPOINT_DEPARTURE_TIMEOUT_SECONDS", str(DEFAULT_DEPARTURE_TIMEOUT_SECONDS))
         )
@@ -1006,6 +1157,9 @@ class BallMonitor:
         emit_calibration_result: Callable[[dict[str, Any]], None] | None = None,
         exposure_calibration_event: threading.Event | None = None,
         emit_exposure_calibration: Callable[[dict[str, Any]], None] | None = None,
+        calibration_capture_camera: Callable[[], str] | None = None,
+        capture_mode: Callable[[], str] | None = None,
+        emit_readiness: Callable[[list[dict[str, Any]]], None] | None = None,
     ) -> None:
         if cv2 is None:
             raise RuntimeError("OpenCV is required for automatic ball detection")
@@ -1025,9 +1179,14 @@ class BallMonitor:
             detector = BallPresenceDetector()
             apriltag_detector = AprilTagDetector()
             preview_job = BackgroundJob(
-                lambda preview_frame, roi: self._publish_preview(preview_frame, roi, apriltag_detector, emit_preview),
+                lambda preview_frame, roi, secondary: self._publish_preview(preview_frame, roi, apriltag_detector, emit_preview, secondary),
                 "pinpoint-preview",
             )
+            # Circle fits in both views take tens of milliseconds; off the acquisition loop.
+            readiness_job = BackgroundJob(
+                lambda lower, upper, bounds: emit_readiness(self._readiness_checks(lower, upper, bounds)),
+                "pinpoint-readiness",
+            ) if emit_readiness is not None else None
             frame_index = 0
             failed_reads = 0
             ball_started = 0.0
@@ -1039,6 +1198,7 @@ class BallMonitor:
             occlusion_rejections = 0
             calibration_logged = False
             last_preview_at = 0.0
+            stereo_was_paused = False
             # Stable removal is intentionally debounced. Retain those sampled
             # frames as well, otherwise the actual impact is overwritten before
             # the capture is saved.
@@ -1077,10 +1237,32 @@ class BallMonitor:
                     frame_index += 1
                     if calibration_capture_event is not None and calibration_capture_event.is_set():
                         calibration_capture_event.clear()
+                        requested = calibration_capture_camera() if calibration_capture_camera else "primary"
+                        if requested not in (*CALIBRATION_CAMERAS, "stereo"):
+                            requested = "primary"
                         try:
-                            result = save_calibration_frame(frame)
-                        except (OSError, RuntimeError, cv2.error) as error:
+                            source = frame
+                            if requested == "secondary":
+                                if not isinstance(capture, DualCsiCapture) or capture.secondary_frame is None:
+                                    raise RuntimeError("The second camera is not streaming.")
+                                source = capture.secondary_frame.copy()
+                            if requested == "stereo":
+                                from stereo_calibration import capture_pair
+                                if not isinstance(capture, DualCsiCapture):
+                                    raise ValueError("Both cameras must be streaming for a stereo pair.")
+                                result = {"stereo": True, "data": capture_pair(
+                                    frame, capture.secondary_frame,
+                                    [capture.metadata.get("SensorTimestamp"), capture.secondary_metadata.get("SensorTimestamp")],
+                                    [camera.index for camera in capture.cameras])}
+                            else:
+                                result = save_calibration_frame(source, requested)
+                        except (OSError, RuntimeError, ValueError, cv2.error) as error:
                             LOGGER.warning("Calibration frame capture failed: %s", error)
+                            if emit_calibration_result is not None:
+                                emit_calibration_result({
+                                    "error": str(error),
+                                    **({"stereo": True} if requested == "stereo" else calibration_capture_status(requested)),
+                                })
                         else:
                             if emit_calibration_result is not None:
                                 emit_calibration_result(result)
@@ -1098,8 +1280,25 @@ class BallMonitor:
                         calibration_logged = False
                         warmup_until = time.monotonic() + (3 if uses_csi() else 0)
                         continue
+                    from stereo_calibration import capture_paused
+                    if capture_paused():
+                        stereo_was_paused = True
+                        rolling_frames.clear()
+                        if time.monotonic() - last_preview_at >= self.preview_interval:
+                            secondary = capture.secondary_frame.copy() if isinstance(capture, DualCsiCapture) else None
+                            if preview_job.submit(frame.copy(), detector._pixel_roi(frame), secondary):
+                                last_preview_at = time.monotonic()
+                        continue
+                    if stereo_was_paused:
+                        detector = BallPresenceDetector()
+                        rolling_frames.clear()
+                        calibration_logged = False
+                        armed_ball_bounds = None
+                        suspected_departure_at = None
+                        warmup_until = time.monotonic() + 3
+                        stereo_was_paused = False
                     if detector.calibrated:
-                        rolling_frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), metadata=getattr(capture, "metadata", None))
+                        self._append_capture_frame(rolling_frames, capture, frame)
                     if frame_index % self.frame_stride:
                         continue
 
@@ -1119,7 +1318,8 @@ class BallMonitor:
                         # AprilTag detection, the focus metric and two JPEG encodes take
                         # tens of milliseconds. Run inline they overflowed the camera's
                         # request queue and dropped frames, sometimes right at impact.
-                        if preview_job.submit(frame.copy(), detector._pixel_roi(frame)):
+                        secondary = capture.secondary_frame.copy() if isinstance(capture, DualCsiCapture) else None
+                        if preview_job.submit(frame.copy(), detector._pixel_roi(frame), secondary):
                             if observation is not None:
                                 LOGGER.info("Ball detection %s", detector.preview_detection(observation, self.width, self.height))
                             last_preview_at = current_time
@@ -1182,6 +1382,12 @@ class BallMonitor:
                             observation.confidence,
                         )
                         emit(BallEvent(True, confidence=observation.confidence))
+                        if readiness_job is not None and armed_ball_bounds is not None:
+                            readiness_job.submit(
+                                frame.copy(),
+                                capture.secondary_frame.copy() if isinstance(capture, DualCsiCapture) else None,
+                                scale_bounds(armed_ball_bounds, (self.width, self.height), (frame.shape[1], frame.shape[0])),
+                            )
                     else:
                         duration_ms = (
                             max(1, round((time.monotonic() - ball_started) * 1000))
@@ -1292,16 +1498,31 @@ class BallMonitor:
                         ) if armed_ball_bounds and rolling_frames.frames else None
                         if analysis is not None:
                             impact_frame_index = analysis["impactFrameIndex"]
-                        rolling_capture_frames, capture_id, capture_duration_ms = self._save_rolling_capture(
-                            rolling_frames,
-                            impact_frame_index,
-                            coarse_departure_frame_index=(analysis or {}).get("coarseDepartureFrameIndex", coarse_departure_frame_index),
-                            last_stationary_frame_index=(analysis or {}).get("lastStationaryFrameIndex"),
-                            first_moving_frame_index=(analysis or {}).get("firstMovingFrameIndex"),
-                            ball_bounds=sensor_bounds,
-                            ball_reference=last_ball_frame,
-                        )
-                        LOGGER.info("Ball removed; starting result processing")
+                            if rolling_frames.secondary is not None:
+                                other = rolling_frames.secondary.frames[analysis["imageFrameIndex"]][1]
+                                analysis["secondaryImage"] = {"mimeType": "image/jpeg", "base64": base64.b64encode(encode_ble_preview(other)).decode("ascii")}
+                        # Debouncing a disappearance needs a long live buffer, but a
+                        # full swing does not need those empty frames in its saved
+                        # burst. Keep them for putting, where the roll is useful.
+                        if capture_mode is None or capture_mode() != "putting":
+                            last_useful_index = max(
+                                [impact_frame_index + self.full_shot_tail_frames]
+                                + ([analysis["imageFrameIndex"]] if analysis is not None else [])
+                                + [point["frameIndex"] for point in (analysis or {}).get("track", [])]
+                            )
+                            rolling_frames.trim_after(last_useful_index)
+                            if analysis is not None:
+                                saved_count = len(rolling_frames.frames)
+                                saved_duration_ms = max(0.0, rolling_frames.frames[-1][0] - rolling_frames.frames[0][0]) * 1000
+                                analysis["frameCount"] = saved_count
+                                analysis["captureDurationMs"] = round(saved_duration_ms)
+                                analysis["measuredFps"] = round((saved_count - 1) * 1000 / saved_duration_ms, 1) if saved_duration_ms > 0 else None
+                        # The result goes out before the frames are written: saving both
+                        # cameras' bursts takes seconds on the Pi and the app only needs
+                        # the frames later, for replay. The folder exists first because
+                        # the protocol writes analysis.json into it.
+                        rolling_capture_frames, capture_id, capture_duration_ms = self._reserve_rolling_capture(rolling_frames)
+                        LOGGER.info("Ball removed; sending result before saving frames")
                         emit(
                             BallEvent(
                                 False,
@@ -1314,6 +1535,17 @@ class BallMonitor:
                                 analysis=analysis,
                             )
                         )
+                        if capture_id is not None:
+                            self._save_rolling_capture(
+                                rolling_frames,
+                                capture_id,
+                                impact_frame_index,
+                                coarse_departure_frame_index=(analysis or {}).get("coarseDepartureFrameIndex", coarse_departure_frame_index),
+                                last_stationary_frame_index=(analysis or {}).get("lastStationaryFrameIndex"),
+                                first_moving_frame_index=(analysis or {}).get("firstMovingFrameIndex"),
+                                ball_bounds=sensor_bounds,
+                                ball_reference=last_ball_frame,
+                            )
                         ball_started = 0.0
                         observed_ball_frames = 0
                         last_ball_frame = None
@@ -1327,8 +1559,15 @@ class BallMonitor:
                     emit(BallEvent(False))
             finally:
                 preview_job.stop()
+                if readiness_job is not None:
+                    readiness_job.stop()
                 capture.release()
             stop_event.wait(2)
+
+    @staticmethod
+    def _readiness_checks(lower: Any, upper: Any, bounds: tuple[int, int, int, int]) -> list[dict[str, Any]]:
+        from readiness import camera_checks  # Imports the measurement stack; loaded only when a ball arms.
+        return camera_checks(lower, upper, bounds)
 
     def _publish_preview(
         self,
@@ -1336,9 +1575,12 @@ class BallMonitor:
         roi: tuple[int, int, int, int],
         apriltag_detector: Any,
         emit_preview: Callable[[bytes], None] | None,
+        secondary: Any = None,
     ) -> None:
         try:
             record_camera_diagnostics({"aprilTag": apriltag_detector.detect(frame)})
+            if secondary is not None:
+                record_camera_diagnostics({"secondaryAprilTag": apriltag_detector.detect(secondary)})
             if uses_csi():
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                 left, top, right, bottom = roi
@@ -1346,7 +1588,11 @@ class BallMonitor:
                 record_camera_diagnostics({"focusScore": round(float(focus), 1)})
                 self._save_frame(frame, Path(os.getenv("PINPOINT_CAMERA_SNAPSHOT_PATH", "/var/lib/pinpoint/camera-latest.jpg")))
             if emit_preview is not None:
-                emit_preview(encode_ble_preview(frame))
+                if secondary is not None:
+                    self._save_frame(secondary, Path(os.getenv("PINPOINT_SECONDARY_SNAPSHOT_PATH", "/var/lib/pinpoint/camera-secondary-latest.jpg")))
+                    emit_preview(encode_ble_preview(frame), encode_ble_preview(secondary))
+                else:
+                    emit_preview(encode_ble_preview(frame))
         except (OSError, RuntimeError, cv2.error) as error:
             LOGGER.warning("BLE preview frame failed: %s", error)
 
@@ -1370,6 +1616,8 @@ class BallMonitor:
 
     def _open_camera(self) -> Any:
         if uses_csi():
+            if os.getenv("PINPOINT_DUAL_CAMERA", "false").lower() in {"1", "true", "yes"}:
+                return DualCsiCapture()
             return CsiCapture()
         capture = cv2.VideoCapture(str(self.camera_device), cv2.CAP_V4L2)
         capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
@@ -1389,9 +1637,24 @@ class BallMonitor:
             raise RuntimeError(f"Could not save diagnostic frame to {temporary_path}")
         temporary_path.replace(output_path)
 
+    def _reserve_rolling_capture(self, rolling_frames: RollingFrameBuffer) -> tuple[int, str | None, int]:
+        """Create the burst's folder and mark it pending, before any frame is written."""
+        if not rolling_frames.frames:
+            return 0, None, 0
+        destination = self.rolling_capture_path / f"capture-{time.time_ns()}"
+        try:
+            destination.mkdir(parents=True, exist_ok=False)
+        except OSError as error:
+            LOGGER.warning("Could not create rolling capture folder: %s", error)
+            return 0, None, 0
+        _begin_capture_save(destination.name)
+        capture_duration_ms = round(max(0.0, rolling_frames.frames[-1][0] - rolling_frames.frames[0][0]) * 1000)
+        return len(rolling_frames.frames), destination.name, capture_duration_ms
+
     def _save_rolling_capture(
         self,
         rolling_frames: RollingFrameBuffer,
+        capture_id: str,
         impact_frame_index: int | None = None,
         *,
         coarse_departure_frame_index: int | None = None,
@@ -1399,10 +1662,9 @@ class BallMonitor:
         first_moving_frame_index: int | None = None,
         ball_bounds: tuple[int, int, int, int] | None = None,
         ball_reference: Any | None = None,
-    ) -> tuple[int, str | None, int]:
-        if not rolling_frames.frames:
-            return 0, None, 0
-        destination = self.rolling_capture_path / f"capture-{time.time_ns()}"
+    ) -> int:
+        destination = self.rolling_capture_path / capture_id
+        started = time.monotonic()
         try:
             frame_count = rolling_frames.save(
                 destination,
@@ -1419,15 +1681,15 @@ class BallMonitor:
                 if not cv2.imwrite(str(destination / "armed-ball-reference.png"), ball_reference):
                     raise RuntimeError("Could not save the armed-ball reference")
             self._keep_recent_rolling_captures()
-            LOGGER.info("Saved %s diagnostic rolling-capture frames to %s", frame_count, destination)
-            capture_duration_ms = round(
-                max(0.0, rolling_frames.frames[-1][0] - rolling_frames.frames[0][0]) * 1000
-            )
-            return frame_count, destination.name, capture_duration_ms
+            LOGGER.info("Saved %s diagnostic rolling-capture frames to %s in %.1f s",
+                        frame_count, destination, time.monotonic() - started)
+            return frame_count
         except (OSError, RuntimeError, cv2.error) as error:
             LOGGER.warning("Could not save rolling capture: %s", error)
             shutil.rmtree(destination, ignore_errors=True)
-            return 0, None, 0
+            return 0
+        finally:
+            _finish_capture_save(capture_id)
 
     def _capture_post_impact_frames(self, capture: Any, rolling_frames: RollingFrameBuffer) -> None:
         for _ in range(self.post_impact_frames):
@@ -1435,7 +1697,16 @@ class BallMonitor:
             if not ok:
                 LOGGER.warning("Camera stopped while collecting post-impact frames")
                 return
-            rolling_frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), metadata=getattr(capture, "metadata", None))
+            self._append_capture_frame(rolling_frames, capture, frame)
+
+    @staticmethod
+    def _append_capture_frame(rolling_frames: RollingFrameBuffer, capture: Any, frame: Any) -> None:
+        extra = {}
+        if isinstance(capture, DualCsiCapture):
+            extra = {"secondary_frame": cv2.cvtColor(capture.secondary_frame, cv2.COLOR_BGR2GRAY),
+                     "secondary_metadata": capture.secondary_metadata}
+        rolling_frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY),
+                              metadata=getattr(capture, "metadata", None), **extra)
 
     def _keep_recent_rolling_captures(self) -> None:
         if not self.rolling_capture_path.exists():

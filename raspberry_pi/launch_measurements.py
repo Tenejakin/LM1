@@ -1,7 +1,8 @@
 """AprilTag-referenced monocular launch estimates. All distances internally in metres.
 
 World +X follows the tag's top edge (target), +Y points left, +Z up.
-Single-view sphere depth is sensitive to silhouette errors; never label it measured 3D.
+Single-view sphere depth is sensitive to silhouette errors, so a value is only labelled
+measured when it passes every gate in grade_metrics; everything else is an estimate.
 """
 from __future__ import annotations
 
@@ -13,10 +14,13 @@ import cv2
 import numpy as np
 
 import club_vision
-from target_line import target_heading_rad
+from capture_quality import shot_evidence
+from apriltag_calibration import tag_detector_parameters
 
 RADIUS = 0.021335
 STRICT_TAG_POSE_ERROR_PX = 1.0
+# Longest ball smear accepted during one exposure; shared with the pre-shot readiness check.
+MAX_MOTION_BLUR_M = 0.004
 MAX_ESTIMATED_TAG_POSE_ERROR_PX = 3.0
 MAX_GROUND_TAG_DETECTIONS = 12
 # Below this the camera's across-image axis is too close to vertical to project onto the ground.
@@ -34,13 +38,41 @@ GROUND_TRACK_FRAMES = 12
 # centres fix motion across the view, and apparent size weakly constrains the
 # line-of-sight component that single-view depth otherwise gets wrong.
 GRAVITY = 9.80665
-TRAJECTORY_MIN_FRAMES = 6
+# Three frames are the minimum for any fitted motion; every further frame joins the
+# least-squares fit and averages its noise down.
+TRAJECTORY_MIN_FRAMES = 3
 TRAJECTORY_MAX_FRAMES = 48
 TRAJECTORY_CENTER_SIGMA_PX = 0.5
 TRAJECTORY_RADIUS_SIGMA_PX = 1.5
 TRAJECTORY_MAX_RMS_PX = 3.0
 TRAJECTORY_HUBER = 2.0
 TRAJECTORY_MAX_ROLL_DECELERATION = 10.0
+# Coarse launch grid for seeding the flight fit; the best few are refined.
+FLIGHT_SEED_LAUNCH_DEG = (0.0, 10.0, 20.0, 30.0, 45.0, 60.0, 75.0)
+FLIGHT_SEED_SPEED_MPS = (2.0, 4.0, 8.0, 16.0, 32.0, 64.0)
+FLIGHT_SEED_STARTS = 3
+# Sub-pixel ball outline: radial brightness profiles around the tracked centre, each
+# edge placed at its half-contrast crossing, then a robust circle fit.
+EDGE_RAYS = 72
+EDGE_STEP_PX = 0.25
+EDGE_MIN_RAYS = 24
+EDGE_MIN_CONTRAST = 12.0
+EDGE_MAX_RMS_PX = 0.8
+EDGE_MIN_RADIUS_PX = 4.0
+EDGE_LIT_FRACTION = 0.5
+EDGE_RANSAC_ITERATIONS = 200
+EDGE_INLIER_PX = 0.6
+EDGE_MIN_ARC_DEG = 150
+# Measured frame-to-frame jitter of edge-fitted radii on real captures is 0.65-0.9 px.
+TRAJECTORY_EDGE_RADIUS_SIGMA_PX = 1.0
+BALL_SIZE_MIN_FRAMES = 3
+# The free-start roll has five parameters: on a short track it fits any three points
+# exactly, so it needs the frames the resting-ball anchor otherwise supplies.
+FREE_START_MIN_FRAMES = 6
+# A struck ball flattens on the face and rings for about a millisecond after leaving
+# it. Its outline is only a 42.67 mm sphere again after that, so apparent size from
+# the first moving frame and any within this long after it is not used.
+BALL_RECOVERY_S = 0.003
 METRICS = {
     "ballSpeedMps": "m/s", "clubSpeedMps": "m/s", "smashFactor": "",
     "launchAngleDeg": "deg", "startDirectionDeg": "deg", "strikeXmm": "mm",
@@ -50,12 +82,184 @@ METRICS = {
 }
 
 
+# A value is labelled "measured" only when it was observed directly and every quality
+# gate below passed. Anything else stays "estimated" and carries a confidence that
+# drops with each failed gate, so a clean shot and a marginal one no longer look alike.
+# Measured still means "passed this device's own checks", not "validated against a
+# reference launch monitor".
+MEASURED_TAG_POSE_ERROR_PX = STRICT_TAG_POSE_ERROR_PX
+MEASURED_FIT_RMS_PX = 1.0
+MEASURED_SPEED_SIGMA_RATIO = 0.03
+MEASURED_ANGLE_SIGMA_DEG = 1.5
+MEASURED_SPIN_SAMPLES = 4
+MEASURED_CLUB_TAG_POSES = 5
+MEASURED_BALL_SIZE_ERROR_PCT = 5.0
+STEREO_MAX_CALIBRATION_SKEW_S = 5.0
+MAX_CONFIDENCE = 0.95
+MIN_CONFIDENCE = 0.05
+
+
 def unavailable(reason):
     return {key: {"value": None, "unit": unit, "status": "unavailable", "reason": reason} for key, unit in METRICS.items()}
 
 
-def load_setup(image_size):
-    path = Path(os.getenv("PINPOINT_INTRINSICS_PATH", "/var/lib/pinpoint/intrinsics.json"))
+def _limit_check(label, value, limit, unit, higher_is_better=False):
+    """A numeric gate; a miss costs more the further the value is past its limit."""
+    passed = value >= limit if higher_is_better else value <= limit
+    ratio = (value / limit if higher_is_better else limit / value) if value > 0 else 0.0
+    comparison = "≥" if higher_is_better else "≤"
+    shown = f"{value:g}" if isinstance(value, int) else f"{value:.2f}"
+    return {"label": f"{label} {shown}{unit} (needs {comparison} {limit:g}{unit})", "passed": passed,
+            "penalty": 1.0 if passed else max(0.3, math.sqrt(max(0.0, ratio)))}
+
+
+def _flag_check(label, passed, penalty):
+    return {"label": label, "passed": bool(passed), "penalty": 1.0 if passed else penalty}
+
+
+def _ball_checks(context):
+    checks = [_limit_check("Ground tag pose error", context["poseErrorPx"], MEASURED_TAG_POSE_ERROR_PX, " px")]
+    if context.get("stereoFailure"):
+        checks.append(_flag_check(f"Two-camera validation failed: {context['stereoFailure']}", False, 0.65))
+    fit = context.get("ballFit")
+    if fit is None:
+        checks.append(_flag_check("Anchored trajectory fit (fell back to per-frame outline depth)", False, 0.75))
+        if context.get("guided"):
+            checks.append(_flag_check("Full ball outline (used a partial, tracker-guided outline)", False, 0.6))
+    else:
+        fit_label = (f"Two-camera trajectory fit over {fit['frames']} paired frames"
+                     if fit.get("source") == "stereo" else f"Anchored trajectory fit over {fit['frames']} frames")
+        checks.append(_flag_check(fit_label, True, 1.0))
+        checks.append(_limit_check("Image residual", fit["rmsPx"], MEASURED_FIT_RMS_PX, " px"))
+        stereo = context.get("stereo")
+        if stereo is not None:
+            from stereo_check import MEASURED_STEREO_FRAMES
+            checks.append(_limit_check("Paired stereo frames", stereo["frames"], MEASURED_STEREO_FRAMES, "",
+                                       higher_is_better=True))
+            # Triangulated depth vouches for the distance independently, so the apparent
+            # ball size (whose outline is the least reliable measurement) is not needed.
+            from stereo_check import (MAX_PAIR_OFFSET_US, MAX_RAY_GAP_MM, MAX_REST_HEIGHT_ERROR_MM,
+                                      MAX_START_ANCHOR_ERROR_MM, MAX_STEREO_RMS_PX)
+            checks.append(_limit_check("Stereo rays meet within", max(0.01, stereo["medianRayGapMm"]), MAX_RAY_GAP_MM, " mm"))
+            checks.append(_limit_check("Stereo resting ball off the tag plane by",
+                                       max(0.01, abs(stereo["restHeightErrorMm"])), MAX_REST_HEIGHT_ERROR_MM, " mm"))
+            checks.append(_limit_check("Stereo start point differs from resting ball by",
+                                       max(0.01, stereo["startAnchorErrorMm"]), MAX_START_ANCHOR_ERROR_MM, " mm"))
+            checks.append(_limit_check("Paired-camera timestamp offset", stereo["maxPairOffsetUs"],
+                                       MAX_PAIR_OFFSET_US, " µs"))
+            checks.append(_limit_check("Stereo reprojection residual", stereo["rmsPx"], MAX_STEREO_RMS_PX, " px"))
+            # The lower pose was already checked once above.
+            if stereo.get("upperPoseErrorPx") is not None:
+                checks.append(_limit_check("Upper tag pose error", stereo["upperPoseErrorPx"],
+                                           MEASURED_TAG_POSE_ERROR_PX, " px"))
+        elif fit.get("ballSizeRatio") is not None:
+            checks.append(_limit_check("Ball size vs calibration (standard 42.67 mm ball) off by",
+                                       max(0.01, abs(fit["ballSizeRatio"] - 1) * 100), MEASURED_BALL_SIZE_ERROR_PCT, "%"))
+    return checks
+
+
+def _club_checks(context, result):
+    stereo = result.get("diagnostics", {}).get("clubStereo") or {}
+    if stereo.get("used"):
+        import club_stereo
+        return [
+            _flag_check("Club depth triangulated by both cameras", True, 1.0),
+            _limit_check("Club frames", stereo["acceptedFrames"], club_stereo.MEASURED_FRAMES, "",
+                         higher_is_better=True),
+            _limit_check("Club median ray gap", stereo["medianRayGapMm"], club_stereo.MEASURED_RAY_GAP_MM, " mm"),
+            _limit_check("Club path residual", stereo["fitResidualMm"], club_stereo.MEASURED_RESIDUAL_MM, " mm"),
+        ]
+    silhouette = result.get("diagnostics", {}).get("clubSilhouette")
+    if silhouette is not None:
+        return [
+            _flag_check("Club depth from a club tag (assumed the ball's swing plane)", False, 0.7),
+            _limit_check("Clubhead frames", silhouette.get("acceptedFrames", 0), club_vision.MEASURED_TRACK_FRAMES, "",
+                         higher_is_better=True),
+        ]
+    return [
+        _limit_check("Ground tag pose error", context["poseErrorPx"], MEASURED_TAG_POSE_ERROR_PX, " px"),
+        _limit_check("Club tag poses", len(result.get("clubTrack3d", [])), MEASURED_CLUB_TAG_POSES, "",
+                     higher_is_better=True),
+    ]
+
+
+def _grade(metric, checks):
+    confidence = MAX_CONFIDENCE
+    for check in checks:
+        confidence *= check["penalty"]
+    metric["status"] = "measured" if all(check["passed"] for check in checks) else "estimated"
+    metric["confidence"] = round(min(MAX_CONFIDENCE, max(MIN_CONFIDENCE, confidence)), 2)
+    metric["checks"] = [{"label": check["label"], "passed": check["passed"]} for check in checks]
+
+
+def grade_metrics(result, context):
+    """Label every reported value measured or estimated and explain which gates decided it."""
+    metrics = result["metrics"]
+    if context.get("poseErrorPx") is None:
+        return
+    ball = _ball_checks(context)
+    fit = context.get("ballFit") or {}
+    ball_speed = metrics["ballSpeedMps"]["value"]
+    stereo = context.get("stereo") if fit else None
+    if stereo is not None and fit.get("source") != "stereo":
+        from stereo_check import MAX_ANGLE_DIFFERENCE_DEG, MAX_SPEED_DIFFERENCE_PCT
+        agree = {}
+        if stereo.get("speedDifferencePct") is not None:
+            agree["ballSpeedMps"] = [_limit_check("Stereo speed differs by", max(0.01, stereo["speedDifferencePct"]),
+                                                   MAX_SPEED_DIFFERENCE_PCT, "%")]
+        if stereo.get("launchDifferenceDeg") is not None:
+            agree["launchAngleDeg"] = [_limit_check("Stereo launch differs by", max(0.01, stereo["launchDifferenceDeg"]),
+                                                     MAX_ANGLE_DIFFERENCE_DEG, "°")]
+        if stereo.get("headingDifferenceDeg") is not None:
+            agree["startDirectionDeg"] = [_limit_check("Stereo direction differs by", max(0.01, stereo["headingDifferenceDeg"]),
+                                                        MAX_ANGLE_DIFFERENCE_DEG, "°")]
+    else:
+        agree = {}
+    for key, extra in (
+        ("ballSpeedMps", ([_limit_check("Speed fit uncertainty", 100 * fit["speedSigmaMps"] / max(ball_speed or 1, 0.1),
+                                        100 * MEASURED_SPEED_SIGMA_RATIO, "%")] if fit else []) + agree.get("ballSpeedMps", [])),
+        ("launchAngleDeg", ([_limit_check("Launch fit uncertainty", fit.get("launchSigmaDeg") or fit["flightLaunchSigmaDeg"],
+                                          MEASURED_ANGLE_SIGMA_DEG, "°")] if fit else []) + agree.get("launchAngleDeg", [])),
+        ("startDirectionDeg", ([_limit_check("Direction fit uncertainty", fit["headingSigmaDeg"], MEASURED_ANGLE_SIGMA_DEG, "°")]
+                               if fit else []) + agree.get("startDirectionDeg", []) + [
+            _flag_check("Direction reference available (camera-axis zero assumes the monitor is aligned to target)",
+                        context.get("targetLineSource") in ("camera-axis", "rolled-ball"), 0.85)]),
+    ):
+        if metrics[key]["value"] is not None:
+            _grade(metrics[key], ball + extra)
+    if metrics["estimatedCarryM"]["value"] is not None:
+        _grade(metrics["estimatedCarryM"], ball + [
+            _flag_check("Modeled landing in still air; not observed", False, 0.7)])
+    samples = len(result.get("spinSamples", []))
+    for key in ("spinRpm", "spinAxisDeg"):
+        if metrics[key]["value"] is not None:
+            _grade(metrics[key], ball + [
+                _limit_check("Surface-rotation samples", samples, MEASURED_SPIN_SAMPLES, "", higher_is_better=True)])
+    for key in ("rollDistanceM", "skidDistanceM"):
+        if metrics[key]["value"] is not None:
+            _grade(metrics[key], ball + [_flag_check("Observed directly (distance from single-view depth track)", False, 0.8)])
+    club = _club_checks(context, result)
+    for key in ("clubSpeedMps", "attackAngleDeg", "clubPathDeg"):
+        if metrics[key]["value"] is not None:
+            _grade(metrics[key], club)
+    for key in ("strikeXmm", "strikeYmm"):
+        if metrics[key]["value"] is not None:
+            _grade(metrics[key], club + [
+                _flag_check("Contact seen directly (projected to the moment of impact)", False, 0.8)])
+    smash = metrics["smashFactor"]
+    if smash["value"] is not None:
+        parts = [metrics["ballSpeedMps"], metrics["clubSpeedMps"]]
+        smash["status"] = "measured" if all(part.get("status") == "measured" for part in parts) else "estimated"
+        smash["confidence"] = min(part.get("confidence", MIN_CONFIDENCE) for part in parts)
+        smash["checks"] = [{"label": f"{name} measured", "passed": part.get("status") == "measured"}
+                           for name, part in zip(("Ball speed", "Club speed"), parts)]
+
+
+def load_setup(image_size, camera="primary"):
+    if camera == "secondary":
+        path = Path(os.getenv("PINPOINT_SECONDARY_INTRINSICS_PATH", "/var/lib/pinpoint/intrinsics-secondary.json"))
+    else:
+        path = Path(os.getenv("PINPOINT_INTRINSICS_PATH", "/var/lib/pinpoint/intrinsics.json"))
     data = json.loads(path.read_text())
     matrix = np.asarray(data["cameraMatrix"], dtype=float)
     distortion = np.asarray(data["distCoeffs"], dtype=float)
@@ -85,12 +289,12 @@ def solve_tag_pose(corners, size, matrix, distortion):
     return cv2.Rodrigues(rotation)[0], translation.reshape(3), error
 
 
-def ground_pose_calibration(detection):
+def ground_pose_calibration(detection, camera="primary"):
     """Save pose and exact lens inputs from an explicitly captured ground tag."""
     image_size = detection.get("imageSize")
     if not isinstance(image_size, list) or len(image_size) != 2:
         raise ValueError("Ground-tag image size missing; capture a fresh calibration.")
-    matrix, distortion = load_setup(image_size)
+    matrix, distortion = load_setup(image_size, camera)
     corners = np.asarray(detection.get("corners"), dtype=float)
     if corners.shape != (4, 2) or not np.all(np.isfinite(corners)):
         raise ValueError("Ground-tag corners missing; capture a fresh calibration.")
@@ -98,14 +302,17 @@ def ground_pose_calibration(detection):
     rotation, translation, error = solve_tag_pose(corners * np.asarray(image_size), size, matrix, distortion)
     if error > MAX_ESTIMATED_TAG_POSE_ERROR_PX:
         raise ValueError("Ground-tag pose error exceeds 3 pixels; improve calibration image.")
+    camera_position, optical_axis = -rotation.T @ translation, rotation[2]
     return {"version": 1, "imageSize": image_size, "cameraMatrix": matrix.tolist(),
             "distCoeffs": distortion.tolist(), "rotation": rotation.tolist(),
-            "translationM": translation.tolist(), "errorPx": error}
+            "translationM": translation.tolist(), "errorPx": error,
+            "cameraHeightMm": round(float(camera_position[2]) * 1000, 1),
+            "cameraPitchDeg": round(math.degrees(math.asin(float(np.clip(-optical_axis[2], -1, 1)))), 2)}
 
 
-def stored_ground_pose(image_size, ground_id, size, matrix, distortion):
+def stored_ground_pose(image_size, ground_id, size, matrix, distortion, camera="primary"):
     from apriltag_calibration import load_apriltag_calibration
-    saved = load_apriltag_calibration()
+    saved = load_apriltag_calibration(camera)
     if not saved or not saved.get("groundPose"):
         return None
     data = saved["groundPose"]
@@ -176,7 +383,7 @@ def fit_velocity(times, positions):
 
 def marker_map(frame):
     dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11)
-    parameters = cv2.aruco.DetectorParameters()
+    parameters = tag_detector_parameters()
     if hasattr(cv2.aruco, "ArucoDetector"):
         corners, ids, _ = cv2.aruco.ArucoDetector(dictionary, parameters).detectMarkers(frame)
     else:
@@ -196,7 +403,7 @@ def camera_target_heading_rad(rotation):
     right = rotation.T @ np.array([1.0, 0.0, 0.0])
     if math.hypot(right[0], right[1]) < MIN_CAMERA_HEADING_HORIZONTAL:
         raise ValueError("The camera is rolled too close to portrait for its across-image axis to "
-                         "define a target line. Level the monitor, or set the target line by rolling a ball.")
+                         "define a target line. Level the monitor and recalibrate the ground plane.")
     return math.atan2(right[1], right[0])
 
 
@@ -209,10 +416,11 @@ def target_line_note(heading, source):
 
 
 def resolve_target_heading(rotation):
-    """Explicit rolled-ball line if one is saved, otherwise the camera's across-image axis."""
-    heading = target_heading_rad()
-    if heading is not None:
-        return heading, "rolled-ball"
+    """Always use bottom-camera image-right projected onto the ground plane.
+
+    Legacy saved roll headings are deliberately ignored: rotating the ground tag
+    must not change the physical zero direction of this left-to-right rig.
+    """
     try:
         return camera_target_heading_rad(rotation), "camera-axis"
     except ValueError:
@@ -288,6 +496,146 @@ def ball_contours(frame, background, seed_radius, minimum_fill=STRICT_BALL_FILL)
             continue
         found.append((np.array([x, y]), contour))
     return found
+
+
+def ball_difference(frame, background):
+    """Signed brightness change against the empty scene, flicker-corrected like motion_mask.
+
+    Kept in floating point: the binary motion mask snaps the outline to whole pixels
+    and its morphology shifts it, which is what the sub-pixel edge fit avoids.
+    """
+    gray = to_gray(frame).astype(np.float32)
+    gain = float(background.mean()) / max(float(gray.mean()), 1.0)
+    return gray * gain - background.astype(np.float32)
+
+
+def _fit_circle(points):
+    x, y = points[:, 0], points[:, 1]
+    design = np.column_stack((x, y, np.ones(len(x))))
+    solution = np.linalg.lstsq(design, x * x + y * y, rcond=None)[0]
+    center = solution[:2] / 2
+    radius = math.sqrt(max(0.0, solution[2] + center @ center))
+    return center, radius
+
+
+def _circular_arc(points):
+    """Inliers of the largest genuinely circular part of an outline, or None.
+
+    Real captures are not clean discs: a shadow line can cut the ball off flat and a
+    side-lit ball's dark limb fades out. Averaging those into a circle biases the
+    radius, and they can be the majority, so a median-based trim cannot remove them.
+    RANSAC finds the circle most edge points agree on; the arc it keeps must still
+    span enough of the ball to fix its size.
+    """
+    generator = np.random.default_rng(0)  # Replays of a capture must match exactly.
+    best = None
+    for _ in range(EDGE_RANSAC_ITERATIONS):
+        sample = points[generator.choice(len(points), 3, replace=False)]
+        try:
+            center, radius = _fit_circle(sample)
+        except np.linalg.LinAlgError:
+            continue
+        if not math.isfinite(radius) or radius < EDGE_MIN_RADIUS_PX:
+            continue
+        inliers = np.abs(np.linalg.norm(points - center, axis=1) - radius) <= EDGE_INLIER_PX
+        if best is None or inliers.sum() > best.sum():
+            best = inliers
+    if best is None:
+        return None
+    for _ in range(2):  # Refit on the consensus set, then re-select against the refit.
+        if best.sum() < EDGE_MIN_RAYS:
+            return None
+        center, radius = _fit_circle(points[best])
+        best = np.abs(np.linalg.norm(points - center, axis=1) - radius) <= EDGE_INLIER_PX
+    if best.sum() < EDGE_MIN_RAYS:
+        return None
+    angles = np.sort(np.arctan2(*(points[best] - center).T[::-1]))
+    largest_gap = max(np.max(np.diff(angles), initial=0.0), angles[0] + 2 * math.pi - angles[-1])
+    if 2 * math.pi - largest_gap < math.radians(EDGE_MIN_ARC_DEG):
+        return None
+    return best
+
+
+def _coarse_edge_radius(difference, center, guess, angles):
+    """Rough apparent radius, so the fine search windows sit on this frame's edge.
+
+    The ball's image grows and shrinks several-fold as it moves toward or away from
+    the camera, so the resting size is only an upper bound on where to look. Each ray
+    takes the outermost point still above half its brightest near-centre value.
+    """
+    steps = np.arange(0.0, 2.0 * guess, 0.5)
+    xs = center[0] + np.outer(np.cos(angles), steps)
+    ys = center[1] + np.outer(np.sin(angles), steps)
+    profiles = cv2.remap(difference, xs.astype(np.float32), ys.astype(np.float32), cv2.INTER_LINEAR,
+                         borderMode=cv2.BORDER_REPLICATE)
+    peak = float(np.percentile(profiles[:, steps <= 0.35 * guess], 75))
+    if peak < EDGE_MIN_CONTRAST:
+        return None
+    distances = []
+    for profile in profiles:
+        above = np.flatnonzero(profile > peak / 2)
+        if len(above):
+            distances.append(steps[above[-1]])
+    if len(distances) < EDGE_MIN_RAYS:
+        return None
+    radius = float(np.median(distances))
+    return radius if radius >= EDGE_MIN_RADIUS_PX else None
+
+
+def ball_edge_fit(difference, center, radius):
+    """Sub-pixel outline of a ball near `center`, from radial brightness profiles.
+
+    Each ray's edge is where its profile crosses halfway between the ball's own level
+    and the background just outside it. That is the true edge of a blurred step, and
+    searching inward from outside ignores the seam and logo inside the disc. Rays whose
+    contrast is too low (clubhead, shadow, image border) are dropped, and a robust
+    circle fit discards any that still disagree. Returns None when too few rays agree.
+    """
+    height, width = difference.shape[:2]
+    angles = np.linspace(0, 2 * math.pi, EDGE_RAYS, endpoint=False)
+    radius = _coarse_edge_radius(difference, center, radius, angles)
+    if radius is None:
+        return None
+    for _ in range(2):  # A second pass re-centres the rays on the first fit.
+        steps = np.arange(0.4 * radius, 1.7 * radius, EDGE_STEP_PX)
+        xs = center[0] + np.outer(np.cos(angles), steps)
+        ys = center[1] + np.outer(np.sin(angles), steps)
+        inside_image = (xs.min(axis=1) >= 0) & (ys.min(axis=1) >= 0) & (xs.max(axis=1) <= width - 1) & (ys.max(axis=1) <= height - 1)
+        profiles = cv2.remap(difference, xs.astype(np.float32), ys.astype(np.float32), cv2.INTER_LINEAR,
+                             borderMode=cv2.BORDER_REPLICATE)
+        # The ball's level just inside its edge: a shaded ball is brighter further in,
+        # which would pull a deeper sample's half-contrast crossing inward.
+        inner, outer = (steps >= 0.65 * radius) & (steps <= 0.85 * radius), steps >= 1.35 * radius
+        level_in, level_out = np.median(profiles[:, inner], axis=1), np.median(profiles[:, outer], axis=1)
+        contrast = level_in - level_out
+        # A side-lit ball's shadowed limb fades into the background with no sharp edge;
+        # its half-contrast crossing drifts inward, so fit only the well-lit arc.
+        floor = max(EDGE_MIN_CONTRAST, EDGE_LIT_FRACTION * float(np.median(contrast[inside_image])) if inside_image.any() else 0.0)
+        points = []
+        for ray, profile in enumerate(profiles):
+            if not inside_image[ray] or contrast[ray] < floor:
+                continue
+            half = (level_in[ray] + level_out[ray]) / 2
+            above = np.flatnonzero(profile[~outer] > half)
+            if not len(above) or above[-1] + 1 >= len(profile):
+                continue
+            j = above[-1]
+            fraction = (profile[j] - half) / max(profile[j] - profile[j + 1], 1e-6)
+            distance = steps[j] + fraction * EDGE_STEP_PX
+            if 0.6 * radius <= distance <= 1.3 * radius:
+                points.append(center + distance * np.array([math.cos(angles[ray]), math.sin(angles[ray])]))
+        if len(points) < EDGE_MIN_RAYS:
+            return None
+        points = np.asarray(points)
+        keep = _circular_arc(points)
+        if keep is None:
+            return None
+        center, radius = _fit_circle(points[keep])
+    errors = np.abs(np.linalg.norm(points[keep] - center, axis=1) - radius)
+    rms = float(np.sqrt(np.mean(errors ** 2)))
+    if rms > EDGE_MAX_RMS_PX:
+        return None
+    return {"centerPx": center, "radiusPx": radius, "rmsPx": rms, "rays": int(keep.sum()), "points": points[keep]}
 
 
 def circle_contour(center, radius, count=64):
@@ -476,19 +824,36 @@ def trajectory_observations(frames, bounds, impact_index, motion_track, backgrou
             break
     if len(run) < TRAJECTORY_MIN_FRAMES:
         raise ValueError(f"Trajectory fit needs {TRAJECTORY_MIN_FRAMES} tracked outgoing frames; found {len(run)}.")
-    observations = []
-    for index, center in run:
-        radius = None
-        nearby = [(np.linalg.norm(found - center), contour) for found, contour in
-                  ball_contours(frames[index][1], background, seed_radius, minimum_fill=GUIDED_BALL_FILL)]
-        nearby = [item for item in nearby if item[0] <= seed_radius * 0.5]
-        if nearby:
-            radius = float(cv2.minEnclosingCircle(min(nearby, key=lambda item: item[0])[1])[1])
-        observations.append({"frameIndex": index, "centerPx": center.tolist(), "radiusPx": radius})
     first_time = frames[run[0][0]][0]
     interval = float(np.median(np.diff([t for t, _ in frames])))
     # The ball cannot leave before it was last seen resting.
     lower = frames[resting[-1][0]][0] if resting and resting[-1][0] < run[0][0] else first_time - 2 * interval
+    observations = []
+    guess = seed_radius
+    for index, center in run:
+        radius, sigma = None, TRAJECTORY_RADIUS_SIGMA_PX
+        # Contact can fall anywhere up to the first moving frame, so that frame may show
+        # the ball at impact; recovery is timed from it, not from the last resting frame.
+        if frames[index][0] - first_time < BALL_RECOVERY_S:
+            # Still flattened or ringing from impact: its outline is not the 42.67 mm
+            # sphere the depth model assumes, so only its position is used.
+            observations.append({"frameIndex": index, "centerPx": center.tolist(), "radiusPx": None,
+                                 "radiusSigmaPx": sigma, "edgeRmsPx": None, "compressionWindow": True})
+            continue
+        edge = ball_edge_fit(ball_difference(frames[index][1], background), center, guess)
+        # The edge fit's centre is not used: which lit arc it locks onto shifts from
+        # frame to frame, and on replays it raised the track residual from ~1.5 to ~2.1 px
+        # against the template-matched centre.
+        if edge is not None:
+            radius, sigma, guess = edge["radiusPx"], TRAJECTORY_EDGE_RADIUS_SIGMA_PX, edge["radiusPx"]
+        else:
+            nearby = [(np.linalg.norm(found - center), contour) for found, contour in
+                      ball_contours(frames[index][1], background, seed_radius, minimum_fill=GUIDED_BALL_FILL)]
+            nearby = [item for item in nearby if item[0] <= seed_radius * 0.5]
+            if nearby:
+                radius = float(cv2.minEnclosingCircle(min(nearby, key=lambda item: item[0])[1])[1])
+        observations.append({"frameIndex": index, "centerPx": center.tolist(), "radiusPx": radius,
+                             "radiusSigmaPx": sigma, "edgeRmsPx": round(edge["rmsPx"], 3) if edge else None})
     return rest, (lower, first_time), observations
 
 
@@ -512,7 +877,8 @@ def fit_trajectory(frames, rest_px, time_bounds, observations, matrix, distortio
 
     def unpack(obs):
         return (np.array([frames[o["frameIndex"]][0] for o in obs]), np.array([o["centerPx"] for o in obs], dtype=float),
-                np.array([o["radiusPx"] is not None for o in obs]), np.array([o["radiusPx"] or 0.0 for o in obs]))
+                np.array([o["radiusPx"] is not None for o in obs]), np.array([o["radiusPx"] or 0.0 for o in obs]),
+                np.array([o.get("radiusSigmaPx", TRAJECTORY_RADIUS_SIGMA_PX) for o in obs]))
 
     def positions(model, params, times):
         if model == "flight":
@@ -540,10 +906,10 @@ def fit_trajectory(frames, rest_px, time_bounds, observations, matrix, distortio
         return pixels, np.mean([np.linalg.norm(edge - pixels, axis=1) for edge in edge_pixels], axis=0)
 
     def residuals(model, params, data):
-        times, centers, mask, radii = data
+        times, centers, mask, radii, sigmas = data
         pixels, radius = predicted(positions(model, params, times))
         values = np.concatenate((((pixels - centers) / TRAJECTORY_CENTER_SIGMA_PX).ravel(),
-                                 (radius - radii)[mask] / TRAJECTORY_RADIUS_SIGMA_PX))
+                                 ((radius - radii) / sigmas)[mask]))
         large = np.abs(values) > TRAJECTORY_HUBER
         values[large] = np.sign(values[large]) * np.sqrt(2 * TRAJECTORY_HUBER * np.abs(values[large]) - TRAJECTORY_HUBER ** 2)
         return values
@@ -558,20 +924,58 @@ def fit_trajectory(frames, rest_px, time_bounds, observations, matrix, distortio
 
     def initial_guess(model, data):
         times, centers = data[0], data[1]
-        planar = [ground_point(c, matrix, distortion, rotation, translation) for c in centers[:12]]
-        if any(point is None for point in planar):
+        # This is only a seed. A ball in flight climbs above the camera, so its later
+        # rays never meet the ground plane; seed from the early frames that still do.
+        seeds = [(time, ground_point(c, matrix, distortion, rotation, translation))
+                 for time, c in zip(times[:12], centers[:12])]
+        seeds = [(time, point) for time, point in seeds if point is not None]
+        if len(seeds) < 2:
             raise ValueError("Tracked ball rays do not meet the ground plane.")
-        planar = np.asarray(planar, dtype=float)
-        design = np.column_stack((times[:len(planar)] - times[0], np.ones(len(planar))))
+        planar = np.asarray([point for _, point in seeds], dtype=float)
+        design = np.column_stack((np.array([time for time, _ in seeds]) - times[0], np.ones(len(planar))))
         slope, intercept = np.linalg.lstsq(design, planar[:, :2], rcond=None)[0]
         if model == "ground-free":
             return np.array([slope[0], slope[1], 0.0, intercept[0], intercept[1]])
         start = upper - np.linalg.norm(intercept - anchor[:2]) / max(float(np.linalg.norm(slope)), 1e-3)
         return np.array([slope[0], slope[1], 0.0, float(np.clip(start, lower, upper))])
 
+    def flight_seeds(data):
+        """Launch velocities from a coarse grid scored directly against the image track.
+
+        The ground projection of a climbing ball runs away toward the horizon (metres
+        out within a few frames), so it cannot seed flight on its own.
+        """
+        times, centers = data[0], data[1]
+        start = 0.5 * (lower + upper)
+        dts = np.maximum(0.0, times - start)
+        heading, launch, speed = np.meshgrid(np.radians(np.arange(0.0, 360.0, 15.0)), np.radians(FLIGHT_SEED_LAUNCH_DEG),
+                                             FLIGHT_SEED_SPEED_MPS, indexing="ij")
+        velocity = np.stack((np.cos(launch) * np.cos(heading), np.cos(launch) * np.sin(heading), np.sin(launch)),
+                            axis=-1).reshape(-1, 3) * speed.reshape(-1, 1)
+        points = anchor + velocity[:, None, :] * dts[None, :, None]
+        points[:, :, 2] -= 0.5 * GRAVITY * dts ** 2
+        pixels = cv2.projectPoints(points.reshape(-1, 1, 3), rvec, translation, matrix, distortion)[0]
+        pixels = pixels.reshape(len(velocity), len(times), 2)
+        # Strong lens distortion folds points far outside the view back into it; only
+        # candidates that stay in front of the camera are scored, with capped errors.
+        depth = (points.reshape(-1, 3) @ rotation.T + translation)[:, 2].reshape(len(velocity), len(times))
+        cost = np.minimum(np.linalg.norm(pixels - centers, axis=2), 200.0).sum(axis=1)
+        cost[(depth <= 0.05).any(axis=1)] = np.inf
+        return [np.array([*velocity[i], start]) for i in np.argsort(cost)[:FLIGHT_SEED_STARTS]]
+
     def solve(model, obs):
         data = unpack(obs)
-        params = initial_guess(model, data)
+        starts = []
+        try:
+            starts.append(initial_guess(model, data))
+        except ValueError:
+            if model != "flight":
+                raise
+        if model == "flight":
+            starts.extend(flight_seeds(data))
+        return min((refine(model, obs, data, params) for params in starts), key=lambda fit: fit["cost"])
+
+    def refine(model, obs, data, params):
         base = residuals(model, params, data)
         cost, damping = float(base @ base), 1e-3
         for _ in range(80):
@@ -648,7 +1052,8 @@ def fit_trajectory(frames, rest_px, time_bounds, observations, matrix, distortio
         # A re-estimated start can absorb almost any short track, so it must also be
         # a physically plausible roll; prefer the resting-ball anchor unless the free
         # start explains the track clearly better (the ball was nudged first).
-        free_ok = free["rms"] <= TRAJECTORY_MAX_RMS_PX and abs(float(free["params"][2])) <= TRAJECTORY_MAX_ROLL_DECELERATION
+        free_ok = (free["rms"] <= TRAJECTORY_MAX_RMS_PX and abs(float(free["params"][2])) <= TRAJECTORY_MAX_ROLL_DECELERATION
+                   and len(free["observations"]) >= FREE_START_MIN_FRAMES)
         if ground["rms"] <= TRAJECTORY_MAX_RMS_PX and not (free_ok and free["rms"] < 0.6 * ground["rms"]):
             chosen = ground
         elif free_ok:
@@ -660,9 +1065,10 @@ def fit_trajectory(frames, rest_px, time_bounds, observations, matrix, distortio
         raise ValueError(f"Trajectory fit image residual {best['rms']:.1f} px exceeds {TRAJECTORY_MAX_RMS_PX:.1f} px.")
 
     model, params, used = chosen["model"], chosen["params"], chosen["observations"]
-    times, _, mask, radii = unpack(used)
+    times, _, mask, radii, _ = unpack(used)
     fitted = positions(model, params, times)
     _, radius = predicted(fitted)
+    edge = np.array([o.get("edgeRmsPx") is not None for o in used])
     velocity = velocity_of(chosen)
     if model == "ground-free":
         impact_index = used[0]["frameIndex"]
@@ -688,6 +1094,13 @@ def fit_trajectory(frames, rest_px, time_bounds, observations, matrix, distortio
             "departureBeforeFirstMovingMs": departure_ms,
             "rmsPx": round(chosen["rms"], 3),
             "radiusObservations": int(mask.sum()),
+            "edgeFitFrames": int(edge.sum()),
+            # A standard 42.67 mm ball is a scale reference the calibration must agree with:
+            # measured over predicted apparent size. Away from 1, the tag size, lens model or
+            # ground pose is scaling every distance, and so every speed, by that much.
+            "ballSizeRatio": round(float(np.median(radii[edge] / radius[edge])), 4) if edge.sum() >= BALL_SIZE_MIN_FRAMES else None,
+            "edgeRmsPx": (round(float(np.median([o["edgeRmsPx"] for o in used if o.get("edgeRmsPx") is not None])), 3)
+                          if any(o.get("edgeRmsPx") is not None for o in used) else None),
             "radiusRmsPx": round(float(np.sqrt(np.mean((radius - radii)[mask] ** 2))), 3) if mask.any() else None,
             "modelRmsPx": {name: round(fit["rms"], 3) for name, fit in fits.items()},
             "flightLaunchDeg": round(flight_launch, 2),
@@ -789,7 +1202,83 @@ def silhouette_launch(frames, bounds, impact_index, motion_track, matrix, distor
     return track, outgoing, velocity, launch, reason, reason, outgoing[0]["frameIndex"]
 
 
-def measure_launch(frames, bounds, impact_index, timestamp_source="host", exposure_us=None, motion_track=None):
+def secondary_camera(lower_camera, image_size, ground_id, tag_size, lower_captured_at):
+    """Top-camera lens and world pose, from the fixed stereo pair or its own ground tag.
+
+    Returns (matrix, distortion, pose, fixed_pair). Shared by shot analysis and the
+    pre-shot readiness check so both judge the same calibration.
+    """
+    from datetime import datetime
+    matrix, distortion = load_setup(image_size, "secondary")
+    from stereo_calibration import fixed_secondary_pose
+    pose = fixed_secondary_pose(lower_camera, (matrix, distortion), tuple(image_size),
+                                [int(os.getenv("PINPOINT_CAMERA_INDEX", "0")),
+                                 int(os.getenv("PINPOINT_SECONDARY_CAMERA_INDEX", "1"))])
+    fixed_pair = pose is not None
+    if not fixed_pair:
+        pose = stored_ground_pose(tuple(image_size), ground_id, tag_size, matrix, distortion, camera="secondary")
+    if pose is None:
+        raise ValueError("Top camera has no AprilTag ground calibration; capture the tag with both cameras.")
+    # Both poses must describe one tag placement; the app captures them together.
+    if not fixed_pair:
+        stamps = [datetime.fromisoformat(str(value).replace("Z", "+00:00")) for value in (lower_captured_at, pose.get("capturedAt"))]
+        if abs((stamps[0] - stamps[1]).total_seconds()) > STEREO_MAX_CALIBRATION_SKEW_S:
+            raise ValueError("Lower and top cameras were calibrated at different times; capture the tag with both cameras again.")
+    return matrix, distortion, pose, fixed_pair
+
+
+def stereo_measurement(frames, secondary_frames, rest_px, fit, observations, start_time, lower_camera,
+                       ground_id, tag_size, lower_captured_at, lower_pose_error_px):
+    """Cross-check or independently recover the launch from both calibrated cameras."""
+    from stereo_check import stereo_cross_check
+    height, width = secondary_frames[0][1].shape[:2]
+    matrix, distortion, pose, fixed_pair = secondary_camera(lower_camera, (width, height), ground_id, tag_size,
+                                                            lower_captured_at)
+    track = fit["track"] if fit is not None else (observations or [])
+    stereo = stereo_cross_check(frames, secondary_frames, lower_camera,
+                                (matrix, distortion, pose["rotation"], pose["translation"]), rest_px, track,
+                                start_time, fit["velocity"] if fit is not None else None,
+                                None)
+    stereo["lowerPoseErrorPx"] = float(lower_pose_error_px)
+    stereo["upperPoseErrorPx"] = float(lower_pose_error_px) if fixed_pair else float(pose["errorPx"])
+    stereo["calibrationSource"] = "fixed-pair" if fixed_pair else "independent-ground-tags"
+    if fixed_pair:
+        stereo["stereoCalibrationId"] = pose["calibrationId"]
+        stereo["pairValidationRmsPx"] = pose["errorPx"]
+    if stereo.get("speedOnly"):
+        if max(stereo["lowerPoseErrorPx"], stereo["upperPoseErrorPx"]) > STRICT_TAG_POSE_ERROR_PX:
+            raise ValueError("Ground pose is too uncertain for a two-point speed estimate.")
+        stereo["accepted"] = True
+        return stereo
+    from stereo_check import MAX_PAIR_OFFSET_US, MAX_RAY_GAP_MM, MAX_REST_HEIGHT_ERROR_MM, MAX_START_ANCHOR_ERROR_MM, MAX_STEREO_RMS_PX
+    problems = []
+    if stereo["maxPairOffsetUs"] > MAX_PAIR_OFFSET_US:
+        problems.append(f"Camera pair timing offset {stereo['maxPairOffsetUs']:.0f} µs exceeds {MAX_PAIR_OFFSET_US:.0f} µs.")
+    if stereo["medianRayGapMm"] > MAX_RAY_GAP_MM:
+        problems.append(f"Median stereo ray gap {stereo['medianRayGapMm']:.1f} mm exceeds {MAX_RAY_GAP_MM:.1f} mm.")
+    if abs(stereo["restHeightErrorMm"]) > MAX_REST_HEIGHT_ERROR_MM:
+        problems.append(f"Stereo resting-ball height error {stereo['restHeightErrorMm']:.1f} mm exceeds {MAX_REST_HEIGHT_ERROR_MM:.1f} mm.")
+    if stereo["startAnchorErrorMm"] > MAX_START_ANCHOR_ERROR_MM:
+        problems.append(f"Stereo trajectory starts {stereo['startAnchorErrorMm']:.1f} mm from the resting ball.")
+    if stereo["rmsPx"] > MAX_STEREO_RMS_PX:
+        problems.append(f"Stereo trajectory reprojection residual {stereo['rmsPx']:.1f} px exceeds {MAX_STEREO_RMS_PX:.1f} px.")
+    if not 0.1 <= stereo["speedMps"] <= 100:
+        problems.append(f"Stereo ball speed {stereo['speedMps']:.1f} m/s is outside the supported 0.1-100 m/s range.")
+    if not stereo["track"]:
+        problems.append("Stereo fit did not produce a ball trajectory.")
+    stereo["accepted"] = not problems
+    if problems:
+        stereo["failure"] = " ".join(problems)
+        if fit is None:
+            from stereo_check import StereoTrackingError
+            raise StereoTrackingError(stereo["failure"], stereo)
+    else:
+        stereo["impactFrameIndex"] = stereo["track"][0]["frameIndex"]
+    return stereo
+
+
+def measure_launch(frames, bounds, impact_index, timestamp_source="host", exposure_us=None, motion_track=None,
+                   secondary_frames=None):
     result = {"metrics": unavailable("Needs a calibrated ball/club track."), "ballTrack3d": [], "clubTrack3d": [], "warnings": [], "method": "apriltag-monocular-sphere-v1"}
     diagnostics = {"version": 1, "frameCount": len(frames), "motionTrackedFrames": sum(
         1 for point in motion_track or []
@@ -798,6 +1287,7 @@ def measure_launch(frames, bounds, impact_index, timestamp_source="host", exposu
     result["diagnostics"] = diagnostics
     metrics = result["metrics"]
     pose_note = None
+    grading = {}
     def put(key, value, reason, status="estimated"):
         if math.isfinite(value):
             metrics[key] = {"value": round(float(value), 4), "unit": METRICS[key], "status": status, "reason": reason}
@@ -823,9 +1313,11 @@ def measure_launch(frames, bounds, impact_index, timestamp_source="host", exposu
         if pose is None:
             raise ValueError("Capture ground AprilTag calibration first, or keep the tag visible in this burst.")
         rotation, translation, pose_error = pose["rotation"], pose["translation"], pose["errorPx"]
+        grading["poseErrorPx"] = pose_error
         # The camera axis can only supply a target line once its pose is known, so this
         # is resolved here rather than alongside the other calibration inputs above.
         heading, heading_source = resolve_target_heading(rotation)
+        grading["targetLineSource"] = heading_source
         diagnostics["calibration"]["targetHeadingDeg"] = math.degrees(heading) if heading is not None else None
         diagnostics["calibration"]["targetHeadingSource"] = heading_source
         camera_position = -rotation.T @ translation
@@ -852,6 +1344,8 @@ def measure_launch(frames, bounds, impact_index, timestamp_source="host", exposu
                 "launch values are lower-confidence estimates."
             )
         fit = None
+        two_point = None
+        rest_px = time_bounds = observations = None
         if motion_track:
             try:
                 rest_px, time_bounds, observations = trajectory_observations(
@@ -859,9 +1353,80 @@ def measure_launch(frames, bounds, impact_index, timestamp_source="host", exposu
                 fit = fit_trajectory(frames, rest_px, time_bounds, observations, matrix, distortion, rotation, translation)
             except (ValueError, np.linalg.LinAlgError, cv2.error) as error:
                 diagnostics["trajectoryFit"] = {"failure": str(error)}
+        if secondary_frames and pose.get("source") == "stored-calibration":
+            try:
+                stereo_rest_px = rest_px if rest_px is not None else np.array(
+                    [bounds[0] + bounds[2] / 2, bounds[1] + bounds[3] / 2], dtype=float)
+                stereo = stereo_measurement(frames, secondary_frames, stereo_rest_px, fit, observations,
+                                            time_bounds[0] if time_bounds else None,
+                                            (matrix, distortion, rotation, translation), ground_id, tag_size,
+                                            pose.get("capturedAt"), pose_error)
+            except (OSError, ValueError, KeyError, TypeError, np.linalg.LinAlgError, cv2.error) as error:
+                diagnostics["stereo"] = {"failure": str(error), **getattr(error, "diagnostics", {})}
+                grading["stereoFailure"] = str(error)
+            else:
+                diagnostics["stereo"] = stereo
+                if stereo.get("speedOnly"):
+                    two_point = stereo
+                elif not stereo["accepted"]:
+                    grading["stereoFailure"] = stereo["failure"]
+                else:
+                    grading["stereo"] = stereo
+                    if fit is not None:
+                        diagnostics["monocularFit"] = fit["diagnostics"]
+                    velocity = np.asarray(stereo["velocityMps"], dtype=float)
+                    launch = float(stereo["launchDeg"])
+                    impact_index = stereo["impactFrameIndex"]
+                    track = outgoing = stereo["track"]
+                    fit_diagnostics = {
+                        "source": "stereo", "model": stereo["model"], "frames": stereo["frames"],
+                        "startPoint": "resting-ball", "startOffsetMm": stereo["startAnchorErrorMm"],
+                        "rmsPx": stereo["rmsPx"], "speedSigmaMps": stereo["speedSigmaMps"],
+                        "launchSigmaDeg": stereo["launchSigmaDeg"],
+                        "flightLaunchSigmaDeg": stereo["launchSigmaDeg"],
+                        "flightLaunchDeg": stereo["launchDeg"],
+                        "headingSigmaDeg": stereo["headingSigmaDeg"], "ballSizeRatio": None,
+                    }
+                    fit = {"model": stereo["model"], "velocity": velocity, "track": track,
+                           "impactFrameIndex": impact_index, "diagnostics": fit_diagnostics}
+                    diagnostics["monoTrajectoryFailure"] = diagnostics.get("trajectoryFit", {}).get("failure")
+                    diagnostics["trajectoryFit"] = fit_diagnostics
+                    result["method"] = "shared-tag-stereo-v2"
+                    result["ballTrack3d"] = track
+                    result["estimatedImpactFrameIndex"] = impact_index
+                    basis = (f"Joint stereo trajectory fit over {stereo['frames']} paired frames; "
+                             f"reprojection residual {stereo['rmsPx']:.2f} px.")
+                    speed_reason = (f"{basis} Two-camera triangulation replaces ball-outline size for depth. "
+                                    "Requires reference validation.")
+                    direction_reason = speed_reason
+                    launch_reason = (f"{basis} Vertical motion fitted with gravity. Requires reference validation."
+                                     if stereo["model"] == "flight" else
+                                     f"Ball stayed near the calibrated ground plane; stereo fit gives 0° launch. "
+                                     f"{basis} Requires reference validation.")
+        if fit is None and two_point is not None:
+            speed = two_point["speedMps"]
+            if speed * exposure_us / 1e6 > MAX_MOTION_BLUR_M:
+                raise ValueError("Estimated motion blur exceeds 4 mm; shorten exposure for this shot speed.")
+            result["method"] = "shared-tag-stereo-two-point-v1"
+            result["ballTrack3d"] = two_point["track"]
+            result["estimatedImpactFrameIndex"] = two_point["track"][0]["frameIndex"]
+            put("ballSpeedMps", speed,
+                f"Two stereo ball positions {two_point['spanMs']:.1f} ms apart; interval-average speed only, "
+                f"not a fitted launch trajectory. One-pixel sensitivity ±{two_point['speedUncertaintyPct']:.0f}%. "
+                "Requires reference validation.")
+            metrics["ballSpeedMps"]["confidence"] = 0.5
+            metrics["ballSpeedMps"]["checks"] = [
+                {"label": "Only two stereo ball frames; launch trajectory not resolved", "passed": False},
+                {"label": "Stereo geometry and timing passed two-point checks", "passed": True},
+            ]
+            for key in ("launchAngleDeg", "startDirectionDeg", "estimatedCarryM"):
+                metrics[key]["reason"] = "Two ball positions give interval speed but cannot validate launch angle, direction or carry."
+            result["shotEvidence"] = shot_evidence(result)
+            return result
         if fit is not None:
             fitted = fit["diagnostics"]
             diagnostics["trajectoryFit"] = fitted
+            grading["ballFit"] = fitted
             track = outgoing = fit["track"]
             velocity = fit["velocity"]
             impact_index = fit["impactFrameIndex"]
@@ -869,7 +1434,10 @@ def measure_launch(frames, bounds, impact_index, timestamp_source="host", exposu
             result["estimatedImpactFrameIndex"] = impact_index
             start = ("from the resting ball" if fitted["startPoint"] == "resting-ball" else
                      f"with its ground start re-estimated {fitted['startOffsetMm']:.0f} mm from the resting ball (moved before release)")
-            basis = (f"Anchored trajectory fit to {fitted['frames']} tracked frames {start}; "
+            basis = (f"Joint two-camera trajectory fit to {fitted['frames']} paired ball frames; "
+                     f"image residual {fitted['rmsPx']:.2f} px."
+                     if fitted.get("source") == "stereo" else
+                     f"Anchored trajectory fit to {fitted['frames']} tracked frames {start}; "
                      f"image residual {fitted['rmsPx']:.2f} px.")
             # Fit uncertainty excludes lens and ground-tag calibration error.
             speed_reason = f"{basis} Fit ±{fitted['speedSigmaMps']:.2f} m/s. Requires reference validation."
@@ -888,34 +1456,45 @@ def measure_launch(frames, bounds, impact_index, timestamp_source="host", exposu
             track, outgoing, velocity, launch, speed_reason, launch_reason, impact_index = silhouette_launch(
                 frames, bounds, impact_index, motion_track, matrix, distortion, rotation, translation, diagnostics, result)
             direction_reason = speed_reason
+            grading["guided"] = "guided" in diagnostics
             result["ballTrack3d"] = track
             result["estimatedImpactFrameIndex"] = impact_index
         speed = float(np.linalg.norm(velocity))
         if not 0.1 <= speed <= 100:
             raise ValueError(f"Ball speed {speed:.1f} m/s is outside the supported 0.1-100 m/s range.")
-        if speed * exposure_us / 1e6 > 0.004:
+        if speed * exposure_us / 1e6 > MAX_MOTION_BLUR_M:
             raise ValueError("Estimated motion blur exceeds 4 mm; shorten exposure for this shot speed.")
         put("ballSpeedMps", speed, speed_reason)
         put("launchAngleDeg", launch, launch_reason)
+        if launch <= 0:
+            put("estimatedCarryM", 0, "No positive launch; modeled air carry is zero.")
         # Speed and launch angle do not care which way the tag is rotated; only the
-        # start direction needs a reference line, and that comes from the camera axis
-        # unless a rolled-ball line was saved.
+        # start direction needs a reference line, always the bottom camera axis.
         target = target_rotation(heading)
         if heading is None:
             metrics["startDirectionDeg"]["reason"] = (
                 "The camera is rolled too close to portrait for its across-image axis to define a target "
-                "line. Level the monitor, or roll a ball toward the target and use Set target line.")
+                "line. Level the monitor and recalibrate the ground plane.")
         else:
             aligned = target @ velocity
             result["targetLineHeadingDeg"] = round(math.degrees(heading), 3)
             result["targetLineSource"] = heading_source
             put("startDirectionDeg", -math.degrees(math.atan2(aligned[1], aligned[0])),
                 f"{direction_reason} {target_line_note(heading, heading_source)}")
-        put("estimatedCarryM", max(0, speed ** 2 * math.sin(2 * math.radians(launch)) / 9.80665), "Vacuum ballistic estimate to launch height; excludes lift, drag, wind and terrain.")
         measure_spin(frames, outgoing, matrix, distortion, rotation, translation, result, put, target)
         measure_roll(frames, track, result, put)
+        club_upper = None
+        if secondary_frames and pose.get("source") == "stored-calibration":
+            try:
+                size = secondary_frames[0][1].shape[1], secondary_frames[0][1].shape[0]
+                upper_matrix, upper_distortion, upper_pose, _ = secondary_camera(
+                    (matrix, distortion, rotation, translation), size, ground_id, tag_size, pose.get("capturedAt"))
+                club_upper = (secondary_frames, (upper_matrix, upper_distortion,
+                                                 upper_pose["rotation"], upper_pose["translation"]))
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                diagnostics["clubStereo"] = {"used": False, "failure": str(error)}
         measure_club(frames, impact_index, matrix, distortion, rotation, translation, track, result, put,
-                     ball_background(frames, impact_index), bounds, velocity, heading)
+                     ball_background(frames, impact_index), bounds, velocity, heading, club_upper)
     except (OSError, ValueError, KeyError, TypeError, cv2.error, np.linalg.LinAlgError) as error:
         result["failure"] = str(error)
         for metric in metrics.values():
@@ -932,6 +1511,10 @@ def measure_launch(frames, bounds, impact_index, timestamp_source="host", exposu
         for metric in metrics.values():
             if metric["value"] is not None and pose_note not in metric["reason"]:
                 metric["reason"] = f"{metric['reason']} {pose_note}"
+    grade_metrics(result, grading)
+    evidence = shot_evidence(result)
+    if evidence:
+        result["shotEvidence"] = evidence
     return result
 
 
@@ -1007,7 +1590,7 @@ def measure_spin(frames, track, matrix, distortion, world_rotation, world_transl
 
 
 def measure_roll(frames, track, result, put):
-    if len(track) < 5:
+    if len(track) < 3:
         return
     positions = np.asarray([p["positionM"] for p in track])
     indexes = [p["frameIndex"] for p in track]
@@ -1063,7 +1646,7 @@ def contact_ball_center(frames, impact_index, ball_track, ball_velocity, ball_pi
 
 
 def measure_club_tagless(frames, impact_index, matrix, distortion, world_rotation, world_translation,
-                         ball_track, result, put, background, bounds, ball_velocity, heading):
+                         ball_track, result, put, background, bounds, ball_velocity, heading, upper=None):
     """Club speed, path and attack angle from the head silhouette, with no club tag.
 
     Depth comes from a swing plane pinned to the known ball position, so the head
@@ -1100,23 +1683,30 @@ def measure_club_tagless(frames, impact_index, matrix, distortion, world_rotatio
             "shaftAngleDeg": round(float(np.median(shaft)), 2) if shaft else None,
         }
         if len(kept) < club_vision.MIN_TRACK_FRAMES:
-            raise ValueError(f"Resolved the clubhead silhouette in {len(kept)} of the "
-                             f"{club_vision.MAX_TRACK_FRAMES} frames before impact; at least "
-                             f"{club_vision.MIN_TRACK_FRAMES} are required. Improve lighting on the club.")
+            raise ValueError(f"Resolved a steady clubhead silhouette in {len(kept)} consecutive frames "
+                             f"({len(samples)} of the {club_vision.MAX_TRACK_FRAMES} frames before impact had one); "
+                             f"at least {club_vision.MIN_TRACK_FRAMES} are required. The head is in view only "
+                             "briefly before impact: more room behind the ball in the image gives it more frames.")
         velocity, residual = club_vision.fit_club_velocity(
             [frames[sample["frameIndex"]][0] for sample in kept], [sample["positionM"] for sample in kept])
         speed = float(np.linalg.norm(velocity))
         if not club_vision.MIN_CLUB_SPEED_MPS < speed < club_vision.MAX_CLUB_SPEED_MPS:
             raise ValueError(f"Tag-free club speed {speed:.1f} m/s is outside the supported range.")
+        ball_speed = metrics["ballSpeedMps"]["value"]
+        if (isinstance(ball_speed, (int, float)) and math.isfinite(ball_speed)
+                and ball_speed / speed > club_vision.MAX_PLAUSIBLE_SMASH):
+            raise ValueError(f"Tag-free club speed {speed:.1f} m/s with ball speed {ball_speed:.1f} m/s gives smash "
+                             f"{ball_speed / speed:.2f}, above any real club ({club_vision.MAX_PLAUSIBLE_SMASH}); "
+                             "the head silhouette is not tracking the clubface.")
         result["clubTrack3d"] = [{"frameIndex": sample["frameIndex"], "positionM": sample["positionM"].tolist()}
                                  for sample in kept]
         diagnostics["clubSilhouette"].update(fitResidualMm=round(residual * 1000, 1), speedMps=round(speed, 3))
         basis = (f"Clubhead silhouette back-projected onto the swing plane through the ball over "
                  f"{len(kept)} frames; fit residual {residual * 1000:.0f} mm. Assumes the head travels in "
                  f"the ball's outgoing vertical plane, since no club tag fixes its depth. "
+                 f"Single-camera fallback: on real chips it read about 20% below the two-camera hosel track. "
                  f"Requires reference validation.")
         put("clubSpeedMps", speed, basis)
-        ball_speed = metrics["ballSpeedMps"]["value"]
         if isinstance(ball_speed, (int, float)) and math.isfinite(ball_speed):
             put("smashFactor", ball_speed / speed, f"Ratio of the estimated ball and club speeds. {basis}")
         put("attackAngleDeg", math.degrees(math.atan2(velocity[2], math.hypot(velocity[0], velocity[1]))),
@@ -1145,6 +1735,58 @@ def measure_club_tagless(frames, impact_index, matrix, distortion, world_rotatio
         for key in motion_keys + strike_keys:
             if metrics[key]["value"] is None and key not in explained:
                 metrics[key]["reason"] = str(error)
+    if upper is not None and ball is not None:
+        measure_club_stereo(frames, impact_index, (matrix, distortion, world_rotation, world_translation),
+                            upper, ball, result, put, heading)
+
+
+def measure_club_stereo(frames, impact_index, lower_camera, upper, ball_center, result, put, heading):
+    """Club speed, attack angle and path from the hosel triangulated in both cameras.
+
+    Replaces the single-camera swing-plane values when it succeeds; strike location
+    still comes from the silhouette path, which needs the face profile either way.
+    """
+    import club_stereo
+    from stereo_check import _camera
+    metrics = result["metrics"]
+    diagnostics = result.setdefault("diagnostics", {})
+    upper_frames, upper_camera = upper
+    try:
+        stereo = club_stereo.measure(frames, upper_frames, impact_index, _camera(*lower_camera), _camera(*upper_camera),
+                                     ball_background(frames, impact_index), ball_background(upper_frames, impact_index),
+                                     np.asarray(ball_center, float))
+        velocity = np.asarray(stereo["velocity"], float)
+        speed = float(np.linalg.norm(velocity))
+        if not club_vision.MIN_CLUB_SPEED_MPS < speed < club_vision.MAX_CLUB_SPEED_MPS:
+            raise ValueError(f"Stereo club speed {speed:.1f} m/s is outside the supported range.")
+        ball_speed = metrics["ballSpeedMps"]["value"]
+        if (isinstance(ball_speed, (int, float)) and math.isfinite(ball_speed)
+                and ball_speed / speed > club_vision.MAX_PLAUSIBLE_SMASH):
+            raise ValueError(f"Stereo club speed {speed:.1f} m/s with ball speed {ball_speed:.1f} m/s gives smash "
+                             f"{ball_speed / speed:.2f}, above any real club ({club_vision.MAX_PLAUSIBLE_SMASH}).")
+    except (ValueError, IndexError, np.linalg.LinAlgError, cv2.error) as error:
+        diagnostics["clubStereo"] = {"used": False, "failure": str(error), **getattr(error, "diagnostics", {})}
+        for key in ("clubSpeedMps", "smashFactor", "attackAngleDeg", "clubPathDeg"):
+            if metrics[key]["value"] is None:
+                metrics[key]["reason"] = f"Two cameras: {error} Single camera: {metrics[key]['reason']}"
+        return
+    info = stereo["diagnostics"]
+    diagnostics["clubStereo"] = {"used": True, **info}
+    result["clubTrack3d"] = [{"frameIndex": s["frameIndex"], "positionM": np.asarray(s["positionM"]).tolist()}
+                             for s in stereo["track"]]
+    basis = (f"Shaft/hosel point triangulated by both cameras in {info['acceptedFrames']} frames before impact "
+             f"(median ray gap {info['medianRayGapMm']:.1f} mm, path residual {info['fitResidualMm']:.1f} mm, "
+             f"{info['model']} fit). Measured at the hosel, which travels slightly slower than the face centre. "
+             "Requires reference validation.")
+    put("clubSpeedMps", speed, basis)
+    if isinstance(ball_speed, (int, float)) and math.isfinite(ball_speed):
+        put("smashFactor", ball_speed / speed, f"Ratio of the estimated ball and club speeds. {basis}")
+    put("attackAngleDeg", club_stereo.attack_angle_deg(velocity),
+        f"Vertical angle of the hosel's velocity at the last frame before impact; negative is descending. {basis}")
+    if heading is not None:
+        aligned = target_rotation(heading) @ velocity
+        put("clubPathDeg", -math.degrees(math.atan2(aligned[1], aligned[0])),
+            f"Horizontal direction of the hosel relative to the target line, same sign as start direction. {basis}")
 
 
 def _image_forward(samples):
@@ -1157,13 +1799,13 @@ def _image_forward(samples):
 
 
 def measure_club(frames, impact_index, matrix, distortion, world_rotation, world_translation, ball_track, result, put,
-                 background=None, bounds=None, ball_velocity=None, heading=None):
+                 background=None, bounds=None, ball_velocity=None, heading=None, upper=None):
     path = Path(os.getenv("PINPOINT_CLUB_MARKER_PATH", "/var/lib/pinpoint/club-marker.json"))
     if not path.exists():
         # No club tag means no PnP scale. The silhouette path borrows scale from the
         # ground plane and the ball instead, and labels everything it returns.
         measure_club_tagless(frames, impact_index, matrix, distortion, world_rotation, world_translation,
-                             ball_track, result, put, background, bounds, ball_velocity, heading)
+                             ball_track, result, put, background, bounds, ball_velocity, heading, upper)
         return
     config = json.loads(path.read_text())
     result["clubId"] = config.get("clubId")

@@ -346,6 +346,34 @@ class GeometryTests(unittest.TestCase):
         self.assertAlmostEqual(fit['diagnostics']['headingDeg'], 85, delta=2)
         self.assertIsNotNone(fit['diagnostics']['launchSigmaDeg'])
 
+    def test_trajectory_fit_handles_ball_climbing_above_camera(self):
+        # Capture 1790117932987663501: a wedge rose above the camera within the seed
+        # frames, those rays missed the ground plane and the whole fit was abandoned.
+        from launch_measurements import fit_trajectory
+        launch, heading, speed = np.radians(45), np.radians(85), 10.
+        velocity = speed * np.array([np.cos(launch) * np.cos(heading), np.cos(launch) * np.sin(heading), np.sin(launch)])
+        frames, rest, observations, rotation, translation = self._observed_shot(velocity, count=13)
+        fit = fit_trajectory(frames, rest, (frames[9][0], frames[10][0]), observations,
+                             self.matrix, np.zeros(5), rotation, translation)
+        self.assertEqual(fit['model'], 'flight')
+        fitted = fit['velocity']
+        self.assertAlmostEqual(np.linalg.norm(fitted), speed, delta=.4)
+        self.assertAlmostEqual(np.degrees(np.arctan2(fitted[2], np.hypot(*fitted[:2]))), 45, delta=2)
+
+    def test_trajectory_fit_seeds_flight_when_ground_projection_runs_away(self):
+        # Capture 1790119028704024583: the climbing ball's ground projection ran out to
+        # 8.7 m within six frames, seeding flight so badly the fit ended at 118 px.
+        from launch_measurements import fit_trajectory
+        launch, heading, speed = np.radians(20), np.radians(85), 20.
+        velocity = speed * np.array([np.cos(launch) * np.cos(heading), np.cos(launch) * np.sin(heading), np.sin(launch)])
+        frames, rest, observations, rotation, translation = self._observed_shot(velocity, count=11)
+        fit = fit_trajectory(frames, rest, (frames[9][0], frames[10][0]), observations,
+                             self.matrix, np.zeros(5), rotation, translation)
+        self.assertEqual(fit['model'], 'flight')
+        fitted = fit['velocity']
+        self.assertAlmostEqual(np.linalg.norm(fitted), speed, delta=.5)
+        self.assertAlmostEqual(np.degrees(np.arctan2(fitted[2], np.hypot(*fitted[:2]))), 20, delta=2)
+
     def test_trajectory_fit_reestimates_start_of_nudged_ball(self):
         # Capture 1789480689809610280: a finger pushed the ball sideways before the roll.
         from launch_measurements import fit_trajectory
@@ -527,19 +555,32 @@ class GeometryTests(unittest.TestCase):
             camera_target_heading_rad(portrait)
         self.assertIn('rolled too close to portrait', str(raised.exception))
 
-    def test_a_saved_rolled_ball_line_still_wins_over_the_camera_axis(self):
+    def test_a_saved_rolled_ball_line_cannot_override_the_camera_axis(self):
         rotation = np.eye(3)
         with TemporaryDirectory() as directory:
             path = Path(directory) / 'target-line.json'
             path.write_text(json.dumps({'version': 1, 'headingDeg': 42.0}))
             with patch.dict(os.environ, {'PINPOINT_TARGET_LINE_PATH': str(path)}):
                 heading, source = resolve_target_heading(rotation)
-            self.assertAlmostEqual(math.degrees(heading), 42.0, places=9)
-            self.assertEqual(source, 'rolled-ball')
+            self.assertAlmostEqual(math.degrees(heading), 0.0, places=9)
+            self.assertEqual(source, 'camera-axis')
             with patch.dict(os.environ, {'PINPOINT_TARGET_LINE_PATH': str(path / 'absent.json')}):
                 heading, source = resolve_target_heading(rotation)
             self.assertAlmostEqual(math.degrees(heading), 0.0, places=9)
             self.assertEqual(source, 'camera-axis')
+
+    def test_tag_rotation_preserves_camera_relative_shot_direction(self):
+        rotation = np.array([[1., 0., 0.], [0., 0., -1.], [0., 1., 0.]])
+        velocity = np.array([5., 0.5, 1.])
+        expected = target_rotation(camera_target_heading_rad(rotation)) @ velocity
+        for angle in (-2.0, -0.5, 0.7, 2.5):
+            c, s = math.cos(angle), math.sin(angle)
+            changed_basis = np.array([[c, -s, 0.], [s, c, 0.], [0., 0., 1.]])
+            changed_rotation = rotation @ changed_basis.T
+            heading, source = resolve_target_heading(changed_rotation)
+            self.assertEqual(source, 'camera-axis')
+            actual = target_rotation(heading) @ (changed_basis @ velocity)
+            np.testing.assert_allclose(actual, expected, atol=1e-9)
 
     def test_putt_stop_and_rolling_transition(self):
         frames = [(i * .01, None) for i in range(31)]

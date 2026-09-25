@@ -22,6 +22,21 @@ def load_target_line() -> dict[str, Any] | None:
         return None
     if not isinstance(value, dict) or value.get("version") != 1 or not isinstance(value.get("headingDeg"), (int, float)):
         return None
+    if not math.isfinite(value["headingDeg"]):
+        return None
+    # A heading lives in the ground tag's coordinate frame. Re-solving a moved or
+    # rotated tag invalidates the previous heading even when the cameras stayed put.
+    from apriltag_calibration import load_apriltag_calibration
+    calibration = load_apriltag_calibration()
+    stamp = (calibration or {}).get("capturedAt")
+    if stamp:
+        if value.get("groundCalibrationAt") and value["groundCalibrationAt"] != stamp:
+            return None
+        try:
+            if datetime.fromisoformat(value["capturedAt"].replace("Z", "+00:00")) < datetime.fromisoformat(stamp.replace("Z", "+00:00")):
+                return None
+        except (KeyError, TypeError, ValueError):
+            return None
     return value
 
 
@@ -31,12 +46,14 @@ def target_heading_rad() -> float | None:
 
 
 def save_target_line(heading_deg: float, points: int, displacement_m: float) -> dict[str, Any]:
+    from apriltag_calibration import load_apriltag_calibration
     value = {
         "version": 1,
         "headingDeg": round(float(heading_deg), 3),
         "points": int(points),
         "displacementM": round(float(displacement_m), 4),
         "capturedAt": datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+        "groundCalibrationAt": (load_apriltag_calibration() or {}).get("capturedAt"),
     }
     path = target_line_path()
     path.parent.mkdir(parents=True, exist_ok=True)

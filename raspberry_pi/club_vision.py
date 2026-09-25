@@ -30,8 +30,17 @@ MIN_HEAD_POINTS = 8
 MIN_SHAFT_POINTS = 25
 MIN_SHAFT_EXTENT_PX = 30.0
 MIN_HEAD_AREA_PX = 60.0
-MIN_TRACK_FRAMES = 4
+# On the stand the head enters the view only 4-5 frames before impact: the first is
+# clipped by the image edge and the last merges with the ball, leaving three clean
+# frames. Replaying 15 real chips (2026-09-24) at three frames recovered club speed
+# on 13 instead of 7, agreeing with the 4+ frame values; fit residual still gates it.
+MIN_TRACK_FRAMES = 3
 MAX_TRACK_FRAMES = 10
+# Accepted frames before a tag-free club speed can be graded as measured.
+MEASURED_TRACK_FRAMES = 8
+# Above any real club's ball/club speed ratio (a driver at the COR limit reaches ~1.5):
+# the club track, not the ball, is wrong.
+MAX_PLAUSIBLE_SMASH = 1.55
 # Silhouette centroids are a softer feature than a tag corner; the ball path's
 # 8 mm gate would reject nearly every real swing.
 MAX_CLUB_FIT_RESIDUAL_M = 0.02
@@ -159,7 +168,7 @@ def fit_club_velocity(times, positions):
     """Least-squares constant velocity through the head track, with its own residual gate."""
     times, positions = np.asarray(times, float), np.asarray(positions, float)
     if len(times) < MIN_TRACK_FRAMES or np.any(np.diff(times) <= 0):
-        raise ValueError("Club track needs at least four frames with increasing sensor timestamps.")
+        raise ValueError(f"Club track needs at least {MIN_TRACK_FRAMES} frames with increasing sensor timestamps.")
     design = np.column_stack((times - times[0], np.ones(len(times))))
     model = np.linalg.lstsq(design, positions, rcond=None)[0]
     residual = float(np.sqrt(np.mean(np.sum((design @ model - positions) ** 2, axis=1))))

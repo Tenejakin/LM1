@@ -8,7 +8,7 @@ from unittest.mock import patch
 import cv2
 import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from apriltag_calibration import capture_latest_apriltag_calibration, clear_apriltag_calibration
+from apriltag_calibration import capture_latest_apriltag_calibration, clear_apriltag_calibration, load_apriltag_calibration
 from launch_measurements import stored_ground_pose, measure_launch
 
 class StoredGroundTests(unittest.TestCase):
@@ -20,7 +20,9 @@ class StoredGroundTests(unittest.TestCase):
         self.distortion = np.zeros(5)
         self.env = patch.dict(os.environ, {
             'PINPOINT_APRILTAG_CALIBRATION_PATH':str(self.root/'ground.json'),
+            'PINPOINT_SECONDARY_APRILTAG_CALIBRATION_PATH':str(self.root/'ground-secondary.json'),
             'PINPOINT_INTRINSICS_PATH':str(self.root/'lens.json'),
+            'PINPOINT_SECONDARY_INTRINSICS_PATH':str(self.root/'lens-secondary.json'),
             'PINPOINT_APRILTAG_ID':'0','PINPOINT_APRILTAG_SIZE_MM':'100'})
         self.env.start(); self.addCleanup(self.env.stop)
         (self.root/'lens.json').write_text(json.dumps({'imageSize':[640,400],
@@ -57,3 +59,30 @@ class StoredGroundTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             capture_latest_apriltag_calibration({'aprilTag':bad})
         self.assertEqual((self.root/'ground.json').read_text(),original)
+
+    def _secondary_detection(self, matrix):
+        # Top camera 85 mm above the lower one, seeing the same tag.
+        points=np.array([[0,0,0],[.1,0,0],[.1,.1,0],[0,.1,0]],float)
+        corners,_=cv2.projectPoints(points,np.array([2.5,0.,0.]),np.array([-.05,-.065,.5]),matrix,self.distortion)
+        return {**self.detection,'corners':(corners.reshape(4,2)/[640,400]).tolist()}
+
+    def test_top_camera_saves_its_own_pose_with_its_own_lens(self):
+        top=np.array([[560.,0,318],[0,560.,204],[0,0,1]])
+        (self.root/'lens-secondary.json').write_text(json.dumps({'imageSize':[640,400],
+            'cameraMatrix':top.tolist(),'distCoeffs':self.distortion.tolist(),'rmsPx':.1}))
+        diagnostics={'aprilTag':self.detection,'secondaryAprilTag':self._secondary_detection(top)}
+        lower=capture_latest_apriltag_calibration(diagnostics)
+        upper=capture_latest_apriltag_calibration(diagnostics,'secondary')
+        self.assertEqual(upper['camera'],'secondary')
+        self.assertEqual(upper['groundPose']['cameraMatrix'],top.tolist())
+        self.assertLess(upper['groundPose']['errorPx'],.01)
+        self.assertEqual(load_apriltag_calibration('secondary')['groundPose'],upper['groundPose'])
+        self.assertEqual(load_apriltag_calibration()['groundPose'],lower['groundPose'])
+        clear_apriltag_calibration('secondary')
+        self.assertIsNone(load_apriltag_calibration('secondary'))
+        self.assertIsNotNone(load_apriltag_calibration())
+
+    def test_top_camera_needs_the_tag_in_its_own_view(self):
+        with self.assertRaisesRegex(ValueError,'top camera'):
+            capture_latest_apriltag_calibration({'aprilTag':self.detection},'secondary')
+        self.assertFalse((self.root/'ground-secondary.json').exists())

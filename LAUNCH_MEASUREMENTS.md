@@ -2,33 +2,55 @@
 
 Explicit ground calibration now permits tag removal. Reset empty plane requires recalibration with the tag. See raspberry_pi/README.md for the current flow.
 
-# AprilTag launch measurements — app 3.8.0 / Pi 0.23.0
+# AprilTag launch measurements — app 3.16.0 / Pi 0.36.0
 
-This release implements a monocular measurement pipeline, not a claim of validated launch-monitor accuracy. Values derived from camera geometry are explicitly **estimates**. Missing evidence produces an unavailable value with a reason, never a club-profile substitute.
+This release implements monocular and calibrated stereo measurement paths. Values derived from camera geometry are **estimates** until checked against a reference launch monitor. Missing evidence produces an unavailable value with a reason.
+
+Current 3.16.0 behavior: three geometrically matched stereo frames spanning at
+least 8 ms can provide a speed **estimate**; six are required for measured-grade
+status. A camera capture becomes an app shot only when its speed, launch, and
+direction come from camera measurements. If tracking fails, these values stay
+unavailable, no club-profile ball speed is substituted, and nothing is sent to
+the simulator. The app reports matched frame indices and failed quality checks.
+The Pi's numeric `confidence` is an uncalibrated quality score, not a percentage
+chance of correct tracking or speed accuracy, so it is not shown as a percentage
+for camera shots.
+
+Valid stereo fits are preferred over a successful single-camera fit. Stereo
+geometry failures stay visible and force the remaining single-camera result to
+estimated status. The app names the actual measurement source. Since 3.35.0 a
+measured ball without a resolved club track is still a shot, with club values
+unavailable; only movement classified `not-a-strike` (under 2 m/s, over 60° off
+line, or a roll with no club) is excluded. This is evidence
+of a swing near departure, not direct proof of face contact. Ground recalibration
+invalidates a saved target line, since it may rotate the coordinate system.
 
 ## Pipeline and metrics
 
-Sensor-timestamped grayscale burst → stable armed-ball template and full-rate contact window → best ground-tag pose across up to 12 burst detections + lens calibration → moving-ball silhouettes from differencing against a median of the pre-departure frames (the resting ball cancels; a white ball on a white tag sheet or lit mat is not separable by brightness alone) → tangent-cone fit using known ball radius → 3D track regression → speed, launch and start direction. The normal path requires a nearly complete silhouette. If that path finds fewer than three points, the independent template track may guide a lower-confidence partial-silhouette reconstruction; it still requires at least three consecutive frames, stable apparent radius and the same 8 mm 3D trajectory-fit limit. Ground-tag reprojection error up to 1 px is the normal estimate path; 1–3 px remains available as an explicitly lower-confidence estimate, while anything above 3 px is rejected. The sampled presence detector supplies only `coarseDepartureFrameIndex`; the last stationary and first coherent moving observations bound contact, while backward-compatible `impactFrameIndex` uses first motion when available. The first clean 3D silhouette may already be a dozen radii out when a club head has passed over the ball. Ground coordinates are +X along the tag's decoded top edge toward the target, +Y left, +Z above the printed side. Direction is positive right in the app.
+Sensor-timestamped grayscale burst → resting-ball position and camera poses → primary trajectory and ball-outline analysis. When that fit fails, each calibrated camera detects ball-sized circles independently. Candidates are paired by ray geometry, apparent size and a coherent 3D path; a joint fit recovers speed, launch and direction without using apparent ball size for depth. Stereo needs both lens calibrations and saved ground-tag poses from the same fixed tag placement. Three paired frames spanning at least 8 ms are eligible for measured-grade status when every timing, geometry, calibration, and fit-quality gate passes. Pair offsets must be ≤250 μs, median ray gap ≤3 mm, resting-height error ≤5 mm, start-anchor error ≤30 mm, and reprojection residual ≤3 px. Failure of a required geometry gate leaves metrics unavailable; failing a stricter grading gate leaves them estimated. Ground-tag pose error above 3 px is rejected. The sampled presence detector supplies only `coarseDepartureFrameIndex`; the last stationary and first coherent moving observations bound contact.
 
 | Metric | Implemented method | Required evidence |
 | --- | --- | --- |
-| Ball speed | Fit velocity through 3–8 outgoing sphere-center estimates | Resolved, unambiguous ball silhouettes; valid sensor timestamps |
+| Ball speed | Fit velocity through monocular sphere centers or at least three paired stereo centers; three clean pairs can receive measured-grade status | Resolved ball positions and valid sensor timestamps |
 | Launch / start direction | Vertical/horizontal angles of the fitted 3D velocity; start direction is measured against the calibrated target line (`/var/lib/pinpoint/target-line.json`, set from a ball rolled toward the target), not the tag's orientation | Ground tag lying flat; a target line for start direction (speed and launch angle do not need one) |
 | Club / putter speed | AprilTag pose transformed to calibrated face center, then velocity regression | ≥3 pre-impact club-tag observations and correct club-specific rigid transform |
 | Smash | Ball speed / club speed | Both accepted speeds |
 | Strike toe/high | Ball relative to extrapolated face axes near departure; contact-plane proximity check | Face geometry, stationary ball observation, club pose within 10 ms |
 | Backspin / spin axis | Optical-flow surface marks → ray/sphere intersection → rigid surface rotation | ≥3 nondegenerate marks, forward/backward flow agreement, ≥2 consistent pairs and <60° rotation per pair |
-| Carry | Vacuum projectile estimate to original launch height | Accepted speed and launch angle; excludes drag/lift/wind/terrain |
+| Carry, total, apex, landing angle, offline | Still-air drag/lift model fitted to Trackman PGA Tour averages (carry within 1-7% driver to wedge), then a slide-to-roll turf model for roll | Accepted speed, launch and direction; spin from camera, else estimated from club speed and attack angle, else the club average. Excludes wind, terrain, curvature |
+| Dynamic loft, spin loft | Rolling-contact impact model: launch minus attack angle fixes spin loft | Measured launch and attack angle; unavailable when launch exceeds attack by more than 40° |
 | Putting roll distance | Straight-line placement-to-stop displacement on ground | Continuous ball visibility, ground-height consistency, ≥100 ms observed stop |
 | Skid distance | Displacement until three consecutive low-slip translation/rotation pairs | Ground track and simultaneous resolved surface rotation |
 
-Partial values appear automatically in the capture card on Monitor, Putting and Sessions. All seven core values (speed, club speed, smash, launch, direction, strike X/Y) must be available before an estimated shot/putt enters the existing result contract. Optional spin/carry/roll/skid fields are included only when available. `measurementSource: monocular-estimate` identifies these results. Confidence is not calibrated; the UI says accuracy is unvalidated rather than presenting a fabricated percentage.
+Partial values appear automatically in the capture card on Monitor, Putting and Sessions. The Pi's legacy shot/putt message still requires all seven core values (speed, club speed, smash, launch, direction, strike X/Y). The app creates a camera shot only when camera-derived speed, launch and direction are all available; missing ball speed remains a failed capture, never a club-profile shot. Optional spin/carry/roll/skid fields are included only when available. `measurementSource` identifies camera estimates. Ball size in the trajectory fit comes from a sub-pixel edge fit (`ball_edge_fit`), and its comparison with the standard ball is a grading check.
+
+Each reported value is graded by `grade_metrics`: `measured` means every applicable device quality gate passed, not that accuracy was validated against a reference launch monitor. Stereo checks include both pose errors, reprojection residual, ray gap, resting height, start anchor, pair timing, paired-frame count, and fit uncertainty. Anything else is `estimated`, with a `checks` list naming failed gates. The legacy `confidence` field multiplies gate penalties; it is an uncalibrated quality score, not the probability that the ball was tracked or that speed is accurate. The app shows Measured/Estimated labels and individual checks, not that percentage, on camera shots. Carry, face contact, roll/skid, and tag-free club values remain estimates.
 
 ## Physical setup needed
 
 1. Keep the existing OV9281 rigidly mounted and focused. Use its **actual sensor timestamps**, fixed short exposure and enough light. The software rejects exposure above 250 µs and rejects estimated blur above 4 mm; at a hypothetical 70 m/s, 4 mm requires exposure below about 57 µs. This is a calculation, not a lighting specification.
-2. Calibrate intrinsics/distortion at exactly the capture resolution, sensor crop and lens focus. The ground AprilTag alone cannot determine all lens parameters.
-3. Print the supplied ID 0 ground tag at 100 mm black outer-edge size. Keep it fixed, flat, visible and outside the swing path/detection region. Its decoded top edge points downrange. With Pi 0.26.0, explicitly save ground AprilTag calibration after lens calibration; then you may remove it while the camera and surface remain fixed. Empty-plane reset invalidates saved pose and target line.
+2. Calibrate intrinsics/distortion for both cameras at exactly the capture resolution, sensor crop and lens focus. The ground AprilTag alone cannot determine lens parameters.
+3. Print the supplied ID 0 ground tag at 100 mm black outer-edge size. Keep it fixed, flat, visible to both cameras and outside the swing path/detection region. Its decoded top edge points downrange. After lens calibration, use **Capture AprilTag calibration** with both cameras seeing the same tag; verify that both camera poses are saved. The shared tag frame establishes their relative geometry. Then you may remove it while both cameras and the surface remain fixed. Empty-plane reset invalidates saved poses and target line.
 4. Attach a different tag (supplied ID 1, 20 mm) rigidly to the club where the camera can see it before contact. It must not interfere with the face or change position relative to the head. Size is a starting template, not a guarantee it will resolve at your speed/distance. Measure its transform for each club; do not reuse a driver's transform for an iron.
 5. Use a ball with distinct, nonrepeating visible surface marks for spin. A plain silhouette cannot reveal rotation. The pipeline assumes radius 21.335 mm; actual ball size/deformation and image threshold bias affect depth.
 6. For complete putting distance, keep the ball visible until stopped. The current burst tracker examines up to 256 post-departure frames. Longer putts outside that field/time window will correctly remain unavailable.
@@ -68,6 +90,10 @@ Start direction is measured against a target line. By default this now comes fro
 Rolling a ball and using **Set target line** still saves an explicit heading, and an explicit line takes precedence (`targetHeadingSource: rolled-ball`). Clearing it returns to the camera axis rather than making start direction unavailable. The only case with no target line at all is a camera rolled towards portrait, where the across-image axis has no ground direction; level the monitor or save an explicit line.
 
 ## Tag-free club measurement
+
+**Two cameras (preferred, 0.47.0).** The clubhead is dark against the mat, but the lit shaft and hosel highlight form a "check" whose lowest point, the hosel, is one physical point in both views. It is triangulated per frame (rays must meet within 10 mm), the longest run that one smooth path explains within 10 mm is kept, and its velocity at the last frame before impact gives `clubSpeedMps`, `attackAngleDeg` and `clubPathDeg`. Three frames are the minimum; five or more add a constant-acceleration term for the swing arc. The hosel moves slightly slower than the face centre. The single-camera swing-plane method below remains the fallback when the pair is not calibrated or the stereo track fails; on real chips it read about 20% low.
+
+**Single camera (fallback).**
 
 When no `club-marker.json` exists, the analysis falls back to tracking the clubhead silhouette. A monocular view cannot scale an unknown shape, so this path borrows scale from geometry that is already known: the head is back-projected onto a vertical swing plane pinned to the ball's position at contact, using the ball's own outgoing direction for the plane. It yields `clubSpeedMps`, `smashFactor` and `attackAngleDeg` as **estimates**, each naming its assumption.
 

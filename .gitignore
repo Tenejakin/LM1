@@ -9,3 +9,8 @@ __pycache__/
 .env
 .env.*
 !.env.example
+tmp/reliability-review-v1.0.0/
+tmp/stereo-calibration-web-3.17.0/
+
+# Supabase CLI state (linked project, pooler address)
+supabase/.temp/

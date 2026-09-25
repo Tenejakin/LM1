@@ -16,6 +16,7 @@ import { isClubId } from '@/data/clubs';
 import { DeviceClient } from '@/services/device';
 import {
   AprilTagCalibration,
+  CalibrationCamera,
   CalibrationCaptureStatus,
   CalibrationImageResult,
   CaptureAnalysis,
@@ -27,16 +28,23 @@ import {
   DeviceEvent,
   DeviceState,
   DeviceStatus,
+  FrameUploadProgress,
   ExposureCalibrationResult,
   LensCalibrationResult,
+  StereoCalibrationAction,
+  StereoCalibrationOptions,
+  StereoCalibrationStatus,
   Putt,
   Shot,
+  ShotCoverage,
   TargetLine,
   WifiConnectionStatus,
   WifiNetwork,
 } from '@/types';
 import { estimateShotFromCapture, normalizeShot } from '@/utils/carry';
+import { puttFromCapture } from '@/utils/puttCapture';
 import { useOpenGolfSim } from '@/context/OpenGolfSimContext';
+import { useCloudSync } from '@/context/CloudSyncContext';
 
 const DEVICE_ID_KEY = '@pinpoint/ble-device-id';
 const DEMO_KEY = '@pinpoint/demo-mode';
@@ -58,6 +66,7 @@ interface LaunchMonitorContextValue {
   isDemo: boolean;
   error: string | null;
   previewFrame: string | null;
+  secondaryPreviewFrame: string | null;
   previewDetection: { detection?: BallDetection; receivedAt: number } | null;
   previewAprilTag: { calibration?: AprilTagCalibration; receivedAt: number } | null;
   latestCalibrationImage: CalibrationImageResult | null;
@@ -77,14 +86,23 @@ interface LaunchMonitorContextValue {
   clearExposureCalibration: () => void;
   resetBallCalibration: () => Promise<void>;
   captureAprilTagCalibration: () => Promise<AprilTagCalibration>;
-  captureCalibrationImage: () => Promise<void>;
-  clearCalibrationImages: () => Promise<CalibrationCaptureStatus>;
-  runLensCalibration: () => Promise<LensCalibrationResult>;
+  captureCalibrationImage: (camera?: CalibrationCamera) => Promise<void>;
+  clearCalibrationImages: (camera?: CalibrationCamera) => Promise<CalibrationCaptureStatus>;
+  runLensCalibration: (camera?: CalibrationCamera) => Promise<LensCalibrationResult>;
+  stereoCalibration: (action: StereoCalibrationAction, options?: StereoCalibrationOptions) => Promise<StereoCalibrationStatus>;
+  getShotCoverage: () => Promise<ShotCoverage>;
   setTargetLine: () => Promise<TargetLine>;
   clearTargetLine: () => Promise<void>;
   getLatestCapturePreview: () => Promise<CapturePreview>;
   getCaptureFrame: (captureId: string, frameIndex: number) => Promise<CaptureFramePreview>;
   getCaptureContactSheet: (captureId: string) => Promise<CapturePreview>;
+  getLatestPuttRecoveryCandidate: () => Promise<Putt | null>;
+  saveRecoveredPutt: (putt: Putt) => Promise<void>;
+  retryShotImage: (shot: Shot) => Promise<string>;
+  /** Leave a shot out of session averages, dispersion and gapping (kept in history). */
+  setShotExcluded: (shotId: string, excluded: boolean) => void;
+  frameUploadProgress: Record<string, FrameUploadProgress>;
+  startShotFrameUpload: (shot: Shot) => Promise<FrameUploadProgress>;
   getWifiStatus: () => Promise<WifiConnectionStatus>;
   scanWifi: () => Promise<WifiNetwork[]>;
   connectWifi: (ssid: string, password: string, hidden?: boolean) => Promise<WifiConnectionStatus>;
@@ -96,6 +114,7 @@ interface LaunchMonitorContextValue {
 const LaunchMonitorContext = createContext<LaunchMonitorContextValue | null>(null);
 
 export function LaunchMonitorProvider({ children }: PropsWithChildren) {
+  const { session, syncShots, syncPutts, restoreShots, restorePutts, uploadShotCapture, repairShotImage, beginFrameUpload, getUploadedFrameIndices, savePreference } = useCloudSync();
   const {
     state: openGolfSimState,
     config: openGolfSimConfig,
@@ -115,6 +134,9 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
   const openGolfSimStateRef = useRef(openGolfSimState);
   const openGolfSimAutoSendRef = useRef(openGolfSimConfig.autoSend);
   const openGolfSimSentShotIdsRef = useRef(new Set<string>());
+  const imageRecoveryAttemptedRef = useRef(new Set<string>());
+  const frameUploadAttemptedRef = useRef(new Set<string>());
+  const lastSavedPiSettingsRef = useRef<string | null>(null);
 
   openGolfSimStateRef.current = openGolfSimState;
   openGolfSimAutoSendRef.current = openGolfSimConfig.autoSend;
@@ -124,16 +146,22 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
   const [status, setStatus] = useState<DeviceStatus | null>(null);
   const [shots, setShots] = useState<Shot[]>([]);
   const shotsRef = useRef<Shot[]>([]);
+  const demoOriginalShots = useRef<Shot[] | null>(null);
+  const demoOriginalPutts = useRef<Putt[] | null>(null);
   const [activeShot, setActiveShot] = useState<Shot | null>(null);
   const [liveShot, setLiveShot] = useState<Shot | null>(null);
   const [putts, setPutts] = useState<Putt[]>([]);
+  const puttsRef = useRef<Putt[]>([]);
+  puttsRef.current = putts;
   const [activePutt, setActivePutt] = useState<Putt | null>(null);
   const [captureMode, setCaptureMode] = useState<CaptureMode>('full-shot');
   const [selectedClub, setSelectedClub] = useState<ClubId>('driver');
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [isDemo, setIsDemo] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [frameUploadProgress, setFrameUploadProgress] = useState<Record<string, FrameUploadProgress>>({});
   const [previewFrame, setPreviewFrame] = useState<string | null>(null);
+  const [secondaryPreviewFrame, setSecondaryPreviewFrame] = useState<string | null>(null);
   const [previewDetection, setPreviewDetection] = useState<{ detection?: BallDetection; receivedAt: number } | null>(null);
   const [previewAprilTag, setPreviewAprilTag] = useState<{ calibration?: AprilTagCalibration; receivedAt: number } | null>(null);
   const [latestCalibrationImage, setLatestCalibrationImage] = useState<CalibrationImageResult | null>(null);
@@ -151,6 +179,16 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
     switch (event.type) {
       case 'capture':
         setCaptures((current) => [event.data, ...current.filter((item) => item.id !== event.data.id)].slice(0, 10));
+        if (event.data.mode === 'putting') {
+          const capturedPutt = puttFromCapture(event.data, (puttsRef.current[0]?.number ?? 0) + 1);
+          if (capturedPutt && !puttsRef.current.some((putt) => putt.id === capturedPutt.id)) {
+            const nextPutts = [capturedPutt, ...puttsRef.current];
+            puttsRef.current = nextPutts;
+            setPutts(nextPutts);
+            setActivePutt(capturedPutt);
+            void syncPutts([capturedPutt]).catch((caught) => setError(`Putt cloud sync failed: ${caught instanceof Error ? caught.message : 'Unknown error.'}`));
+          }
+        }
         const estimatedShot = estimateShotFromCapture(
           event.data,
           selectedClubRef.current,
@@ -160,30 +198,46 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
           const nextShots = [estimatedShot, ...shotsRef.current.filter((shot) => shot.id !== estimatedShot.id)];
           shotsRef.current = nextShots;
           setShots(nextShots);
+          void syncShots(nextShots).catch(() => {});
+          void uploadShotCapture(estimatedShot, event.data.image.base64, event.data.secondaryImage?.base64)
+            .catch((caught) => setError(`Shot image upload failed: ${caught instanceof Error ? caught.message : 'Unknown error.'}`));
           setActiveShot(estimatedShot);
           setLiveShot(estimatedShot);
         } else {
           setActiveShot(null);
           setLiveShot(null);
         }
-        // Send the same completed shot shown in the app. A motion-observed capture
-        // always has clearly-labelled club estimates for unresolved camera metrics.
+        // Only camera-resolved launch inputs can go to the simulator. Never send a
+        // club-profile ball speed when stereo or monocular tracking failed.
         if (openGolfSimStateRef.current === 'connected' && openGolfSimAutoSendRef.current) {
-          if (estimatedShot) {
-            if (sendShotToOpenGolfSim(estimatedShot)) {
-              openGolfSimSentShotIdsRef.current.add(estimatedShot.id);
+          if (event.data.mode === 'full-shot') {
+            if (sendCaptureToOpenGolfSim(event.data)) {
+              openGolfSimSentShotIdsRef.current.add(event.data.id);
             }
-          } else if (event.data.mode === 'putting') {
-            sendCaptureToOpenGolfSim(event.data);
+          } else if (event.data.mode === 'putting' && (event.data.measurements?.metrics.launchAngleDeg?.value ?? 0) <= 10) {
+            if (sendCaptureToOpenGolfSim(event.data)) openGolfSimSentShotIdsRef.current.add(event.data.id);
           }
         }
         break;
       case 'captureError':
         setError(event.data.message);
         break;
+      case 'readiness': {
+        const readiness = event.data;
+        setStatus((current) => (current ? { ...current, readiness } : current));
+        break;
+      }
+      case 'frameUploadProgress':
+        setFrameUploadProgress((current) => ({ ...current, [event.data.captureId]: event.data }));
+        if (event.data.state === 'error') setError(`Frame upload failed: ${event.data.message ?? 'Unknown error.'}`);
+        break;
       case 'status':
         setStatus(event.data);
         setState(event.data.state);
+        if (event.data.captureMode) {
+          captureModeRef.current = event.data.captureMode;
+          setCaptureMode(event.data.captureMode);
+        }
         if (event.data.camera?.ballDetection) {
           setBallDetected(event.data.camera.ballDetection.state === 'detected');
         }
@@ -193,11 +247,16 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
         break;
       case 'shot':
         const completedShot = normalizeShot(event.data, selectedClubRef.current);
-        const nextShots = [completedShot, ...shotsRef.current.filter((shot) => shot.id !== completedShot.id)];
+        // The capture event arrives first and retains per-metric camera evidence.
+        // The legacy shot event must not replace it with an ungraded summary.
+        const displayedShot = shotsRef.current.find((shot) => shot.id === completedShot.id && shot.metricConfidence)
+          ?? completedShot;
+        const nextShots = [displayedShot, ...shotsRef.current.filter((shot) => shot.id !== displayedShot.id)];
         shotsRef.current = nextShots;
         setShots(nextShots);
-        setActiveShot(completedShot);
-        setLiveShot(completedShot);
+        void syncShots(nextShots).catch(() => {});
+        setActiveShot(displayedShot);
+        setLiveShot(displayedShot);
         setState('ready');
         setStatus((current) =>
           current ? { ...current, state: 'ready', lastSeenAt: new Date().toISOString() } : current,
@@ -205,24 +264,34 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
         if (
           openGolfSimStateRef.current === 'connected' &&
           openGolfSimAutoSendRef.current &&
-          !openGolfSimSentShotIdsRef.current.has(completedShot.id)
+          !openGolfSimSentShotIdsRef.current.has(displayedShot.id)
         ) {
-          if (sendShotToOpenGolfSim(completedShot)) {
-            openGolfSimSentShotIdsRef.current.add(completedShot.id);
+          if (sendShotToOpenGolfSim(displayedShot)) {
+            openGolfSimSentShotIdsRef.current.add(displayedShot.id);
           }
         }
         sendOpenGolfSimDeviceStatus('ready');
         break;
       case 'putt':
-        const completedPutt = event.data;
-        setPutts((current) => [completedPutt, ...current.filter((putt) => putt.id !== completedPutt.id)]);
+        const previousPutt = puttsRef.current.find((putt) => putt.id === event.data.id);
+        const completedPutt: Putt = {
+          ...event.data,
+          number: previousPutt?.number ?? event.data.number,
+          airborne: event.data.airborne ?? event.data.launchAngleDeg > 10,
+          strike: event.data.strike ?? null,
+        };
+        const nextPutts = [completedPutt, ...puttsRef.current.filter((putt) => putt.id !== completedPutt.id)];
+        puttsRef.current = nextPutts;
+        setPutts(nextPutts);
+        void syncPutts([completedPutt]).catch((caught) => setError(`Putt cloud sync failed: ${caught instanceof Error ? caught.message : 'Unknown error.'}`));
         setActivePutt(completedPutt);
         setState('ready');
         setStatus((current) =>
           current ? { ...current, state: 'ready', lastSeenAt: new Date().toISOString() } : current,
         );
-        if (openGolfSimStateRef.current === 'connected' && openGolfSimAutoSendRef.current) {
-          sendPuttToOpenGolfSim(completedPutt);
+        if (!completedPutt.airborne && openGolfSimStateRef.current === 'connected' && openGolfSimAutoSendRef.current
+          && !openGolfSimSentShotIdsRef.current.has(completedPutt.id)) {
+          if (sendPuttToOpenGolfSim(completedPutt)) openGolfSimSentShotIdsRef.current.add(completedPutt.id);
         }
         sendOpenGolfSimDeviceStatus('ready');
         break;
@@ -231,6 +300,7 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
         sendOpenGolfSimDeviceStatus('busy');
         break;
       case 'preview':
+        setSecondaryPreviewFrame(event.data.secondaryBase64 ? `data:${event.data.mimeType};base64,${event.data.secondaryBase64}` : null);
         setPreviewFrame(`data:${event.data.mimeType};base64,${event.data.base64}`);
         setPreviewDetection({ detection: event.data.camera?.ballDetection, receivedAt: Date.now() });
         setPreviewAprilTag({ calibration: event.data.camera?.aprilTag, receivedAt: Date.now() });
@@ -257,15 +327,85 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
         sendOpenGolfSimDeviceStatus('ready');
         break;
     }
-  }, [sendCaptureToOpenGolfSim, sendOpenGolfSimDeviceStatus, sendPuttToOpenGolfSim, sendShotToOpenGolfSim]);
+  }, [sendCaptureToOpenGolfSim, sendOpenGolfSimDeviceStatus, sendPuttToOpenGolfSim, sendShotToOpenGolfSim, syncPutts, syncShots, uploadShotCapture]);
+
+  const setShotExcluded = useCallback((shotId: string, excluded: boolean) => {
+    const update = (item: Shot) => (item.id === shotId ? { ...item, excluded } : item);
+    const nextShots = shotsRef.current.map(update);
+    shotsRef.current = nextShots;
+    setShots(nextShots);
+    setActiveShot((current) => (current ? update(current) : current));
+    setLiveShot((current) => (current ? update(current) : current));
+    const changed = nextShots.find((item) => item.id === shotId);
+    if (changed && !isDemo) void syncShots([changed]).catch(() => {});
+  }, [isDemo, syncShots]);
+
+  const retryShotImage = useCallback(async (shot: Shot) => {
+    if (!session?.user) throw new Error('Sign in to upload shot images.');
+    if (!shot.captureId) throw new Error('This shot has no saved camera capture.');
+    if (!client.current.connectedDeviceId) throw new Error('Connect the Pi to recover this shot image.');
+    const preview = await client.current.getCaptureContactSheet(shot.captureId);
+    if (preview.captureId !== shot.captureId) throw new Error('The Pi returned a different capture.');
+    await uploadShotCapture(shot, preview.base64);
+    const paths = await repairShotImage(shot.id);
+    if (!paths.imagePath) throw new Error('The image upload finished without a Bunny path.');
+    const withImage = (item: Shot) => item.id === shot.id
+      ? { ...item, cloudImagePath: paths.imagePath ?? undefined, cloudSecondaryImagePath: paths.secondaryImagePath ?? undefined }
+      : item;
+    setShots((current) => {
+      const updated = current.map(withImage);
+      shotsRef.current = updated;
+      return updated;
+    });
+    setActiveShot((current) => current ? withImage(current) : current);
+    setLiveShot((current) => current ? withImage(current) : current);
+    return paths.imagePath;
+  }, [session?.user?.id, uploadShotCapture, repairShotImage]);
+
+  const startShotFrameUpload = useCallback(async (shot: Shot): Promise<FrameUploadProgress> => {
+    if (!session?.user) throw new Error('Sign in to upload capture frames.');
+    if (!shot.captureId || !Number.isInteger(shot.frameCount) || shot.frameCount < 1) throw new Error('This shot has no saved frame sequence.');
+    if (!client.current.connectedDeviceId) throw new Error('Connect the Pi to upload original frames.');
+    const currentJob = await client.current.getCaptureFrameUploadStatus();
+    if (currentJob?.state === 'running') {
+      if (currentJob.captureId !== shot.captureId) throw new Error('The Pi is uploading another shot. Try again when it finishes.');
+      setFrameUploadProgress((current) => ({ ...current, [shot.captureId!]: currentJob }));
+      return currentJob;
+    }
+    await syncShots([shot]);
+    const uploaded = new Set(await getUploadedFrameIndices(shot.id));
+    const missing = Array.from({ length: shot.frameCount }, (_, index) => index).filter((index) => !uploaded.has(index));
+    if (!missing.length) {
+      const complete: FrameUploadProgress = { captureId: shot.captureId, uploaded: shot.frameCount, total: shot.frameCount, state: 'complete' };
+      setFrameUploadProgress((current) => ({ ...current, [shot.captureId!]: complete }));
+      return complete;
+    }
+    const ticket = await beginFrameUpload(shot.id);
+    if (ticket.frameCount !== shot.frameCount) throw new Error('The cloud and Pi disagree about the frame count.');
+    const started = await client.current.uploadCaptureFrames(shot.captureId, shot.frameCount, ticket.token, missing);
+    setFrameUploadProgress((current) => ({ ...current, [shot.captureId!]: started }));
+    return started;
+  }, [session?.user?.id, syncShots, getUploadedFrameIndices, beginFrameUpload]);
 
   const connect = useCallback(
     async (preferredDeviceId?: string, quiet = false) => {
       clearReconnectTimer();
       intentionalDisconnect.current = false;
       setIsDemo(false);
+      if (demoOriginalShots.current) {
+        shotsRef.current = demoOriginalShots.current;
+        setShots(demoOriginalShots.current);
+        setActiveShot(demoOriginalShots.current[0] ?? null);
+        demoOriginalShots.current = null;
+      }
+      if (demoOriginalPutts.current) {
+        setPutts(demoOriginalPutts.current);
+        setActivePutt(demoOriginalPutts.current[0] ?? null);
+        demoOriginalPutts.current = null;
+      }
       setCaptures([]);
       setPreviewFrame(null);
+      setSecondaryPreviewFrame(null);
       setPreviewDetection(null);
       setPreviewAprilTag(null);
       setLatestCalibrationImage(null);
@@ -284,40 +424,25 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
         });
 
         if (!mounted.current) return;
-        if (nextStatus.state === 'ready') nextStatus = await client.current.setClub(selectedClubRef.current);
+        if (nextStatus.state === 'ready' && nextStatus.captureMode !== 'putting') {
+          nextStatus = await client.current.setClub(selectedClubRef.current);
+        }
         const connectedDeviceId = client.current.connectedDeviceId;
         setDeviceId(connectedDeviceId);
         setStatus(nextStatus);
         setState(nextStatus.state);
+        if (nextStatus.captureMode) {
+          captureModeRef.current = nextStatus.captureMode;
+          setCaptureMode(nextStatus.captureMode);
+        }
         setBallDetected(nextStatus.camera?.ballDetection?.state === 'detected');
         await AsyncStorage.setItem(DEMO_KEY, 'false');
         if (connectedDeviceId) {
           await AsyncStorage.setItem(DEVICE_ID_KEY, connectedDeviceId);
         }
 
-        const [shotHistory, puttHistory] = await Promise.allSettled([
-          client.current.listShots(),
-          client.current.listPutts(),
-        ]);
-        if (nextStatus.protocolVersion && Number(nextStatus.protocolVersion.split('.')[1]) >= 13) {
-          void client.current.listCaptures().then((history) => {
-            if (mounted.current) setCaptures((current) => [...current, ...history.filter((item) => !current.some((existing) => existing.id === item.id))].slice(0, 10));
-          }).catch((caught) => { if (mounted.current) setError(caught instanceof Error ? caught.message : 'Capture history unavailable.'); });
-        }
-        if (mounted.current) {
-          if (shotHistory.status === 'fulfilled') {
-            const nextShots = shotHistory.value.map((shot) =>
-              normalizeShot(shot, selectedClubRef.current),
-            );
-            setShots(nextShots);
-            shotsRef.current = nextShots;
-            setActiveShot(nextShots[0] ?? null);
-          }
-          if (puttHistory.status === 'fulfilled') {
-            setPutts(puttHistory.value);
-            setActivePutt(puttHistory.value[0] ?? null);
-          }
-        }
+        // The Pi's retained history is shared by anyone who connects to it.
+        // Account history comes only from this user's cloud records and live events.
       } catch (caught) {
         if (!mounted.current) return;
         const message = caught instanceof Error ? caught.message : 'Could not connect to the device.';
@@ -335,6 +460,96 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
   );
 
   useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    void Promise.all([restoreShots(), restorePutts()]).then(([cloudShots, cloudPutts]) => {
+      if (cancelled) return;
+      const mergedShots = [...new Map([...shotsRef.current, ...cloudShots].map((shot) => [shot.id, shot])).values()]
+        .sort((a, b) => b.capturedAt.localeCompare(a.capturedAt));
+      const mergedPutts = [...new Map([...puttsRef.current, ...cloudPutts].map((putt) => [putt.id, putt])).values()]
+        .sort((a, b) => b.capturedAt.localeCompare(a.capturedAt));
+      setShots(mergedShots); shotsRef.current = mergedShots; setActiveShot(mergedShots[0] ?? null);
+      setPutts(mergedPutts); setActivePutt(mergedPutts[0] ?? null);
+      void syncShots(mergedShots).catch(() => {}); void syncPutts(mergedPutts).catch(() => {});
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [session, restoreShots, restorePutts, syncShots, syncPutts]);
+
+  useEffect(() => {
+    if (!session?.user || !status || isDemo || !deviceId) return;
+    const camera = status.camera;
+    const settings = {
+      version: 1,
+      deviceId,
+      name: status.name,
+      firmwareVersion: status.firmwareVersion,
+      protocolVersion: status.protocolVersion ?? null,
+      captureBackend: status.captureBackend ?? null,
+      automaticCapture: status.automaticCapture ?? null,
+      captureMode: status.captureMode ?? captureMode,
+      selectedClubId: status.selectedClubId ?? selectedClub,
+      fps: status.fps,
+      exposureUs: status.exposureUs,
+      gain: camera?.gain ?? null,
+      autoExposure: camera?.autoExposure ?? null,
+      camera: camera ? {
+        model: camera.model ?? null,
+        width: camera.width ?? null,
+        height: camera.height ?? null,
+        cameraCount: camera.cameraCount ?? null,
+        primaryCameraIndex: camera.primaryCameraIndex ?? null,
+        secondaryCameraIndex: camera.secondaryCameraIndex ?? null,
+        secondaryExposureUs: camera.secondaryExposureUs ?? null,
+        secondaryGain: camera.secondaryGain ?? null,
+      } : null,
+      placement: status.preview ? { roi: status.preview.roi, target: status.preview.target } : null,
+      calibrationVersion: status.calibrationVersion,
+      lensCalibration: status.lensCalibration ?? null,
+      targetLine: status.targetLine ?? null,
+    };
+    const serialized = JSON.stringify(settings);
+    const fingerprint = `${session.user.id}:${serialized}`;
+    if (lastSavedPiSettingsRef.current === fingerprint) return;
+    lastSavedPiSettingsRef.current = fingerprint;
+    void savePreference(`piSettings:${deviceId}`, JSON.stringify({
+      ...settings,
+      savedAt: new Date().toISOString(),
+    })).catch(() => {
+      lastSavedPiSettingsRef.current = null;
+    });
+  }, [session?.user?.id, status, isDemo, deviceId, captureMode, selectedClub, savePreference]);
+
+  useEffect(() => {
+    if (!session?.user || isDemo || state !== 'ready' || !client.current.connectedDeviceId) return;
+    const missing = shots.find((shot) => shot.captureId && !shot.cloudImagePath
+      && Date.now() - Date.parse(shot.capturedAt) > 30_000
+      && !imageRecoveryAttemptedRef.current.has(`${session.user.id}:${shot.id}`));
+    if (!missing?.captureId) return;
+    imageRecoveryAttemptedRef.current.add(`${session.user.id}:${missing.id}`);
+
+    void retryShotImage(missing).catch((caught) => {
+      imageRecoveryAttemptedRef.current.delete(`${session.user.id}:${missing.id}`);
+      setError(`Could not recover the saved shot image: ${caught instanceof Error ? caught.message : 'Unknown error.'}`);
+    });
+  }, [session?.user?.id, isDemo, state, shots, retryShotImage]);
+
+  useEffect(() => {
+    if (!session?.user || isDemo || state !== 'ready' || !client.current.connectedDeviceId) return;
+    if (Object.values(frameUploadProgress).some((item) => item.state === 'running')) return;
+    const candidate = shots.slice(0, 3).find((shot) => shot.captureId && shot.frameCount > 0
+      && !frameUploadAttemptedRef.current.has(`${session.user.id}:${shot.id}`));
+    if (!candidate) return;
+    frameUploadAttemptedRef.current.add(`${session.user.id}:${candidate.id}`);
+    void startShotFrameUpload(candidate).catch((caught) => {
+      const message = caught instanceof Error ? caught.message : 'Unknown error.';
+      setError(`Frame upload failed: ${message}`);
+      setFrameUploadProgress((current) => ({ ...current, [candidate.captureId!]: {
+        captureId: candidate.captureId!, uploaded: 0, total: candidate.frameCount, state: 'error', message,
+      } }));
+    });
+  }, [session?.user?.id, isDemo, state, shots, frameUploadProgress, startShotFrameUpload]);
+
+  useEffect(() => {
     reconnect.current = connect;
   }, [connect]);
 
@@ -350,6 +565,8 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
   }, []);
 
   const enableDemo = useCallback(() => {
+    if (!demoOriginalShots.current) demoOriginalShots.current = shotsRef.current;
+    if (!demoOriginalPutts.current) demoOriginalPutts.current = puttsRef.current;
     clearReconnectTimer();
     intentionalDisconnect.current = true;
     client.current.disconnect();
@@ -363,6 +580,7 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
     setActivePutt(demoPutts[0] ?? null);
     setError(null);
     setPreviewFrame(null);
+    setSecondaryPreviewFrame(null);
     setPreviewDetection(null);
     setPreviewAprilTag(null);
     setBallDetected(false);
@@ -401,6 +619,7 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
     setState('offline');
     setError(null);
     setPreviewFrame(null);
+    setSecondaryPreviewFrame(null);
     setPreviewDetection(null);
     setPreviewAprilTag(null);
     setBallDetected(false);
@@ -409,39 +628,51 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
 
   const arm = useCallback(async () => {
     setError(null);
-    captureModeRef.current = 'full-shot';
-    setCaptureMode('full-shot');
+    if (captureModeRef.current !== 'full-shot' && ballDetected) {
+      setError('Remove the ball before switching to normal shot mode.');
+      return;
+    }
     if (isDemo) {
+      captureModeRef.current = 'full-shot';
+      setCaptureMode('full-shot');
       setState('armed');
       setStatus((current) => (current ? { ...current, state: 'armed' } : current));
       return;
     }
     try {
       const nextStatus = await client.current.arm(selectedClub, 'full-shot');
+      captureModeRef.current = 'full-shot';
+      setCaptureMode('full-shot');
       setStatus(nextStatus);
       setState(nextStatus.state);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not arm the device.');
     }
-  }, [isDemo, selectedClub]);
+  }, [ballDetected, isDemo, selectedClub]);
 
   const armPutting = useCallback(async () => {
     setError(null);
-    captureModeRef.current = 'putting';
-    setCaptureMode('putting');
+    if (captureModeRef.current !== 'putting' && ballDetected) {
+      setError('Remove the ball before switching to putting mode.');
+      return;
+    }
     if (isDemo) {
+      captureModeRef.current = 'putting';
+      setCaptureMode('putting');
       setState('armed');
       setStatus((current) => (current ? { ...current, state: 'armed' } : current));
       return;
     }
     try {
       const nextStatus = await client.current.arm('putter', 'putting');
+      captureModeRef.current = 'putting';
+      setCaptureMode('putting');
       setStatus(nextStatus);
       setState(nextStatus.state);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not arm putting mode.');
     }
-  }, [isDemo]);
+  }, [ballDetected, isDemo]);
 
   const disarm = useCallback(async () => {
     setError(null);
@@ -470,6 +701,7 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
           const nextNumber = (putts[0]?.number ?? 0) + 1;
           const putt = createDemoPutt(nextNumber);
           setPutts((current) => [putt, ...current]);
+          void syncPutts([putt]).catch(() => {});
           setActivePutt(putt);
           setState('ready');
           setStatus((current) =>
@@ -488,6 +720,7 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
         setShots((current) => {
           const nextShots = [shot, ...current];
           shotsRef.current = nextShots;
+          void syncShots(nextShots).catch(() => {});
           return nextShots;
         });
         setActiveShot(shot);
@@ -521,6 +754,8 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
     sendPuttToOpenGolfSim,
     sendShotToOpenGolfSim,
     shots,
+    syncPutts,
+    syncShots,
     status?.state,
   ]);
 
@@ -590,22 +825,22 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
     }
   }, [isDemo]);
 
-  const captureCalibrationImage = useCallback(async () => {
+  const captureCalibrationImage = useCallback(async (camera: CalibrationCamera = 'primary') => {
     setError(null);
     if (isDemo) throw new Error('Connect to LM1 to capture a lens calibration image.');
     try {
-      await client.current.captureCalibrationImage();
+      await client.current.captureCalibrationImage(camera);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not capture the calibration image.');
       throw caught;
     }
   }, [isDemo]);
 
-  const clearCalibrationImages = useCallback(async () => {
+  const clearCalibrationImages = useCallback(async (camera: CalibrationCamera = 'primary') => {
     setError(null);
     if (isDemo) throw new Error('Connect to LM1 to clear calibration images.');
     try {
-      const status = await client.current.clearCalibrationImages();
+      const status = await client.current.clearCalibrationImages(camera);
       setLatestCalibrationImage(null);
       return status;
     } catch (caught) {
@@ -614,13 +849,29 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
     }
   }, [isDemo]);
 
-  const runLensCalibration = useCallback(async () => {
+  const runLensCalibration = useCallback(async (camera: CalibrationCamera = 'primary') => {
     setError(null);
     if (isDemo) throw new Error('Connect to LM1 to run lens calibration.');
     try {
-      return await client.current.runLensCalibration();
+      return await client.current.runLensCalibration(camera);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not run lens calibration.');
+      throw caught;
+    }
+  }, [isDemo]);
+
+  const stereoCalibration = useCallback(async (action: StereoCalibrationAction, options: StereoCalibrationOptions = {}) => {
+    if (isDemo) throw new Error('Connect to LM1 to calibrate the camera pair.');
+    return client.current.stereoCalibration(action, options);
+  }, [isDemo]);
+
+  const getShotCoverage = useCallback(async () => {
+    setError(null);
+    if (isDemo) throw new Error('Connect to LM1 to check shot coverage.');
+    try {
+      return await client.current.getShotCoverage();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not check shot coverage.');
       throw caught;
     }
   }, [isDemo]);
@@ -662,6 +913,28 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
     return client.current.getCaptureContactSheet(captureId);
   }, [isDemo]);
 
+  const getLatestPuttRecoveryCandidate = useCallback(async (): Promise<Putt | null> => {
+    if (!session?.user) throw new Error('Sign in before saving a putt to your account.');
+    if (isDemo || !client.current.connectedDeviceId) throw new Error('Connect to LM1 to find the saved putt.');
+    const local = captures.filter((capture) => capture.mode === 'putting');
+    const saved = await client.current.listCaptures();
+    for (const capture of [...local, ...saved]) {
+      if (capture.mode !== 'putting' || puttsRef.current.some((putt) => putt.id === capture.id)) continue;
+      const candidate = puttFromCapture(capture, (puttsRef.current[0]?.number ?? 0) + 1);
+      if (candidate) return candidate;
+    }
+    return null;
+  }, [captures, isDemo, session?.user?.id]);
+
+  const saveRecoveredPutt = useCallback(async (putt: Putt): Promise<void> => {
+    if (!session?.user) throw new Error('Sign in before saving a putt to your account.');
+    await syncPutts([putt]);
+    const nextPutts = [putt, ...puttsRef.current.filter((item) => item.id !== putt.id)];
+    puttsRef.current = nextPutts;
+    setPutts(nextPutts);
+    setActivePutt(putt);
+  }, [session?.user?.id, syncPutts]);
+
   const getWifiStatus = useCallback(async () => client.current.getWifiStatus(), []);
 
   const scanWifi = useCallback(async () => client.current.scanWifi(), []);
@@ -688,6 +961,7 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
       isDemo,
       error,
       previewFrame,
+      secondaryPreviewFrame,
       previewDetection,
       previewAprilTag,
       latestCalibrationImage,
@@ -709,11 +983,19 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
       captureCalibrationImage,
       clearCalibrationImages,
       runLensCalibration,
+      stereoCalibration,
+      getShotCoverage,
       setTargetLine,
       clearTargetLine,
       getLatestCapturePreview,
       getCaptureFrame,
       getCaptureContactSheet,
+      getLatestPuttRecoveryCandidate,
+      saveRecoveredPutt,
+      retryShotImage,
+      setShotExcluded,
+      frameUploadProgress,
+      startShotFrameUpload,
       getWifiStatus,
       scanWifi,
       connectWifi,
@@ -736,6 +1018,7 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
       isDemo,
       error,
       previewFrame,
+      secondaryPreviewFrame,
       previewDetection,
       previewAprilTag,
       latestCalibrationImage,
@@ -757,11 +1040,19 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
       captureCalibrationImage,
       clearCalibrationImages,
       runLensCalibration,
+      stereoCalibration,
+      getShotCoverage,
       setTargetLine,
       clearTargetLine,
       getLatestCapturePreview,
       getCaptureFrame,
       getCaptureContactSheet,
+      getLatestPuttRecoveryCandidate,
+      saveRecoveredPutt,
+      retryShotImage,
+      setShotExcluded,
+      frameUploadProgress,
+      startShotFrameUpload,
       getWifiStatus,
       scanWifi,
       connectWifi,

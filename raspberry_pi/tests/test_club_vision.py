@@ -118,6 +118,13 @@ class StableRunTests(unittest.TestCase):
         kept = club_vision.stable_samples(samples)
         self.assertEqual([sample["frameIndex"] for sample in kept], [181, 182, 183, 184])
 
+    def test_three_clean_frames_between_edge_entry_and_contact_are_usable(self):
+        # capture-1790292584248245554: head clipped at the image edge (148 px), three
+        # clean frames, then merged with the ball at contact (124 px).
+        kept = club_vision.stable_samples(self._samples([148.0, 439.0, 416.0, 394.0, 124.0], start=107))
+        self.assertEqual([sample["frameIndex"] for sample in kept], [108, 109, 110])
+        self.assertGreaterEqual(len(kept), club_vision.MIN_TRACK_FRAMES)
+
     def test_no_run_reaches_the_minimum_returns_the_longest_for_reporting(self):
         kept = club_vision.stable_samples(self._samples([400.0, 800.0, 1600.0, 400.0]))
         self.assertLess(len(kept), club_vision.MIN_TRACK_FRAMES)
@@ -168,13 +175,13 @@ class TaglessClubTests(unittest.TestCase):
             frames.append((index * self.STEP_S, frame))
         return background, frames
 
-    def _measure(self, heading=0.0, profile=None):
+    def _measure(self, heading=0.0, profile=None, ball_speed=18.0):
         background, frames = self._frames()
         ball_pixel = self._pixel(self.ball)
         radius_px = self._radius_px(self.ball)
         bounds = (ball_pixel[0] - radius_px, ball_pixel[1] - radius_px, radius_px * 2, radius_px * 2)
         metrics = unavailable('fixture')
-        metrics['ballSpeedMps']['value'] = 18.0
+        metrics['ballSpeedMps']['value'] = ball_speed
         result = {'metrics': metrics, 'diagnostics': {}}
 
         def put(key, value, reason, status='estimated'):
@@ -193,6 +200,14 @@ class TaglessClubTests(unittest.TestCase):
                              [{'frameIndex': 0, 'positionM': self.ball.tolist()}], result, put,
                              background, bounds, np.array([3., 0., .3]), heading)
         return result, metrics
+
+    def test_impossible_smash_leaves_club_values_unavailable(self):
+        # Replayed chip 1790291608690789660: 19.5 m/s ball, 7.9 m/s club, smash 2.47.
+        speed = math.hypot(self.SPEED_X, self.SPEED_Z)
+        _, metrics = self._measure(ball_speed=speed * 2.2)
+        for key in ('clubSpeedMps', 'smashFactor', 'attackAngleDeg'):
+            self.assertIsNone(metrics[key]['value'])
+        self.assertIn('above any real club', metrics['clubSpeedMps']['reason'])
 
     def test_speed_and_attack_angle_match_the_rendered_motion(self):
         result, metrics = self._measure()

@@ -24,6 +24,7 @@ import { getClub } from '@/data/clubs';
 import { colors, radii, spacing } from '@/theme';
 import { Shot } from '@/types';
 import { estimateCarryMeters } from '@/utils/carry';
+import { measuredClubSpeed, measuredSmash } from '@/utils/shotValues';
 import { kmhToMps, mpsToKmh } from '@/utils/speed';
 
 interface CalculatorInputs {
@@ -192,7 +193,7 @@ export function CalculatorScreen() {
               label="Start direction"
               placeholder="0"
               suffix="deg"
-              helper="− left · + right"
+              helper="+ right / toward cameras · − left / away"
               value={inputs.startDirection}
               onChangeText={(value) => updateInput('startDirection', value)}
             />
@@ -254,6 +255,8 @@ export function CalculatorScreen() {
 function CalculatorResults({ shot }: { shot: Shot }) {
   const club = getClub(shot.clubId);
   const units = useUnits();
+  const clubSpeed = measuredClubSpeed(shot);
+  const smash = measuredSmash(shot);
   const { state: openGolfSimState, sendShot } = useOpenGolfSim();
   const [sentToOpenGolfSim, setSentToOpenGolfSim] = useState(false);
   const openGolfSimConnected = openGolfSimState === 'connected';
@@ -284,14 +287,14 @@ function CalculatorResults({ shot }: { shot: Shot }) {
         </View>
         <View style={styles.smashBlock}>
           <Text style={styles.smashLabel}>Smash factor</Text>
-          <Text style={styles.smashValue}>{shot.smashFactor.toFixed(2)}</Text>
-          <Text style={styles.smashQuality}>{smashDescription(shot.smashFactor)}</Text>
+          <Text style={styles.smashValue}>{smash === null ? '—' : smash.toFixed(2)}</Text>
+          <Text style={styles.smashQuality}>{smash === null ? 'Club not measured' : smashDescription(smash)}</Text>
         </View>
       </Surface>
 
       <View style={styles.metricRow}>
         <MetricTile label="Ball speed" value={units.speed(shot.ballSpeedMps)} unit={units.speedLabel} />
-        <MetricTile label="Club speed" value={units.speed(shot.clubSpeedMps)} unit={units.speedLabel} />
+        <MetricTile label="Club speed" value={clubSpeed === null ? '—' : units.speed(clubSpeed)} unit={units.speedLabel} />
         <MetricTile label="Launch" value={shot.launchAngleDeg.toFixed(1)} unit="deg" />
       </View>
 

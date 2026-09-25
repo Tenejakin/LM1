@@ -28,17 +28,23 @@ from camera_source import (
     uses_csi,
 )
 from ball_detector import (
+    DEFAULT_BALL_ROI,
     DEFAULT_ROLLING_CAPTURE_PATH,
+    CALIBRATION_CAMERAS,
     calibration_capture_status,
     capture_retention,
     capture_contact_sheet,
     capture_frame_preview,
     clear_calibration_images,
+    lens_calibration_status,
     latest_rolling_capture_preview,
     run_lens_calibration,
 )
 
 from target_line import clear_target_line, heading_from_track, load_target_line, save_target_line
+from capture_quality import shot_evidence
+from flight_model import carry_meters, select_spin
+from frame_uploader import FrameUploadSource
 from wifi_manager import (
     WifiProvisioningError,
     connect_wifi,
@@ -48,8 +54,8 @@ from wifi_manager import (
 )
 
 
-SERVICE_VERSION = "0.28.0"
-PROTOCOL_VERSION = "2.18.0"
+SERVICE_VERSION = "0.48.0"
+PROTOCOL_VERSION = "2.33.0"
 MAX_HISTORY = 10
 MAX_COMMAND_BYTES = 4096
 BLE_CHUNK_BYTES = 20
@@ -143,12 +149,12 @@ def preview_configuration(camera_connected: bool) -> dict[str, Any] | None:
     try:
         roi = [
             float(value.strip())
-            for value in os.getenv("PINPOINT_BALL_ROI", "0.05,0.30,0.95,0.98").split(",")
+            for value in os.getenv("PINPOINT_BALL_ROI", DEFAULT_BALL_ROI).split(",")
         ]
         if len(roi) != 4:
             raise ValueError
     except ValueError:
-        roi = [0.15, 0.45, 0.85, 0.95]
+        roi = [0.0, 0.30, 0.50, 0.98]
     return {
         "transport": "ble",
         "intervalMs": round(
@@ -157,11 +163,11 @@ def preview_configuration(camera_connected: bool) -> dict[str, Any] | None:
         "width": int(os.getenv("PINPOINT_BLE_PREVIEW_WIDTH", "160")),
         "height": int(os.getenv("PINPOINT_BLE_PREVIEW_HEIGHT", "100" if uses_csi() else "120")),
         "roi": roi,
-        "target": [0.5, 0.72],
+        "target": [round((roi[0] + roi[2]) / 2, 3), 0.72],
     }
 
 
-def build_preview_event(jpeg_bytes: bytes) -> dict[str, Any]:
+def build_preview_event(jpeg_bytes: bytes, secondary_jpeg: bytes | None = None) -> dict[str, Any]:
     event = {
         "type": "preview",
         "data": {
@@ -173,6 +179,8 @@ def build_preview_event(jpeg_bytes: bytes) -> dict[str, Any]:
     diagnostics = camera_diagnostics()
     if diagnostics:
         event["data"]["camera"] = diagnostics
+    if secondary_jpeg is not None:
+        event["data"]["secondaryBase64"] = base64.b64encode(secondary_jpeg).decode("ascii")
     return event
 
 
@@ -246,7 +254,7 @@ class PinpointProtocol:
         send_message: SendMessage,
         capture_delay: float = 1.15,
         reset_ball_calibration: Callable[[], bool] | None = None,
-        request_calibration_capture: Callable[[], bool] | None = None,
+        request_calibration_capture: Callable[[str], bool] | None = None,
         request_exposure_calibration: Callable[[], bool] | None = None,
     ) -> None:
         self.send_message = send_message
@@ -254,6 +262,9 @@ class PinpointProtocol:
         self.reset_ball_calibration = reset_ball_calibration
         self.request_calibration_capture = request_calibration_capture
         self.request_exposure_calibration = request_exposure_calibration
+        self._stereo_future = None
+        self._stereo_busy = False
+        self._stereo_until = 0.0
         # BlueZ silently truncates a notification longer than the connection's MTU,
         # which bless cannot report, so the app states it in its status request.
         self.notification_chunk_bytes = BLE_CHUNK_BYTES
@@ -282,10 +293,36 @@ class PinpointProtocol:
         self._command_buffer = bytearray()
         self._receive_lock = asyncio.Lock()
         self._capture_task: asyncio.Task[None] | None = None
+        self._frame_upload_task: asyncio.Task[None] | None = None
+        self._frame_upload_status: dict[str, Any] | None = None
+        # Camera-side readiness from the most recent arming; club and exposure are
+        # merged in at read time so a club change updates the verdict immediately.
+        self._readiness_items: list[dict[str, Any]] | None = None
+
+    def readiness_status(self) -> dict[str, Any] | None:
+        """Pre-shot verdict for the ball as last placed, or None without a real camera."""
+        if self.capture_backend != "camera":
+            return None
+        try:
+            from readiness import readiness
+            exposure = camera_diagnostics().get("exposureUs") if uses_csi() else None
+            if not exposure:
+                exposure = configured_exposure_us() if uses_csi() else int(os.getenv("PINPOINT_EXPOSURE_US", "0"))
+            return readiness(self._readiness_items, exposure, self.club_id, self.capture_mode)
+        except Exception:  # Status must always answer; a broken check is logged, not fatal.
+            LOGGER.exception("Readiness check failed")
+            return None
+
+    async def readiness_checked(self, items: list[dict[str, Any]]) -> None:
+        self._readiness_items = items
+        verdict = self.readiness_status()
+        if verdict is not None:
+            await self.send_message({"type": "readiness", "data": verdict})
 
     def status(self) -> dict[str, Any]:
         camera_connected = camera_is_available(self.capture_backend)
         saved_ground = load_apriltag_calibration()
+        saved_secondary_ground = load_apriltag_calibration("secondary")
         default_fps = "30" if self.capture_backend == "simulator" else "300"
         default_exposure_us = "15700" if self.capture_backend == "simulator" else "125"
         status: dict[str, Any] = {
@@ -298,6 +335,7 @@ class PinpointProtocol:
             "notificationChunkBytes": self.notification_chunk_bytes,
             "wifiProvisioning": wifi_provisioning_available(),
             "captureBackend": self.capture_backend,
+            "captureMode": self.capture_mode,
             "selectedClubId": self.club_id,
             "cameraConnected": camera_connected,
             "fps": int(os.getenv("PINPOINT_CAMERA_FPS", default_fps)) if camera_connected else 0,
@@ -313,8 +351,11 @@ class PinpointProtocol:
             or ("NOT-CALIBRATED" if not camera_connected or self.capture_backend == "simulator" else "UNKNOWN"),
             "lastSeenAt": utc_now(),
             "calibrationCapture": calibration_capture_status(),
+            "lensCalibration": lens_calibration_status(),
             "targetLine": load_target_line(),
             "groundCalibration": saved_ground if saved_ground and saved_ground.get("groundPose") else None,
+            "secondaryGroundCalibration": saved_secondary_ground if saved_secondary_ground and saved_secondary_ground.get("groundPose") else None,
+            "readiness": self.readiness_status(),
         }
         preview = preview_configuration(camera_connected)
         if uses_csi():
@@ -359,6 +400,8 @@ class PinpointProtocol:
             raise CommandError("Command id is required.")
         if not isinstance(command_type, str):
             raise CommandError("Command type is required.")
+        if self._stereo_busy and command_type != "status":
+            raise CommandError("Wait for the stereo calibration operation to finish.")
 
         if command_type == "status":
             # Every app connection starts with status; one that states no MTU (older
@@ -411,13 +454,19 @@ class PinpointProtocol:
             await self._capture_apriltag_calibration(request_id)
             return
         if command_type == "captureCalibrationImage":
-            await self._capture_calibration_image(request_id)
+            await self._capture_calibration_image(request_id, command)
             return
         if command_type == "clearCalibrationImages":
-            await self._clear_calibration_images(request_id)
+            await self._clear_calibration_images(request_id, command)
             return
         if command_type == "runLensCalibration":
-            await self._run_lens_calibration(request_id)
+            await self._run_lens_calibration(request_id, command)
+            return
+        if command_type == "stereoCalibration":
+            await self._stereo_calibration(request_id, command)
+            return
+        if command_type == "shotCoverage":
+            await self._shot_coverage(request_id)
             return
         if command_type == "setTargetLine":
             await self._set_target_line(request_id)
@@ -433,6 +482,12 @@ class PinpointProtocol:
             return
         if command_type == "captureContactSheet":
             await self._capture_contact_sheet(request_id, command)
+            return
+        if command_type == "uploadCaptureFrames":
+            await self._upload_capture_frames(request_id, command)
+            return
+        if command_type == "captureFrameUploadStatus":
+            await self._respond(request_id, self._frame_upload_status)
             return
         if command_type == "wifiStatus":
             await self._wifi_status(request_id)
@@ -498,6 +553,7 @@ class PinpointProtocol:
         if self.reset_ball_calibration is None or not self.reset_ball_calibration():
             raise CommandError("Camera calibration reset is unavailable. Connect a camera-enabled LM1 first.")
         clear_apriltag_calibration()
+        clear_apriltag_calibration("secondary")
         clear_target_line()
         await self._respond(request_id, {"accepted": True, "state": "calibrating"})
         self.state = "ready"
@@ -508,43 +564,141 @@ class PinpointProtocol:
     async def _capture_apriltag_calibration(self, request_id: str) -> None:
         if self.state == "processing":
             raise CommandError("Wait for the current capture to finish before calibrating.")
+        diagnostics = camera_diagnostics()
         try:
-            calibration = await asyncio.to_thread(
-                capture_latest_apriltag_calibration,
-                camera_diagnostics(),
-            )
+            calibration = await asyncio.to_thread(capture_latest_apriltag_calibration, diagnostics)
         except (OSError, ValueError) as error:
             raise CommandError(str(error)) from error
+        # The top camera is calibrated from the same tag in the same moment, so both
+        # poses share one ground frame. Its failure never discards the primary pose.
+        if int(diagnostics.get("cameraCount", 1) or 1) >= 2:
+            try:
+                calibration = {**calibration, "secondary": await asyncio.to_thread(
+                    capture_latest_apriltag_calibration, diagnostics, "secondary")}
+            except (OSError, ValueError) as error:
+                calibration = {**calibration, "secondaryError": str(error)}
+        clear_target_line()
         await self._respond(request_id, calibration)
         await self.send_message({"type": "status", "data": self.status()})
 
-    async def _capture_calibration_image(self, request_id: str) -> None:
-        if self.request_calibration_capture is None or not self.request_calibration_capture():
+    @staticmethod
+    def _calibration_camera(command: dict[str, Any]) -> str:
+        camera = command.get("camera", "primary")
+        if camera not in CALIBRATION_CAMERAS:
+            raise CommandError("Calibration camera must be 'primary' or 'secondary'.")
+        return str(camera)
+
+    async def _capture_calibration_image(self, request_id: str, command: dict[str, Any]) -> None:
+        camera = self._calibration_camera(command)
+        if camera == "secondary" and int(camera_diagnostics().get("cameraCount", 1) or 1) < 2:
+            raise CommandError("The second camera is not streaming. Enable dual camera mode first.")
+        if self.request_calibration_capture is None or not self.request_calibration_capture(camera):
             raise CommandError("Camera calibration capture is unavailable. Connect a camera-enabled LM1 first.")
-        await self._respond(request_id, {"accepted": True})
+        await self._respond(request_id, {"accepted": True, "camera": camera})
 
     async def calibration_image_captured(self, result: dict[str, Any]) -> None:
+        if result.get("stereo"):
+            if self._stereo_future is not None and not self._stereo_future.done():
+                self._stereo_future.set_result(result)
+            return
         await self.send_message({"type": "calibrationImage", "data": result})
         await self.send_message({"type": "status", "data": self.status()})
 
-    async def _clear_calibration_images(self, request_id: str) -> None:
-        status = await asyncio.to_thread(clear_calibration_images)
+    async def _stereo_calibration(self, request_id: str, command: dict[str, Any]) -> None:
+        import stereo_calibration as stereo
+        action = command.get("action", "status")
+        if self._stereo_busy:
+            raise CommandError("Stereo calibration is busy; wait for the current operation.")
+        if self.state == "processing":
+            raise CommandError("Wait for the current shot to finish.")
+        diagnostics = camera_diagnostics()
+        indices = [diagnostics.get("primaryCameraIndex"), diagnostics.get("secondaryCameraIndex")]
+        self._stereo_busy = True
+        try:
+            if action == "end":
+                self._stereo_until = 0.0
+                stereo.pause_capture(False)
+                if self.reset_ball_calibration:
+                    self.reset_ball_calibration()
+                result = stereo.status()
+            else:
+                self._stereo_until = time.monotonic() + 120
+                self.ball_present = False
+                self.state = "ready"
+                stereo.pause_capture()
+                if action == "status":
+                    result = await asyncio.to_thread(stereo.status)
+                elif action == "start":
+                    result = await asyncio.to_thread(stereo.start, command.get("columns", 5),
+                                                     command.get("rows", 5), command.get("squareMm", 25))
+                elif action == "capture":
+                    self._stereo_future = asyncio.get_running_loop().create_future()
+                    if self.request_calibration_capture is None or not self.request_calibration_capture("stereo"):
+                        raise ValueError("Connect both cameras before capturing stereo pairs.")
+                    captured = await asyncio.wait_for(self._stereo_future, timeout=25)
+                    if captured.get("error"):
+                        raise ValueError(captured["error"])
+                    result = captured["data"]
+                elif action == "solve":
+                    result = await asyncio.to_thread(stereo.solve)
+                elif action == "activate":
+                    result = await asyncio.to_thread(stereo.activate, command.get("candidateId"), indices)
+                else:
+                    raise ValueError("Unknown stereo calibration action.")
+            await self._respond(request_id, result)
+        except (ValueError, OSError, asyncio.TimeoutError) as error:
+            raise CommandError(str(error) or "Timed out waiting for a synchronized camera pair.") from error
+        finally:
+            self._stereo_future = None
+            self._stereo_busy = False
+
+    async def _clear_calibration_images(self, request_id: str, command: dict[str, Any]) -> None:
+        status = await asyncio.to_thread(clear_calibration_images, self._calibration_camera(command))
         await self._respond(request_id, status)
         await self.send_message({"type": "status", "data": self.status()})
 
-    async def _run_lens_calibration(self, request_id: str) -> None:
+    async def _run_lens_calibration(self, request_id: str, command: dict[str, Any]) -> None:
+        camera = self._calibration_camera(command)
         try:
-            result = await asyncio.to_thread(run_lens_calibration)
-            clear_apriltag_calibration()
-            clear_target_line()
+            result = await asyncio.to_thread(run_lens_calibration, camera)
+            # A saved ground pose is only valid for the lens intrinsics it was solved with.
+            clear_apriltag_calibration(camera)
+            if camera == "primary":
+                # Measurement geometry is built on the primary lens, so the target
+                # line no longer matches the new intrinsics either.
+                clear_target_line()
         except ValueError as error:
             raise CommandError(str(error)) from error
         await self._respond(request_id, result)
         await self.send_message({"type": "status", "data": self.status()})
 
+    async def _shot_coverage(self, request_id: str) -> None:
+        saved = load_apriltag_calibration()
+        pose = saved.get("groundPose") if saved else None
+        if not pose:
+            raise CommandError("Save the lens calibration and the AprilTag ground calibration first.")
+        diagnostics = camera_diagnostics()
+        fps = diagnostics.get("pairedFps") or diagnostics.get("fps") or float(os.getenv("PINPOINT_CAMERA_FPS", "0"))
+        detection = diagnostics.get("ballDetection") or {}
+        bounds = detection.get("bounds")
+        ball = None
+        if detection.get("state") == "detected" and bounds:
+            ball = (bounds[0] + bounds[2] / 2, bounds[1] + bounds[3] / 2)
+        try:
+            # Imported here: it needs OpenCV, which a camera-less BLE service may lack.
+            from shot_coverage import shot_coverage
+            result = await asyncio.to_thread(shot_coverage, pose, float(fps), ball)
+        except (ImportError, KeyError, TypeError, ValueError) as error:
+            raise CommandError(str(error) or "Shot coverage could not be calculated.") from error
+        await self._respond(request_id, result)
+
     async def _set_target_line(self, request_id: str) -> None:
         if not self.captures:
             raise CommandError("Roll a ball toward the target first; there is no capture to take the direction from.")
+        saved_stamp = (load_apriltag_calibration() or {}).get("capturedAt")
+        capture_stamp = (self.captures[0].get("measurements") or {}).get("diagnostics", {}).get("groundPose", {}).get("capturedAt")
+        if saved_stamp and capture_stamp != saved_stamp:
+            raise CommandError("Roll a new ball after the current ground calibration; the previous capture uses an older coordinate system.")
         track = (self.captures[0].get("measurements") or {}).get("ballTrack3d") or []
         try:
             heading_deg, displacement = heading_from_track(track)
@@ -585,6 +739,71 @@ class PinpointProtocol:
         except (OSError, ValueError) as error:
             raise CommandError(str(error)) from error
         await self._respond(request_id, sheet)
+
+    async def _upload_capture_frames(self, request_id: str, command: dict[str, Any]) -> None:
+        capture_id = command.get("captureId")
+        ticket = command.get("ticket")
+        expected_count = command.get("frameCount")
+        indices = command.get("indices")
+        if not isinstance(capture_id, str) or not isinstance(ticket, str) or not isinstance(expected_count, int):
+            raise CommandError("Capture id, frame count, and upload ticket are required.")
+        if not isinstance(indices, list) or len(indices) > 2000 or any(
+            not isinstance(index, int) or isinstance(index, bool) or index < 0 or index >= expected_count
+            for index in indices
+        ):
+            raise CommandError("Invalid frame upload indices.")
+        if self._frame_upload_task is not None and not self._frame_upload_task.done():
+            if self._frame_upload_status and self._frame_upload_status.get("captureId") == capture_id:
+                await self._respond(request_id, self._frame_upload_status)
+                return
+            raise CommandError("Another capture is uploading. Try again when it finishes.")
+        try:
+            source = await asyncio.to_thread(FrameUploadSource, capture_id, expected_count)
+        except (OSError, ValueError) as error:
+            raise CommandError(str(error)) from error
+        selected = sorted(set(indices))
+        already_uploaded = source.frame_count - len(selected)
+        self._frame_upload_status = {
+            "captureId": capture_id,
+            "uploaded": already_uploaded,
+            "total": source.frame_count,
+            "state": "complete" if not selected else "running",
+        }
+        if selected:
+            self._frame_upload_task = asyncio.create_task(self._run_frame_upload(source, ticket, selected))
+        await self._respond(request_id, self._frame_upload_status)
+
+    async def _run_frame_upload(self, source: FrameUploadSource, ticket: str, indices: list[int]) -> None:
+        completed = source.frame_count - len(indices)
+        try:
+            for index in indices:
+                for attempt in range(3):
+                    try:
+                        await asyncio.to_thread(source.upload_frame, index, ticket)
+                        break
+                    except (OSError, ValueError, RuntimeError) as error:
+                        if attempt == 2:
+                            raise RuntimeError(f"Frame {index}: {error}") from error
+                        await asyncio.sleep(2 ** attempt)
+                completed += 1
+                self._frame_upload_status = {
+                    "captureId": source.capture_id, "uploaded": completed,
+                    "total": source.frame_count, "state": "running",
+                }
+                if completed % 10 == 0 or completed == source.frame_count:
+                    await self.send_message({"type": "frameUploadProgress", "data": self._frame_upload_status})
+            self._frame_upload_status = {
+                "captureId": source.capture_id, "uploaded": completed,
+                "total": source.frame_count, "state": "complete",
+            }
+            await self.send_message({"type": "frameUploadProgress", "data": self._frame_upload_status})
+        except Exception as error:
+            LOGGER.exception("Original capture upload failed")
+            self._frame_upload_status = {
+                "captureId": source.capture_id, "uploaded": completed,
+                "total": source.frame_count, "state": "error", "message": str(error),
+            }
+            await self.send_message({"type": "frameUploadProgress", "data": self._frame_upload_status})
 
     async def _wifi_status(self, request_id: str) -> None:
         try:
@@ -688,6 +907,8 @@ class PinpointProtocol:
         analysis: dict[str, Any] | None = None,
     ) -> None:
         """Translate debounced camera presence into the existing app state machine."""
+        if time.monotonic() < self._stereo_until:
+            return
         self.ball_present = present
         if not present and self.state == "armed" and analysis is not None:
             self.state = "processing"
@@ -723,11 +944,49 @@ class PinpointProtocol:
                   "captureId": capture_id, "capturedAt": utc_now(),
                   "clubId": self.club_id, "mode": self.capture_mode}
         measurements = result.get("measurements", {})
-        if measurements.get("clubId") != self.club_id:
-            for key in ("clubSpeedMps", "smashFactor", "strikeXmm", "strikeYmm"):
+        evidence = shot_evidence(measurements, self.capture_mode)
+        if evidence:
+            measurements["shotEvidence"] = evidence
+        # Tag-free silhouette tracking has no clubId: it is valid for whichever
+        # club the user selected. Only a calibrated *marker* tied to a different
+        # club must be rejected.
+        if measurements.get("clubId") is not None and measurements["clubId"] != self.club_id:
+            for key in ("clubSpeedMps", "smashFactor", "strikeXmm", "strikeYmm", "attackAngleDeg", "clubPathDeg"):
                 metric = measurements.get("metrics", {}).get(key)
                 if metric and metric.get("value") is not None:
                     metric.update(value=None, status="unavailable", reason="Club marker calibration does not match the selected club.")
+        if self.capture_mode == "full-shot" and (evidence or {}).get("status") != "not-a-strike":
+            metrics = measurements.get("metrics", {})
+            speed = metrics.get("ballSpeedMps", {}).get("value")
+            launch = metrics.get("launchAngleDeg", {}).get("value")
+            direction = metrics.get("startDirectionDeg", {}).get("value")
+            carry = metrics.setdefault("estimatedCarryM", {
+                "value": None, "unit": "m", "status": "unavailable", "reason": "Awaiting flight model."})
+            if all(isinstance(value, (int, float)) and math.isfinite(value)
+                   for value in (speed, launch, direction)) and speed > 0:
+                attack = metrics.get("attackAngleDeg", {}).get("value")
+                has_attack = isinstance(attack, (int, float)) and math.isfinite(attack)
+                spin, spin_source = select_spin(self.club_id, speed, launch, metrics.get("spinRpm", {}).get("value"),
+                                                metrics.get("clubSpeedMps", {}).get("value"), attack)
+                has_spin = spin_source == "camera"
+                spin_text = {
+                    "camera": "camera-measured spin.",
+                    "impact-estimate": f"{spin} rpm backspin estimated from club speed, launch and attack angle.",
+                    "club-attack-assumption": f"assumed {spin} rpm backspin for {self.club_id}, "
+                                              + ("adjusted for measured attack angle." if has_attack
+                                                 else "with attack angle unavailable."),
+                }[spin_source]
+                reason = ("Still-air flight model (fitted to tour averages) from ball speed, launch angle, "
+                          f"target-line direction and {spin_text} Landing is not observed; wind, terrain and "
+                          "spin axis are not modeled.")
+                carry.update(value=carry_meters(speed, launch, direction, spin), status="estimated",
+                             reason=reason, confidence=min(0.75 if has_spin else 0.6 if spin_source == "impact-estimate" else 0.5,
+                             *(metrics.get(key, {}).get("confidence") or 0.7
+                               for key in ("ballSpeedMps", "launchAngleDeg", "startDirectionDeg"))))
+                measurements["carryModel"] = {
+                    "version": 3, "spinSource": spin_source,
+                    "spinRpmUsed": spin, "attackAngleDegUsed": attack if has_attack and not has_spin else None,
+                }
         if capture_id is None:
             result["warnings"] = [*result["warnings"], "Burst could not be saved; only this preview is available."]
         self.captures.insert(0, result)
@@ -757,14 +1016,24 @@ class PinpointProtocol:
             await self.send_message({"type": "status", "data": self.status()})
 
     def _measurement_result(self, capture: dict[str, Any]) -> dict[str, Any] | None:
+        evidence = shot_evidence(capture.get("measurements", {}), self.capture_mode)
+        if self.capture_mode == "full-shot" and evidence and evidence["status"] == "not-a-strike":
+            return None
         metrics = capture.get("measurements", {}).get("metrics", {})
-        required = ("ballSpeedMps", "clubSpeedMps", "smashFactor", "launchAngleDeg", "startDirectionDeg", "strikeXmm", "strikeYmm")
+        required = ("ballSpeedMps", "clubSpeedMps", "smashFactor", "launchAngleDeg", "startDirectionDeg")
+        if self.capture_mode != "putting":
+            required += ("strikeXmm", "strikeYmm")
         values = {key: metrics.get(key, {}).get("value") for key in required}
         if any(not isinstance(value, (int, float)) or not math.isfinite(value) for value in values.values()):
             return None
         if not 0 < values["smashFactor"] <= 2.2:
             return None
         putting = self.capture_mode == "putting"
+        strike_x = metrics.get("strikeXmm", {}).get("value")
+        strike_y = metrics.get("strikeYmm", {}).get("value")
+        strike = ({"xMm": strike_x, "yMm": strike_y}
+                  if all(isinstance(value, (int, float)) and math.isfinite(value)
+                         for value in (strike_x, strike_y)) else None)
         if putting:
             self._putt_number += 1
         else:
@@ -774,14 +1043,15 @@ class PinpointProtocol:
                   "ballSpeedMps": values["ballSpeedMps"], "putterSpeedMps" if putting else "clubSpeedMps": values["clubSpeedMps"],
                   "smashFactor": values["smashFactor"], "launchAngleDeg": values["launchAngleDeg"],
                   "launchDirectionDeg" if putting else "startDirectionDeg": values["startDirectionDeg"],
-                  "strike": {"xMm": values["strikeXmm"], "yMm": values["strikeYmm"]},
+                  "strike": strike,
+                  "airborne": putting and values["launchAngleDeg"] > 10,
                   "frameCount": capture["frameCount"], "captureDurationMs": capture["captureDurationMs"],
                   "captureId": capture["captureId"], "impactFrameIndex": capture["impactFrameIndex"],
                   "simulated": False, "measurementSource": "monocular-estimate", "confidence": 0}
         for key in ("coarseDepartureFrameIndex", "lastStationaryFrameIndex", "firstMovingFrameIndex"):
             if isinstance(capture.get(key), int):
                 result[key] = capture[key]
-        for key in (("rollDistanceM", "skidDistanceM") if putting else ("spinRpm", "spinAxisDeg", "estimatedCarryM")):
+        for key in (("rollDistanceM", "skidDistanceM") if putting else ("spinRpm", "spinAxisDeg", "attackAngleDeg", "estimatedCarryM")):
             value = metrics.get(key, {}).get("value")
             if isinstance(value, (int, float)) and math.isfinite(value):
                 result[key] = value
@@ -789,12 +1059,43 @@ class PinpointProtocol:
 
     @staticmethod
     def _capture_summary(capture: dict[str, Any]) -> dict[str, Any]:
-        # Full 3D traces remain in analysis.json; BLE carries values and the image.
+        # Full 3D traces remain in analysis.json; BLE carries bounded tracking
+        # evidence so the app can distinguish failed tracking from a low grade.
         result = {**capture, "track": []}
         if capture.get("measurements"):
             result["measurements"] = {key: value for key, value in capture["measurements"].items()
                                       if key not in ("ballTrack3d", "clubTrack3d", "spinSamples", "diagnostics")}
             result["measurements"].update(ballTrack3d=[], clubTrack3d=[])
+            evidence = shot_evidence(capture["measurements"], capture.get("mode"))
+            if evidence:
+                result["measurements"]["shotEvidence"] = evidence
+            diagnostics = capture["measurements"].get("diagnostics") or {}
+            stereo = diagnostics.get("stereo") or {}
+            speed = capture["measurements"].get("metrics", {}).get("ballSpeedMps", {}).get("value")
+            stereo_failure = stereo.get("failure")
+            mono_failure = (diagnostics.get("trajectoryFit") or {}).get("failure")
+            if speed is None and stereo_failure:
+                mono_failure = capture["measurements"].get("failure") or mono_failure
+            speed_only = capture["measurements"].get("method") == "shared-tag-stereo-two-point-v1"
+            source = ("stereo" if capture["measurements"].get("method") in ("shared-tag-stereo-v2", "shared-tag-stereo-two-point-v1")
+                      else "single-camera" if speed is not None else None)
+            result["measurements"]["tracking"] = {
+                "status": "failed" if speed is None else "stereo-two-point" if speed_only else "stereo-matched" if source == "stereo" else "single-camera",
+                "source": source,
+                "speedOnly": speed_only,
+                "speedUncertaintyPct": stereo.get("speedUncertaintyPct") if speed_only else None,
+                "monoFallback": "used" if stereo_failure and source == "single-camera" else "failed" if stereo_failure and speed is None else "not-needed",
+                "lowerFrames": diagnostics.get("motionTrackedFrames", 0),
+                "pairedFrames": stereo.get("frames", 0),
+                "pairedFrameIndices": (stereo.get("frameIndices") or [point["frameIndex"] for point in stereo.get("track", [])])[:48],
+                "spanMs": stereo.get("spanMs"),
+                "detection": stereo.get("detection"),
+                "imageResidualPx": stereo.get("rmsPx"),
+                "failure": capture["measurements"].get("failure") if speed is None else None,
+                "stereoFailure": stereo_failure,
+                "monoFailure": mono_failure if speed is None else None,
+                "rejections": stereo.get("candidateRejections"),
+            }
         return result
 
     async def _start_test_capture(

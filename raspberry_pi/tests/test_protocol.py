@@ -3,7 +3,7 @@ import json
 import os
 import sys
 import unittest
-from tempfile import NamedTemporaryFile
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 from unittest.mock import patch
 from pathlib import Path
 from typing import Any
@@ -47,6 +47,32 @@ class ProtocolHarness:
 
 
 class PinpointProtocolTests(unittest.IsolatedAsyncioTestCase):
+    def test_capture_summary_distinguishes_mono_fallback_from_total_failure(self) -> None:
+        base = {"method": "apriltag-monocular-sphere-v1", "metrics": {"ballSpeedMps": {"value": 5.0}},
+                "diagnostics": {"motionTrackedFrames": 8, "stereo": {"failure": "Only one pair", "frames": 1}}}
+        used = PinpointProtocol._capture_summary({"measurements": base})["measurements"]["tracking"]
+        self.assertEqual((used["source"], used["status"], used["monoFallback"]),
+                         ("single-camera", "single-camera", "used"))
+        self.assertIsNone(used["failure"])
+        self.assertEqual(used["stereoFailure"], "Only one pair")
+
+        failed = PinpointProtocol._capture_summary({"measurements": {
+            **base, "failure": "Fewer than three outlines", "metrics": {"ballSpeedMps": {"value": None}},
+            "diagnostics": {**base["diagnostics"], "trajectoryFit": {"failure": "5.8 px residual"}},
+        }})["measurements"]["tracking"]
+        self.assertEqual((failed["source"], failed["status"], failed["monoFallback"]),
+                         (None, "failed", "failed"))
+        self.assertEqual(failed["monoFailure"], "Fewer than three outlines")
+
+        two_point = PinpointProtocol._capture_summary({"measurements": {
+            **base, "method": "shared-tag-stereo-two-point-v1",
+            "diagnostics": {"stereo": {"frames": 2, "speedOnly": True,
+                                       "speedUncertaintyPct": 18.0, "frameIndices": [20, 21]}},
+        }})["measurements"]["tracking"]
+        self.assertEqual((two_point["source"], two_point["status"]), ("stereo", "stereo-two-point"))
+        self.assertTrue(two_point["speedOnly"])
+        self.assertEqual(two_point["speedUncertaintyPct"], 18.0)
+
     async def asyncSetUp(self) -> None:
         os.environ["PINPOINT_CAPTURE_BACKEND"] = "simulator"
         os.environ.pop("PINPOINT_NAME", None)
@@ -80,6 +106,28 @@ class PinpointProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(status["wifiProvisioning"])
         self.assertEqual(status["captureBackend"], "simulator")
         self.assertFalse(status["cameraConnected"])
+
+    async def test_readiness_follows_the_ball_and_the_selected_club(self) -> None:
+        self.assertIsNone(self.protocol.status()["readiness"], "the simulator has no camera to check")
+        with TemporaryDirectory() as temporary, patch.dict(os.environ, {
+                "PINPOINT_CAPTURE_BACKEND": "camera", "PINPOINT_EXPOSURE_US": "150",
+                "PINPOINT_CLUB_PROFILE_PATH": str(Path(temporary) / "club-profile.json"),
+                "PINPOINT_ROLLING_CAPTURE_PATH": temporary}),                 patch("pinpoint_protocol.uses_csi", return_value=False):
+            protocol = PinpointProtocol(self.harness.send, capture_delay=0.02)
+            protocol.club_id = "sand-wedge"
+            camera_items = [{"id": "stereo-rest", "label": "Camera alignment", "status": "fail",
+                             "detail": "The ball sits 16 mm below the calibrated ground."}]
+            await protocol.readiness_checked(camera_items)
+            event = await self.harness.wait_for_type("readiness")
+            self.assertEqual(event["data"]["status"], "fail")
+            self.assertEqual({item["id"] for item in event["data"]["items"]},
+                             {"exposure", "stereo-rest", "club-profile"})
+            # Putting drops the full-swing speed and face checks without a new arming.
+            protocol.capture_mode = "putting"
+            putting = protocol.status()["readiness"]
+            self.assertEqual({item["id"] for item in putting["items"]}, {"exposure", "stereo-rest"})
+            self.assertEqual(next(i for i in putting["items"] if i["id"] == "exposure")["status"], "ok")
+            await protocol.close()
 
     async def test_auto_calibrate_exposure_hands_the_sweep_to_the_camera_loop(self) -> None:
         requested = []
@@ -177,7 +225,8 @@ class PinpointProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status["preview"]["intervalMs"], 3000)
         self.assertEqual(status["preview"]["width"], 160)
         self.assertEqual(status["preview"]["height"], 120)
-        self.assertEqual(status["preview"]["roi"], [0.05, 0.30, 0.95, 0.98])
+        self.assertEqual(status["preview"]["roi"], [0.0, 0.30, 0.50, 0.98])
+        self.assertEqual(status["preview"]["target"], [0.25, 0.72])
 
     async def test_preview_event_is_base64_and_uses_normal_ble_framing(self) -> None:
         event = build_preview_event(b"jpeg-test")
@@ -200,13 +249,32 @@ class PinpointProtocolTests(unittest.IsolatedAsyncioTestCase):
         with patch("pinpoint_protocol.camera_diagnostics", return_value={"aprilTag": calibration}), patch(
             "pinpoint_protocol.capture_latest_apriltag_calibration",
             return_value=calibration,
-        ):
+        ), patch("pinpoint_protocol.clear_target_line") as clear_target:
             await self.harness.command(
                 self.protocol,
                 {"id": "tag-1", "type": "captureAprilTagCalibration"},
             )
         response = next(message for message in self.harness.messages if message.get("id") == "tag-1")
         self.assertEqual(response["data"], calibration)
+        clear_target.assert_called_once()
+
+    async def test_apriltag_capture_also_calibrates_top_camera(self) -> None:
+        def capture(diagnostics, camera="primary"):
+            if camera == "secondary" and diagnostics.get("secondaryFails"):
+                raise ValueError("AprilTag 36h11 ID 0 is not visible to the top camera.")
+            return {"camera": camera, "groundPose": {"cameraHeightMm": 150 if camera == "primary" else 235}}
+        for diagnostics, expected in (
+            ({"cameraCount": 2}, {"secondary": {"camera": "secondary", "groundPose": {"cameraHeightMm": 235}}}),
+            ({"cameraCount": 2, "secondaryFails": True}, {"secondaryError": "AprilTag 36h11 ID 0 is not visible to the top camera."}),
+            ({"cameraCount": 1}, {}),
+        ):
+            self.harness.messages.clear()
+            with patch("pinpoint_protocol.camera_diagnostics", return_value=diagnostics), patch(
+                "pinpoint_protocol.capture_latest_apriltag_calibration", side_effect=capture,
+            ):
+                await self.harness.command(self.protocol, {"id": "tag-2", "type": "captureAprilTagCalibration"})
+            response = next(message for message in self.harness.messages if message.get("id") == "tag-2")
+            self.assertEqual(response["data"], {"camera": "primary", "groundPose": {"cameraHeightMm": 150}, **expected})
 
     async def test_empty_plane_reset_invalidates_ground_geometry_and_target(self) -> None:
         self.protocol.reset_ball_calibration = lambda: True
@@ -214,7 +282,7 @@ class PinpointProtocolTests(unittest.IsolatedAsyncioTestCase):
             'pinpoint_protocol.clear_target_line'
         ) as clear_target:
             await self.harness.command(self.protocol, {'id':'reset-ground','type':'resetBallCalibration'})
-        clear_ground.assert_called_once()
+        self.assertEqual([call.args for call in clear_ground.call_args_list], [(), ('secondary',)])
         clear_target.assert_called_once()
         self.protocol.state = 'processing'
         with patch('pinpoint_protocol.clear_apriltag_calibration') as clear_ground:

@@ -1,5 +1,28 @@
 # LM1 enclosure changelog
 
+## 0.6.1 modular stereo prototype - 2026-09-21
+
+- Split the mast into two printable frames with double-sided bolted splice plates.
+- Reduced the rigid one-piece stereo baseline to 90 mm so every part fits a 180 mm bed.
+- Reduced the tray to 180 x 150 mm while retaining the 200 mm camera height and 20-degree pitch.
+- Added per-part print-bed validation and modular assembly instructions.
+
+## 0.6.0 stereo prototype - 2026-09-21
+
+- Added a performance-oriented dual-camera tray, widened mast and rigid carrier.
+- Increased the horizontal optical baseline from 58 mm to 120 mm for stronger triangulation.
+- Raised lens centres to 200 mm and set 20-degree pitch for a nominal 550 mm ground intersection.
+- Added cross ties, a 220 x 150 mm base and ballast slots to protect stereo calibration.
+- Documented synchronization, cable strain relief, framing and calibration requirements.
+
+## 0.5.3 test prototype - 2026-09-21
+
+- Replaced the single-camera test bracket with a rigid two-camera carrier.
+- Set a 58 mm horizontal optical baseline and retained the 15-degree downward pitch.
+- Preserved the v0.5.2 four-hole mast interface so only the bracket needs reprinting.
+- Kept independent lens apertures and 24–34 mm adjustable mounting patterns per camera.
+- Added versioned STL output, assembly preview, usage notes and mesh validation.
+
 ## 0.5.2 test prototype - 2026-09-17
 
 - Replaced the 28-degree test camera bracket with a 15-degree downward bracket.
@@ -40,3 +63,27 @@
 - Added a removable top with a provisional 2.79-inch OLED opening and clamp.
 - Added dual LED apertures, a 40 mm rear fan pattern and cross-flow vents.
 - Exported separate watertight STL parts and an assembly reference.
+# 0.7.2
+
+- Rotated the 150 mm power pack crosswise across the rear of the base so its
+  enclosure no longer overlaps either mast foot or mast mounting bolt.
+- Located the provisional LiPo enclosure front-centre between the uprights.
+- Removed the long thin battery rails from the base.
+- Added separate support-free enclosures for the power pack, LiPo, two camera
+  boards, Pi 5, IR ring and two 20 mm side lights.
+- Added an assembled component render showing the packaging arrangement.
+
+# 0.7.1
+
+- Split the camera module into a flat support-free sensor plate and two small
+  side-printable 18-degree tilt rails.
+- Added large plate relief openings while preserving structural webs around
+  both cameras, the ring mount and the two side lights.
+
+# 0.7.0
+
+- Reworked the development rig around an 85 mm vertical stereo baseline.
+- Moved the Raspberry Pi into the optical head to keep both 150 mm CSI ribbons short.
+- Added a measured 150 x 65 x 30 mm power-pack cradle and adjustable LiPo strap area.
+- Added a provisional 80 mm IR-ring retainer and two 20 mm side-light positions.
+- Split the mast for a 180 x 180 mm printer and kept the camera/light carrier rigid.

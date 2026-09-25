@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { CaptureReview } from '@/components/CaptureReview';
+import { ReadinessCard } from '@/components/ReadinessCard';
 import { ClubSelector } from '@/components/ClubSelector';
 import { directionLabel, ShotRow, StrikeMap, TrajectoryChart } from '@/components/ShotVisuals';
 import { Eyebrow, HelpText, MetricTile, PrimaryButton, SectionHeader, StepRow, Surface } from '@/components/ui';
@@ -22,6 +23,8 @@ import { useUnits } from '@/context/UnitsContext';
 import { getClub } from '@/data/clubs';
 import { colors, radii, spacing } from '@/theme';
 import { Shot } from '@/types';
+import { shotEstimates } from '@/utils/carry';
+import { measuredAttackAngle, measuredClubPath, measuredClubSpeed, measuredSmash } from '@/utils/shotValues';
 
 export function HomeScreen({
   onOpenDevice,
@@ -41,6 +44,7 @@ export function HomeScreen({
     isDemo,
     error,
     ballDetected,
+    captureMode,
     arm,
     trigger,
     clearError,
@@ -49,6 +53,7 @@ export function HomeScreen({
   const [pulse] = useState(() => new Animated.Value(0));
   const automaticCapture = !isDemo && Boolean(status?.automaticCapture);
   const isPiTest = !isDemo && !automaticCapture && status?.captureBackend === 'simulator';
+  const switchingFromPutting = captureMode === 'putting' && (state === 'ready' || state === 'armed');
 
   useEffect(() => {
     const loop = Animated.loop(
@@ -77,6 +82,7 @@ export function HomeScreen({
   const heroCopy = useMemo(() => {
     switch (state) {
       case 'armed':
+        if (captureMode === 'putting') return { eyebrow: 'Putting mode active', title: 'Switch to normal shot', note: 'Change mode before your next swing' };
         return isPiTest
           ? { eyebrow: 'Connection test armed', title: 'Ready to test the link', note: 'No camera is required' }
           : { eyebrow: 'Impact detection active', title: 'Ready for your swing', note: 'Camera buffer is rolling' };
@@ -90,19 +96,22 @@ export function HomeScreen({
       case 'offline':
         return { eyebrow: 'Not connected', title: 'Connect your LM1', note: 'Tap below and we will walk you through it' };
       default:
+        if (captureMode === 'putting') return { eyebrow: 'Putting mode selected', title: 'Ready to switch modes', note: 'Choose normal shot before placing the ball' };
         return isPiTest
           ? { eyebrow: 'Connected', title: 'Everything is talking', note: 'Test mode — no camera needed yet' }
           : { eyebrow: 'Ready', title: status?.camera?.ballDetection?.state === 'calibrating' ? 'Keep the hitting area empty' : 'Place a ball in the hitting area', note: status ? `Camera running at ${status.fps} frames per second` : 'Connect a camera to begin' };
     }
-  }, [isPiTest, state, status]);
+  }, [captureMode, isPiTest, state, status]);
 
   const handlePrimary = () => {
     if (state === 'offline' || state === 'error') onOpenDevice();
     else if (state === 'ready') void arm();
-    else if (state === 'armed') void trigger();
+    else if (state === 'armed') void (captureMode === 'putting' ? arm() : trigger());
   };
 
-  const primaryLabel = automaticCapture && (state === 'ready' || state === 'armed')
+  const primaryLabel = switchingFromPutting
+    ? state === 'armed' ? 'Switch to normal shot' : 'Arm normal shot'
+    : automaticCapture && (state === 'ready' || state === 'armed')
     ? state === 'armed'
       ? ballDetected ? 'Ball detected · swing away' : 'Watching · place your ball'
       : 'Watching for your ball'
@@ -117,13 +126,20 @@ export function HomeScreen({
           : 'Connect your LM1';
 
   /** One line telling the player exactly what the button will do. */
-  const primaryHint = automaticCapture && (state === 'ready' || state === 'armed')
+  const primaryHint = switchingFromPutting
+    ? ballDetected ? 'Remove the ball before changing modes.' : 'One tap changes the Pi to normal shot mode.'
+    : automaticCapture && (state === 'ready' || state === 'armed')
     ? 'The camera triggers on its own — no need to press anything.'
     : state === 'ready'
       ? 'Starts watching the hitting area for your next strike.'
       : state === 'armed'
         ? 'Only needed if the camera does not pick the strike up by itself.'
         : null;
+  const activeClubSpeed = activeShot ? measuredClubSpeed(activeShot) : null;
+  const activeSmash = activeShot ? measuredSmash(activeShot) : null;
+  const activeAttack = activeShot ? measuredAttackAngle(activeShot) : null;
+  const activeClubPath = activeShot ? measuredClubPath(activeShot) : null;
+  const activeEstimates = useMemo(() => (activeShot ? shotEstimates(activeShot) : null), [activeShot]);
 
   return (
     <ScrollView
@@ -192,15 +208,20 @@ export function HomeScreen({
             </View>
           </View>
         </View>
+        {state !== 'offline' && state !== 'error' && state !== 'connecting' ? (
+          <Text style={styles.modeLabel}>CAPTURE MODE · {captureMode === 'putting' ? 'PUTTING' : 'NORMAL SHOT'}</Text>
+        ) : null}
         <PrimaryButton
           label={primaryLabel}
           icon={state === 'ready' ? 'radio' : state === 'armed' ? 'flash' : 'link'}
           onPress={handlePrimary}
-          disabled={state === 'processing' || state === 'connecting' || (automaticCapture && (state === 'ready' || state === 'armed'))}
+          disabled={state === 'processing' || state === 'connecting' || (switchingFromPutting && ballDetected) || (automaticCapture && !switchingFromPutting && (state === 'ready' || state === 'armed'))}
           loading={state === 'processing' || state === 'connecting'}
         />
         {primaryHint ? <Text style={styles.heroHint}>{primaryHint}</Text> : null}
       </LinearGradient>
+
+      {automaticCapture && (state === 'ready' || state === 'armed') ? <ReadinessCard readiness={status?.readiness} /> : null}
 
       <CaptureReview />
 
@@ -241,6 +262,11 @@ export function HomeScreen({
                 <Text style={styles.carryUnit}>{units.distanceLabel}</Text>
               </View>
               <Text style={styles.carryYards}>{units.altDistanceWithUnit(activeShot.estimatedCarryM)}</Text>
+              {activeEstimates ? (
+                <Text style={styles.carryYards}>
+                  Total ~{units.distanceWithUnit(activeEstimates.totalM)} · apex {units.distanceWithUnit(activeEstimates.flight.apexM, 1)}
+                </Text>
+              ) : null}
               <View style={styles.confidencePill}>
                 <Ionicons name="checkmark-circle" color={colors.accent} size={14} />
                 <Text style={styles.confidenceText}>{activeShot.measurementSource ? 'Estimate · not yet validated' : `${Math.round(activeShot.confidence * 100)}% confidence`}</Text>
@@ -249,9 +275,13 @@ export function HomeScreen({
           </Surface>
 
           <View style={styles.metricsRow}>
-            <MetricTile label="Club speed" value={units.speed(activeShot.clubSpeedMps)} unit={units.speedLabel} />
-            <MetricTile label="Smash" value={activeShot.smashFactor.toFixed(2)} accent />
+            <MetricTile label="Club speed" value={activeClubSpeed === null ? '—' : units.speed(activeClubSpeed)} unit={units.speedLabel} />
+            <MetricTile label="Smash" value={activeSmash === null ? '—' : activeSmash.toFixed(2)} accent />
             <MetricTile label="Launch" value={activeShot.launchAngleDeg.toFixed(1)} unit="deg" />
+          </View>
+          <View style={styles.metricsRow}>
+            <MetricTile label="Attack angle" value={activeAttack === null ? '—' : activeAttack.toFixed(1)} unit="deg" />
+            <MetricTile label="Club path" value={activeClubPath === null ? '—' : directionLabel(activeClubPath)} />
           </View>
 
           <View style={styles.visualGrid}>
@@ -371,6 +401,7 @@ const styles = StyleSheet.create({
   heroTitle: { color: colors.text, fontSize: 27, fontWeight: '700', letterSpacing: -1, marginTop: 7 },
   heroNote: { color: colors.textMuted, fontSize: 13, fontWeight: '600', marginTop: 5 },
   heroHint: { color: colors.textMuted, fontSize: 12, lineHeight: 16, marginTop: spacing.sm, textAlign: 'center' },
+  modeLabel: { color: colors.accent, fontSize: 11, fontWeight: '800', letterSpacing: 1.1, marginBottom: spacing.sm, textAlign: 'center' },
   sensorWrap: { alignItems: 'center', height: 64, justifyContent: 'center', width: 64 },
   sensorPulse: { backgroundColor: colors.accent, borderRadius: 32, height: 64, position: 'absolute', width: 64 },
   sensor: {

@@ -7,10 +7,18 @@ import { colors, radii, spacing } from '@/theme';
 import { getClub } from '@/data/clubs';
 import { Shot } from '@/types';
 import { useUnits } from '@/context/UnitsContext';
+import { directionLabel } from '@/utils/direction';
+import { measuredSmash, measuredStrike } from '@/utils/shotValues';
+
+export { directionLabel } from '@/utils/direction';
 
 export function StrikeMap({ shot, compact = false }: { shot: Shot; compact?: boolean }) {
-  const x = Math.max(35, Math.min(245, 140 + shot.strike.xMm * 5.2));
-  const y = Math.max(28, Math.min(112, 70 - shot.strike.yMm * 4));
+  const strike = measuredStrike(shot);
+  if (!strike) {
+    return <Text style={{ color: colors.textMuted, padding: spacing.md }}>Strike location unavailable</Text>;
+  }
+  const x = Math.max(35, Math.min(245, 140 + strike.xMm * 5.2));
+  const y = Math.max(28, Math.min(112, 70 - strike.yMm * 4));
 
   return (
     <View accessibilityLabel={`Strike ${strikeLabel(shot)}`} style={compact && styles.compactVisual}>
@@ -109,9 +117,9 @@ export function ShotRow({ shot, onPress }: { shot: Shot; onPress: () => void }) 
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Open shot ${shot.number}, ${club.label}, ball speed ${units.speed(shot.ballSpeedMps)} ${units.spokenSpeedLabel}, estimated carry ${units.distance(shot.estimatedCarryM)} ${units.spokenDistanceLabel}`}
+      accessibilityLabel={`Open shot ${shot.number}, ${club.label}, ball speed ${units.speed(shot.ballSpeedMps)} ${units.spokenSpeedLabel}, estimated carry ${units.distance(shot.estimatedCarryM)} ${units.spokenDistanceLabel}${shot.excluded ? ', excluded from session stats' : ''}`}
       onPress={onPress}
-      style={({ pressed }) => [styles.shotRow, pressed && styles.shotRowPressed]}
+      style={({ pressed }) => [styles.shotRow, shot.excluded && styles.shotRowExcluded, pressed && styles.shotRowPressed]}
     >
       <View style={styles.shotNumber}>
         <Text style={styles.shotHash}>#</Text>
@@ -119,10 +127,10 @@ export function ShotRow({ shot, onPress }: { shot: Shot; onPress: () => void }) 
       </View>
       <View style={styles.shotMain}>
         <Text style={styles.shotSpeed}>{units.speed(shot.ballSpeedMps)}</Text>
-        <Text style={styles.shotUnit}>{club.shortLabel} · {units.speedLabel}</Text>
+        <Text style={styles.shotUnit}>{club.shortLabel} · {units.speedLabel}{shot.excluded ? ' · excluded' : ''}</Text>
       </View>
       <View style={styles.shotMeta}>
-        <Text style={styles.shotSmash}>{shot.smashFactor.toFixed(2)} smash</Text>
+        <Text style={styles.shotSmash}>{measuredSmash(shot)?.toFixed(2) ?? '—'} smash</Text>
         <Text style={styles.shotDirection}>{units.distanceWithUnit(shot.estimatedCarryM)}</Text>
       </View>
       <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
@@ -130,22 +138,20 @@ export function ShotRow({ shot, onPress }: { shot: Shot; onPress: () => void }) 
   );
 }
 
-export function directionLabel(value: number): string {
-  if (Math.abs(value) < 0.05) return 'Straight';
-  return `${Math.abs(value).toFixed(1)}° ${value > 0 ? 'R' : 'L'}`;
-}
-
 export function strikeLabel(shot: Shot): string {
-  const horizontal = Math.abs(shot.strike.xMm) < 1
+  const strike = measuredStrike(shot);
+  if (!strike) return 'not measured';
+  const horizontal = Math.abs(strike.xMm) < 1
     ? 'centered'
-    : `${Math.abs(shot.strike.xMm).toFixed(0)} mm ${shot.strike.xMm > 0 ? 'toe' : 'heel'}`;
-  const vertical = Math.abs(shot.strike.yMm) < 1
+    : `${Math.abs(strike.xMm).toFixed(0)} mm ${strike.xMm > 0 ? 'toe' : 'heel'}`;
+  const vertical = Math.abs(strike.yMm) < 1
     ? ''
-    : ` · ${Math.abs(shot.strike.yMm).toFixed(0)} mm ${shot.strike.yMm > 0 ? 'high' : 'low'}`;
+    : ` · ${Math.abs(strike.yMm).toFixed(0)} mm ${strike.yMm > 0 ? 'high' : 'low'}`;
   return `${horizontal}${vertical}`;
 }
 
 const styles = StyleSheet.create({
+  shotRowExcluded: { opacity: 0.45 },
   compactVisual: { marginVertical: -10 },
   mapLabels: {
     alignItems: 'center',

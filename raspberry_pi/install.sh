@@ -49,10 +49,20 @@ install -m 0644 "${SCRIPT_DIR}/pinpoint_protocol.py" /opt/pinpoint/pinpoint_prot
 install -m 0644 "${SCRIPT_DIR}/wifi_manager.py" /opt/pinpoint/wifi_manager.py
 install -m 0644 "${SCRIPT_DIR}/ball_detector.py" /opt/pinpoint/ball_detector.py
 install -m 0644 "${SCRIPT_DIR}/launch_measurements.py" /opt/pinpoint/launch_measurements.py
+install -m 0644 "${SCRIPT_DIR}/flight_model.py" /opt/pinpoint/flight_model.py
+install -m 0644 "${SCRIPT_DIR}/capture_quality.py" /opt/pinpoint/capture_quality.py
+install -m 0644 "${SCRIPT_DIR}/club_vision.py" /opt/pinpoint/club_vision.py
+install -m 0644 "${SCRIPT_DIR}/club_stereo.py" /opt/pinpoint/club_stereo.py
+install -m 0644 "${SCRIPT_DIR}/exposure_calibration.py" /opt/pinpoint/exposure_calibration.py
 install -m 0644 "${SCRIPT_DIR}/lens_calibration.py" /opt/pinpoint/lens_calibration.py
+install -m 0644 "${SCRIPT_DIR}/stereo_calibration.py" /opt/pinpoint/stereo_calibration.py
 install -m 0644 "${SCRIPT_DIR}/target_line.py" /opt/pinpoint/target_line.py
+install -m 0644 "${SCRIPT_DIR}/shot_coverage.py" /opt/pinpoint/shot_coverage.py
 install -m 0644 "${SCRIPT_DIR}/camera_source.py" /opt/pinpoint/camera_source.py
 install -m 0644 "${SCRIPT_DIR}/apriltag_calibration.py" /opt/pinpoint/apriltag_calibration.py
+install -m 0644 "${SCRIPT_DIR}/stereo_check.py" /opt/pinpoint/stereo_check.py
+install -m 0644 "${SCRIPT_DIR}/readiness.py" /opt/pinpoint/readiness.py
+install -m 0644 "${SCRIPT_DIR}/frame_uploader.py" /opt/pinpoint/frame_uploader.py
 install -m 0644 "${SCRIPT_DIR}/requirements.txt" /opt/pinpoint/requirements.txt
 rm -f /opt/pinpoint/pinpoint_server.py
 
@@ -86,7 +96,10 @@ if ! grep -q '^PINPOINT_AUTO_BALL_DETECTION=' /etc/default/pinpoint; then
   echo 'PINPOINT_AUTO_BALL_DETECTION=true' >> /etc/default/pinpoint
 fi
 if ! grep -q '^PINPOINT_BALL_ROI=' /etc/default/pinpoint; then
-  echo 'PINPOINT_BALL_ROI="0.05,0.30,0.95,0.98"' >> /etc/default/pinpoint
+  echo 'PINPOINT_BALL_ROI="0,0.30,0.50,0.98"' >> /etc/default/pinpoint
+elif grep -Eq '^PINPOINT_BALL_ROI="?0\.05,0\.30,0\.95,0\.98"?$' /etc/default/pinpoint; then
+  # Migrate only the former built-in zone. Leave user-defined placement zones alone.
+  sed -i 's/^PINPOINT_BALL_ROI=.*$/PINPOINT_BALL_ROI="0,0.30,0.50,0.98"/' /etc/default/pinpoint
 fi
 if ! grep -q '^PINPOINT_APRILTAG_ID=' /etc/default/pinpoint; then
   echo 'PINPOINT_APRILTAG_ID=0' >> /etc/default/pinpoint

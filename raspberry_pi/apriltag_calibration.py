@@ -18,19 +18,45 @@ except ModuleNotFoundError:  # The BLE service can still run without camera supp
 
 
 DEFAULT_CALIBRATION_PATH = Path("/var/lib/pinpoint/apriltag-calibration.json")
+DEFAULT_SECONDARY_CALIBRATION_PATH = Path("/var/lib/pinpoint/apriltag-calibration-secondary.json")
+# Live detections are published per camera under these diagnostics keys.
+DETECTION_KEYS = {"primary": "aprilTag", "secondary": "secondaryAprilTag"}
 APRILTAG_FAMILY = "tag36h11"
+
+
+def tag_detector_parameters() -> Any:
+    """Detector settings shared by live preview and shot analysis.
+
+    OpenCV's default leaves tag corners at whole-pixel positions from the quad fit,
+    and every launch value inherits the ground pose built from them. Sub-pixel corner
+    refinement is cheap and moves each corner onto the actual edge intersection.
+    """
+    parameters = cv2.aruco.DetectorParameters()
+    method = os.getenv("PINPOINT_APRILTAG_CORNER_REFINE", "subpix").lower()
+    parameters.cornerRefinementMethod = {
+        "none": cv2.aruco.CORNER_REFINE_NONE,
+        "subpix": cv2.aruco.CORNER_REFINE_SUBPIX,
+        "contour": cv2.aruco.CORNER_REFINE_CONTOUR,
+        "apriltag": cv2.aruco.CORNER_REFINE_APRILTAG,
+    }[method]
+    parameters.cornerRefinementWinSize = 5
+    parameters.cornerRefinementMaxIterations = 50
+    parameters.cornerRefinementMinAccuracy = 0.01
+    return parameters
 
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
-def calibration_path() -> Path:
+def calibration_path(camera: str = "primary") -> Path:
+    if camera == "secondary":
+        return Path(os.getenv("PINPOINT_SECONDARY_APRILTAG_CALIBRATION_PATH", str(DEFAULT_SECONDARY_CALIBRATION_PATH)))
     return Path(os.getenv("PINPOINT_APRILTAG_CALIBRATION_PATH", str(DEFAULT_CALIBRATION_PATH)))
 
 
-def load_apriltag_calibration() -> dict[str, Any] | None:
-    path = calibration_path()
+def load_apriltag_calibration(camera: str = "primary") -> dict[str, Any] | None:
+    path = calibration_path(camera)
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -38,8 +64,8 @@ def load_apriltag_calibration() -> dict[str, Any] | None:
     return value if isinstance(value, dict) and value.get("version") == 1 else None
 
 
-def save_apriltag_calibration(calibration: dict[str, Any]) -> dict[str, Any]:
-    path = calibration_path()
+def save_apriltag_calibration(calibration: dict[str, Any], camera: str = "primary") -> dict[str, Any]:
+    path = calibration_path(camera)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f"{path.stem}.tmp{path.suffix}")
     temporary.write_text(json.dumps(calibration, indent=2), encoding="utf-8")
@@ -47,10 +73,11 @@ def save_apriltag_calibration(calibration: dict[str, Any]) -> dict[str, Any]:
     return calibration
 
 
-def capture_latest_apriltag_calibration(diagnostics: dict[str, Any]) -> dict[str, Any]:
-    detection = diagnostics.get("aprilTag")
+def capture_latest_apriltag_calibration(diagnostics: dict[str, Any], camera: str = "primary") -> dict[str, Any]:
+    detection = diagnostics.get(DETECTION_KEYS[camera])
     if not isinstance(detection, dict) or not detection.get("detected"):
-        raise ValueError("AprilTag 36h11 ID 0 is not visible. Put the whole tag in frame and try again.")
+        view = "the top camera" if camera == "secondary" else "the camera"
+        raise ValueError(f"AprilTag 36h11 ID 0 is not visible to {view}. Put the whole tag in frame and try again.")
     if detection.get("tagId") != int(os.getenv("PINPOINT_APRILTAG_ID", "0")):
         raise ValueError("The visible AprilTag does not match the configured tag ID.")
     calibration = {
@@ -60,13 +87,14 @@ def capture_latest_apriltag_calibration(diagnostics: dict[str, Any]) -> dict[str
         "purpose": "planar image-to-millimetre calibration for launch analysis",
     }
     from launch_measurements import ground_pose_calibration
-    calibration["groundPose"] = ground_pose_calibration(detection)
+    calibration["groundPose"] = ground_pose_calibration(detection, camera)
+    calibration["camera"] = camera
     calibration["purpose"] = "Stored ground pose for launch analysis; tag may be removed while camera stays fixed."
-    return save_apriltag_calibration(calibration)
+    return save_apriltag_calibration(calibration, camera)
 
 
-def clear_apriltag_calibration() -> None:
-    calibration_path().unlink(missing_ok=True)
+def clear_apriltag_calibration(camera: str = "primary") -> None:
+    calibration_path(camera).unlink(missing_ok=True)
 
 
 def calibration_version() -> str | None:
@@ -96,7 +124,7 @@ class AprilTagDetector:
         self._parameters: Any | None = None
         if self.available:
             self._dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11)
-            self._parameters = cv2.aruco.DetectorParameters()
+            self._parameters = tag_detector_parameters()
             if hasattr(cv2.aruco, "ArucoDetector"):
                 self._detector = cv2.aruco.ArucoDetector(self._dictionary, self._parameters)
 

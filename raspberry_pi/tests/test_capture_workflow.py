@@ -3,6 +3,7 @@ import asyncio
 import os
 from pathlib import Path
 import sys
+import threading
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
@@ -26,6 +27,24 @@ def burst(moving=False, irregular=False):
 
 
 class AnalysisTests(unittest.TestCase):
+    def test_ble_capture_summary_reports_tracking_without_full_trace(self):
+        capture = {'measurements': {
+            'metrics': {'ballSpeedMps': {'value': None}},
+            'diagnostics': {'motionTrackedFrames': 4, 'stereo': {
+                'failure': 'Only two paired frames', 'frames': 2,
+                'frameIndices': [118, 120], 'candidateRejections': {'noCircle': 3},
+            }},
+            'ballTrack3d': [{'frameIndex': 118, 'positionM': [0, 0, 0]}],
+        }, 'track': [{'frameIndex': 118}], 'image': {'base64': 'test'}}
+        summary = PinpointProtocol._capture_summary(capture)
+        tracking = summary['measurements']['tracking']
+        self.assertEqual(tracking['status'], 'failed')
+        self.assertEqual(tracking['pairedFrames'], 2)
+        self.assertEqual(tracking['pairedFrameIndices'], [118, 120])
+        self.assertEqual(tracking['lowerFrames'], 4)
+        self.assertNotIn('diagnostics', summary['measurements'])
+        self.assertEqual(summary['measurements']['ballTrack3d'], [])
+
     def test_lift_without_outgoing_track_is_not_a_measured_shot(self):
         result = analyze_departure(burst(), (31, 61, 19, 19), 8)
         self.assertEqual(result['classification'], 'unconfirmed-departure')
@@ -217,10 +236,24 @@ class ArmedReferenceTests(unittest.TestCase):
         np.testing.assert_array_equal(analyze.call_args.kwargs['ball_reference'], resting)
         np.testing.assert_array_equal(save.call_args.kwargs['ball_reference'], resting)
 
-    def _run_monitor(self, frames, observations):
+    def test_one_departure_saves_both_views_with_one_trigger(self):
+        frames = [np.full((120, 160, 3), value, np.uint8) for value in (30, 40, 20)]
+        analyze, save = self._run_monitor(frames, [
+            DetectionObservation(True, True, .9, (29, 59, 23, 23)),
+            DetectionObservation(True, False, .9, (29, 59, 23, 23)),
+            DetectionObservation(False, True, .9, None),
+        ], dual=True)
+        save.assert_called_once()
+        buffer = save.call_args.args[0]
+        self.assertEqual(len(buffer.frames), len(buffer.secondary.frames))
+        self.assertEqual(len(buffer.frames), 3)
+        self.assertIn('secondaryImage', analyze.return_value)
+
+    def _run_monitor(self, frames, observations, dual=False):
         import threading
         from types import SimpleNamespace
         from unittest.mock import Mock
+        from camera_source import DualCsiCapture
 
         stop = threading.Event()
         incoming = iter(frames)
@@ -230,9 +263,15 @@ class ArmedReferenceTests(unittest.TestCase):
             if frame is None:
                 stop.set()
                 return False, None
+            if dual:
+                camera.secondary_frame = 255 - frame
+                camera.metadata = {'SensorTimestamp': 1_000_000_000 + read.count * 5_000_000}
+                camera.secondary_metadata = {'SensorTimestamp': camera.metadata['SensorTimestamp'] + 20_000}
+                read.count += 1
             return True, frame
 
-        camera = Mock()
+        read.count = 0
+        camera = Mock(spec=DualCsiCapture) if dual else Mock()
         camera.isOpened.return_value = True
         camera.read.side_effect = read
         camera.metadata = {}
@@ -257,11 +296,14 @@ class ArmedReferenceTests(unittest.TestCase):
                 patch.object(monitor, '_publish_preview'),
                 patch.object(monitor, '_save_frame'),
                 patch.object(monitor, '_capture_post_impact_frames'),
-                patch.object(monitor, '_save_rolling_capture', return_value=(3, 'test', 10)) as save,
+                patch.object(monitor, '_reserve_rolling_capture', return_value=(3, 'capture-1', 10)),
+                patch.object(monitor, '_save_rolling_capture', side_effect=lambda *a, **k: self.order.append('save') or 3) as save,
                 patch('ball_detector.ball_template_similarity', return_value=0),
-                patch('ball_detector.analyze_departure', return_value={'impactFrameIndex': 1}) as analyze,
+                patch('ball_detector.analyze_departure', return_value={'impactFrameIndex': 1, 'imageFrameIndex': 1}) as analyze,
             ):
-                monitor.run(stop, Mock())
+                self.order = []
+                self.emit = Mock(side_effect=lambda event: self.order.append('emit' if event.analysis else 'presence'))
+                monitor.run(stop, self.emit)
         return analyze, save
 
     def test_saved_capture_retains_lossless_reference(self):
@@ -270,10 +312,37 @@ class ArmedReferenceTests(unittest.TestCase):
         buffer.append(np.zeros((10, 10), np.uint8), 0)
         with TemporaryDirectory() as directory, patch.dict(os.environ, {'PINPOINT_ROLLING_CAPTURE_PATH': directory}):
             monitor = BallMonitor(None)
-            count, capture_id, _ = monitor._save_rolling_capture(buffer, 0, ball_reference=reference)
+            count, capture_id, _ = monitor._reserve_rolling_capture(buffer)
             self.assertEqual(count, 1)
+            self.assertEqual(monitor._save_rolling_capture(buffer, capture_id, 0, ball_reference=reference), 1)
             saved = cv2.imread(str(Path(directory) / capture_id / 'armed-ball-reference.png'))
             np.testing.assert_array_equal(saved, reference)
+
+    def test_result_is_sent_before_frames_are_saved(self):
+        frames = [np.full((120, 160, 3), value, np.uint8) for value in (30, 40, 20)]
+        self._run_monitor(frames, [
+            DetectionObservation(True, True, .9, (29, 59, 23, 23)),
+            DetectionObservation(True, False, .9, (29, 59, 23, 23)),
+            DetectionObservation(False, True, .9, None),
+        ])
+        self.assertEqual([step for step in self.order if step != 'presence'], ['emit', 'save'])
+        result = next(call.args[0] for call in self.emit.call_args_list if call.args[0].analysis)
+        self.assertEqual(result.capture_id, 'capture-1')
+        self.assertEqual(result.rolling_capture_frames, 3)
+
+    def test_replay_waits_for_a_capture_still_being_saved(self):
+        import ball_detector
+        buffer = RollingFrameBuffer(3)
+        buffer.append(np.zeros((10, 10, 3), np.uint8), 0)
+        buffer.append(np.zeros((10, 10, 3), np.uint8), .004)
+        with TemporaryDirectory() as directory, patch.dict(os.environ, {'PINPOINT_ROLLING_CAPTURE_PATH': directory}):
+            monitor = BallMonitor(None)
+            _, capture_id, _ = monitor._reserve_rolling_capture(buffer)
+            saver = threading.Timer(.3, lambda: monitor._save_rolling_capture(buffer, capture_id, 0))
+            saver.start()
+            preview = ball_detector.capture_frame_preview(capture_id, 1)
+            saver.join()
+            self.assertEqual(preview['frameCount'], 2)
 
 
 class CameraWorkflowTests(unittest.IsolatedAsyncioTestCase):
@@ -322,7 +391,9 @@ class CameraWorkflowTests(unittest.IsolatedAsyncioTestCase):
         for key, value in {'ballSpeedMps': 40, 'clubSpeedMps': 30, 'smashFactor': 40/30,
                            'launchAngleDeg': 12, 'startDirectionDeg': 2, 'strikeXmm': 4, 'strikeYmm': 3}.items():
             metrics[key].update(value=value, status='estimated')
-        analysis['measurements'] = {'metrics': metrics, 'clubId': 'driver'}
+        analysis['measurements'] = {'metrics': metrics, 'clubId': 'driver',
+                                    'shotEvidence': {'status': 'club-motion-observed', 'clubFrames': 3,
+                                                     'reason': 'Test fixture club motion.'}}
         await self.protocol.ball_presence_changed(True)
         await self.protocol.ball_presence_changed(False, analysis=analysis)
         await self.protocol._capture_task
@@ -333,6 +404,8 @@ class CameraWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(shot['measurementSource'], 'monocular-estimate')
         self.assertFalse(shot['simulated'])
         self.assertNotIn('spinRpm', shot)
+        self.assertGreater(shot['estimatedCarryM'], 0)
+        self.assertIn('assumed', self.protocol.captures[0]['measurements']['metrics']['estimatedCarryM']['reason'])
 
     async def test_mismatched_club_calibration_blocks_complete_shot(self):
         from launch_measurements import unavailable
@@ -345,6 +418,28 @@ class CameraWorkflowTests(unittest.IsolatedAsyncioTestCase):
         await self.protocol._capture_task
         self.assertFalse(any(m['type'] == 'shot' for m in self.messages))
         self.assertIsNone(self.protocol.captures[0]['measurements']['metrics']['clubSpeedMps']['value'])
+
+    async def test_tagless_club_speed_survives_selected_club_check(self):
+        from launch_measurements import unavailable
+        analysis = analyze_departure(burst(), (31, 61, 19, 19), 8)
+        metrics = unavailable('fixture')
+        for key, value in {'ballSpeedMps': 6.9369, 'clubSpeedMps': 4.776,
+                           'smashFactor': 6.9369 / 4.776, 'launchAngleDeg': 27.9601,
+                           'startDirectionDeg': 0.4079, 'attackAngleDeg': -8}.items():
+            metrics[key].update(value=value, status='estimated')
+        analysis['measurements'] = {
+            'metrics': metrics,
+            'diagnostics': {'clubSilhouette': {'acceptedFrames': 10, 'speedMps': 4.776}},
+        }
+        await self.protocol.ball_presence_changed(True)
+        await self.protocol.ball_presence_changed(False, analysis=analysis)
+        await self.protocol._capture_task
+        capture = next(message['data'] for message in self.messages if message['type'] == 'capture')
+        kept = capture['measurements']['metrics']
+        self.assertEqual(kept['clubSpeedMps']['value'], 4.776)
+        self.assertEqual(kept['attackAngleDeg']['value'], -8)
+        self.assertEqual(capture['measurements']['carryModel']['attackAngleDegUsed'], -8)
+        self.assertEqual(capture['measurements']['shotEvidence']['status'], 'club-motion-observed')
 
     async def test_new_ball_during_transfer_is_armed_afterwards(self):
         await self.protocol.ball_presence_changed(True)

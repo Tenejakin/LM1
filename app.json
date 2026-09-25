@@ -2,13 +2,13 @@
   "expo": {
     "name": "LM1",
     "slug": "pinpoint-launch-monitor",
-    "version": "3.11.0",
+    "version": "3.37.0",
     "orientation": "portrait",
     "scheme": "pinpoint",
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
-      "buildNumber": "47",
+      "buildNumber": "69",
       "bundleIdentifier": "com.pinpoint.launchmonitor",
       "infoPlist": {
         "CFBundleDisplayName": "LM1",
@@ -20,7 +20,7 @@
       }
     },
     "android": {
-      "versionCode": 47,
+      "versionCode": 69,
       "package": "com.pinpoint.launchmonitor",
       "permissions": [
         "android.permission.INTERNET",

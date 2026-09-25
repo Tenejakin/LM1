@@ -1,10 +1,67 @@
 # LM1 PRO Raspberry Pi BLE Service
 
+Service **0.45.0**, protocol **2.31.0**: three clean paired stereo ball frames are sufficient for measured-grade speed, launch angle, and direction when all timing, geometry, calibration, and fit-quality gates also pass. Two paired frames remain an estimated speed-only fallback.
+
+Service **0.44.0**, protocol **2.30.0**: putting captures can emit a putt result when ball and putter motion are resolved even if face strike is unavailable. An unavailable strike is `null`; `airborne` flags launch above 10° so the app does not present a ground-roll estimate for it.
+
+Service **0.43.0**, protocol **2.29.0**: status reports the active capture mode so the app can show whether the Pi is set to a normal shot or putting, including after reconnecting. The app can switch modes in one tap before a ball is placed.
+
+Service **0.42.0**, protocol **2.28.0**: full shots save up to 48 frames after the measured departure (plus any later tracked ball frame), discarding the empty detector-confirmation tail. Putting retains the full rolling burst. The Pi still observes the confirmation window before it reports a shot. Set `PINPOINT_FULL_SHOT_TAIL_FRAMES` to tune the saved full-shot tail.
+
+Service **0.41.0**, protocol **2.28.0**: a signed-in app can issue a short-lived
+ticket for one shot, then ask the Pi to upload every retained original JPEG from
+both cameras directly to the Supabase frame ingest function. The ticket is
+limited to that shot and expires after six hours. Set
+`PINPOINT_SUPABASE_PROJECT_REF` in `/etc/default/pinpoint` for this feature.
+
+Service **0.40.0**, protocol **2.27.0**: two high-quality stereo ball frames may
+yield estimated interval-average ball speed, using the resting-ball impact
+bracket as a consistency check. Two frames cannot resolve the flight curve,
+so launch angle, direction, and carry remain unavailable.
+
+Service **0.39.1**, protocol **2.26.1**: capture summaries distinguish a valid
+mono fallback from shots where both stereo and mono tracking failed.
+
+Service **0.39.0**, protocol **2.26.0**: the lower camera arms only when the
+whole resting ball fits in the left-half green placement zone. The right half
+remains available for outgoing tracking; the upper camera must still see the
+resting ball and early flight. The stock ROI is `0,0.30,0.50,0.98`.
+
+Service **0.38.1**, protocol **2.25.1**: tag-free club silhouette speed and
+attack angle are retained for the selected club. Only an explicitly calibrated
+club marker for a different club invalidates those values.
+
+Service **0.38.0**, protocol **2.25.0**: full-shot carry now uses a
+still-air drag/lift flight model. The selected club, ball speed and measured
+attack angle set provisional spin when surface spin cannot be tracked.
+`carryModel` records which spin source was used; landing is never observed.
+
+Service **0.36.0**, protocol **2.23.0**: valid stereo geometry now supplies the
+launch vector directly. Ball movement without resolved club motion is retained
+as a capture, not emitted as a full shot. Ground recalibration invalidates the
+previous target line; roll a fresh ball toward the target afterward. Keep the
+entire resting ball, plus a little background, visible in both camera views.
+
+Service **0.35.0**, protocol **2.22.0**: failed stereo tracks retain matched frame
+indices and rejection counts for the app's capture review.
+
+Service **0.34.0**, protocol **2.21.0**: stereo launch can use three validated paired
+frames as an estimate, while three are needed for measured-grade metrics. A second
+circle-detection pass recovers weak ball edges only when normal stereo pairing fails.
+
+Service **0.33.0**, protocol **2.21.0**: when both camera lens and shared-ground-
+tag calibrations are present, launch analysis triangulates the ball in both
+views. If the lower-camera track fails, each view detects the ball independently
+and pairs candidates using ray geometry and a coherent 3D path. It checks
+tag-pose age, pair timing, resting position, ray agreement and two-view
+reprojection before reporting a result. See
+[dual-camera setup](../DUAL_CAMERA_SETUP.md) for calibration and limits.
+
 Service 0.26.0 / protocol 2.17.0: speed, launch angle and direction come from an anchored trajectory fit to up to 48 sub-pixel tracked frames. It starts from the resting ball's ground position, chooses between a ground roll and a gravity flight, re-estimates the start of a ball nudged before release and reports fit uncertainty. Contact analysis ignores a hand or finger that stays in view. A departure must start at the resting ball, the resting ball must not reappear afterwards, and the motion nearest the trigger wins. A ball armed while the placing hand still touched it now tracks from a clean resting image. A ball that stays at resting height is reported as a ground roll with 0-degree launch, measured along the ground plane. The armed-ball reference stays paired with its original bounding box, refreshes only while the ball rests there, and is saved losslessly for replay. captures now retain calibration and outline-rejection diagnostics, and failure messages distinguish camera frames from usable 3D outlines. contact analysis now re-anchors slightly shifted resting balls and rejects stationary offset matches as outgoing motion. reconnect history is bounded to the newest ten records so the 100 retained captures cannot overflow one BLE message. The default ball-detection region covers 90% of the frame width and 68% of its height while retaining a small edge safety margin. Keep hands, clubheads, screens and moving shadows out of that region whenever possible. Tracker-guided partial silhouettes can produce explicitly lower-confidence launch estimates only after three consecutive matches, stable apparent radius and the existing 3D fit check. The strict full-silhouette path remains the default. Saved manifests now retain exact ball bounds for replay. The service also selects the best of up to 12 static ground-AprilTag detections; poses from 1–3 px reprojection error remain explicitly lower-confidence estimates and anything worse is rejected. It includes seam-split silhouette repair, convex-hull ball depth fitting, half-resolution ball tracking (analysis ~2 s instead of ~6 s), MTU-sized BLE notifications, no previews during result delivery, ~1.35 s rolling bursts by default, background AprilTag/focus/snapshot/BLE-preview work, an 8-request camera queue, per-capture contact sheets, live persistent exposure/gain controls, contact-window detection, AprilTag-referenced launch estimates, club-marker tracking, surface spin and putting motion analysis. The Pi retains the newest 100 rolling captures by default. See [measurement setup](../LAUNCH_MEASUREMENTS.md). Values remain unvalidated estimates.
 
 
 
-Service version 0.7.0 · BLE protocol 2.5.0
+Current service 0.42.0 · BLE protocol 2.28.0
 
 
 This is the BLE-only Raspberry Pi half of Pinpoint. It opens no Pinpoint network port. The app can connect, arm, trigger, and receive synthetic shots or putts before the camera arrives, while Wi-Fi remains available for internet, SSH, software updates, and OpenGolfSim.
@@ -271,7 +328,7 @@ PINPOINT_EXPOSURE_US=15700
 
 PINPOINT_AUTO_BALL_DETECTION=true
 
-PINPOINT_BALL_ROI="0.05,0.30,0.95,0.98"
+PINPOINT_BALL_ROI="0,0.30,0.50,0.98"
 
 PINPOINT_BLE_PREVIEW=true
 

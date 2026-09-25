@@ -69,6 +69,7 @@ class PinpointBlePeripheral:
         self._ball_stop = threading.Event()
         self._ball_calibration_reset = threading.Event()
         self._calibration_capture_request = threading.Event()
+        self._calibration_capture_camera = "primary"
         self._exposure_calibration_request = threading.Event()
         self._ball_task: asyncio.Task[None] | None = None
         self._preview_future: Any | None = None
@@ -80,9 +81,10 @@ class PinpointBlePeripheral:
         self._ball_calibration_reset.set()
         return True
 
-    def _request_calibration_capture(self) -> bool:
+    def _request_calibration_capture(self, camera: str = "primary") -> bool:
         if self._ball_task is None or self._ball_task.done():
             return False
+        self._calibration_capture_camera = camera
         self._calibration_capture_request.set()
         return True
 
@@ -192,6 +194,9 @@ class PinpointBlePeripheral:
                 self._on_calibration_result,
                 self._exposure_calibration_request,
                 self._on_exposure_calibration,
+                calibration_capture_camera=lambda: self._calibration_capture_camera,
+                capture_mode=lambda: self.protocol.capture_mode,
+                emit_readiness=self._on_readiness,
             )
         )
         self._ball_task.add_done_callback(self._log_ball_monitor_error)
@@ -210,6 +215,10 @@ class PinpointBlePeripheral:
         )
         future.add_done_callback(self._log_command_error)
 
+    def _on_readiness(self, items: list[dict[str, Any]]) -> None:
+        future = asyncio.run_coroutine_threadsafe(self.protocol.readiness_checked(items), self.loop)
+        future.add_done_callback(self._log_command_error)
+
     def _on_calibration_result(self, result: dict[str, Any]) -> None:
         future = asyncio.run_coroutine_threadsafe(
             self.protocol.calibration_image_captured(result),
@@ -224,7 +233,7 @@ class PinpointBlePeripheral:
         )
         future.add_done_callback(self._log_command_error)
 
-    def _on_preview_frame(self, jpeg_bytes: bytes) -> None:
+    def _on_preview_frame(self, jpeg_bytes: bytes, secondary_jpeg: bytes | None = None) -> None:
         if os.getenv("PINPOINT_BLE_PREVIEW", "false").lower() not in {
             "1",
             "true",
@@ -239,7 +248,7 @@ class PinpointBlePeripheral:
             LOGGER.info("Camera preview ready: %d JPEG bytes; diagnostics=%s", len(jpeg_bytes), camera_diagnostics())
             self._preview_logged = True
         self._preview_future = asyncio.run_coroutine_threadsafe(
-            self.send_message(build_preview_event(jpeg_bytes)),
+            self.send_message(build_preview_event(jpeg_bytes, secondary_jpeg)),
             self.loop,
         )
         self._preview_future.add_done_callback(self._log_preview_error)

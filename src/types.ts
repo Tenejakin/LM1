@@ -30,11 +30,21 @@ export interface StrikePoint {
   yMm: number;
 }
 
-export type MetricSource = 'measured' | 'device-estimate' | 'club-estimate';
+/** model-estimate: calculated from measured values with a physics model, never observed. */
+export type MetricSource = 'measured' | 'device-estimate' | 'model-estimate' | 'club-estimate';
+
+export interface MetricCheck {
+  label: string;
+  passed: boolean;
+}
 
 export interface MetricConfidence {
   confidence: number;
   source: MetricSource;
+  /** How the value was produced, shown in the per-metric info window. */
+  reason?: string;
+  /** Quality gates the device applied; every one must pass for a measured label. */
+  checks?: MetricCheck[];
 }
 
 export type ShotMetricKey =
@@ -44,11 +54,16 @@ export type ShotMetricKey =
   | 'launchAngleDeg'
   | 'startDirectionDeg'
   | 'strike'
+  | 'attackAngleDeg'
+  | 'clubPathDeg'
   | 'spinRpm'
   | 'spinAxisDeg'
   | 'estimatedCarryM';
 
 export type CaptureMode = 'full-shot' | 'putting';
+
+/** Club values that are shown only when the camera resolved them. */
+export type ClubValueKey = 'clubSpeedMps' | 'smashFactor' | 'strike' | 'attackAngleDeg' | 'clubPathDeg';
 
 export interface Putt {
   measurementSource?: 'monocular-estimate';
@@ -60,10 +75,14 @@ export interface Putt {
   smashFactor: number;
   launchDirectionDeg: number;
   launchAngleDeg: number;
-  strike: StrikePoint;
+  strike: StrikePoint | null;
+  captureId?: string;
+  /** A high launch angle means a roll or pace estimate would be misleading. */
+  airborne?: boolean;
   confidence: number;
   frameCount: number;
   captureDurationMs: number;
+  impactFrameIndex?: number;
   /** Sampled/debounced disappearance trigger; diagnostic only, not impact. */
   coarseDepartureFrameIndex?: number;
   /** Last frame where the armed ball still matches its resting position. */
@@ -79,23 +98,28 @@ export interface Putt {
 }
 
 export interface Shot {
-  measurementSource?: 'monocular-estimate';
+  measurementSource?: 'monocular-estimate' | 'camera-estimate';
   id: string;
   number: number;
   capturedAt: string;
   clubId: ClubId;
   ballSpeedMps: number;
-  clubSpeedMps: number;
-  smashFactor: number;
+  /** Null when the camera did not resolve the club; never filled from a club profile. */
+  clubSpeedMps: number | null;
+  /** Null unless both ball and club speed were camera-resolved. */
+  smashFactor: number | null;
   launchAngleDeg: number;
   startDirectionDeg: number;
-  strike: StrikePoint;
+  /** Null when face contact was not measured; never assumed to be centred. */
+  strike: StrikePoint | null;
   confidence: number;
   frameCount: number;
   captureDurationMs: number;
   estimatedCarryM: number;
   /** Per-value provenance so estimated numbers are never presented as measurements. */
   metricConfidence?: Partial<Record<ShotMetricKey, MetricConfidence>>;
+  /** Device reason for each club value the camera could not resolve on this shot. */
+  unavailableReasons?: Partial<Record<ClubValueKey, string>>;
   /** Exact rolling burst retained on the Pi for frame-by-frame review. */
   captureId?: string;
   /** Backward-compatible best event frame; first motion when resolved, otherwise the coarse trigger. */
@@ -108,10 +132,19 @@ export interface Shot {
   firstMovingFrameIndex?: number;
   /** Measured backspin when the device provides it. */
   spinRpm?: number;
+  /** Club attack angle when the camera resolves it; negative is descending. */
+  attackAngleDeg?: number;
+  /** Horizontal club direction relative to the target line, same sign as start direction. */
+  clubPathDeg?: number;
   /** Measured spin axis; positive values curve left in OpenGolfSim. */
   spinAxisDeg?: number;
   /** True when the Pi generated this result only to verify communication. */
   simulated?: boolean;
+  /** Left out of session statistics by the player (a mishit or test swing); still kept in history. */
+  excluded?: boolean;
+  /** Private Bunny Storage image paths, populated by the signed-in user's cloud restore. */
+  cloudImagePath?: string;
+  cloudSecondaryImagePath?: string;
 }
 
 export type DeviceShot = Omit<Shot, 'clubId' | 'estimatedCarryM'> & {
@@ -125,10 +158,53 @@ export interface CaptureAnalysis {
   measurements?: {
     method: string;
     failure?: string;
+    shotEvidence?: {
+      /** motion-only: ball measured without a club track (kept, club values unavailable). */
+      status: 'club-motion-observed' | 'motion-only' | 'not-a-strike';
+      clubFrames: number;
+      reason: string;
+    };
+    tracking?: {
+      status: 'failed' | 'stereo-matched' | 'stereo-two-point' | 'single-camera';
+      source?: 'stereo' | 'single-camera' | null;
+      speedOnly?: boolean;
+      speedUncertaintyPct?: number | null;
+      monoFallback?: 'used' | 'failed' | 'not-needed';
+      lowerFrames: number;
+      pairedFrames: number;
+      pairedFrameIndices: number[];
+      spanMs?: number | null;
+      detection?: string | null;
+      imageResidualPx?: number | null;
+      failure?: string | null;
+      stereoFailure?: string | null;
+      monoFailure?: string | null;
+      rejections?: Record<string, number> | null;
+    };
+    diagnostics?: {
+      motionTrackedFrames?: number;
+      stereo?: {
+        failure?: string;
+        frames?: number;
+        frameIndices?: number[];
+        spanMs?: number;
+        detection?: string;
+        rmsPx?: number;
+        medianRayGapMm?: number;
+        candidateRejections?: Record<string, number>;
+      };
+    };
     warnings?: string[];
     tagPoseFrameIndex?: number;
     tagPoseReprojectionErrorPx?: number;
-    metrics: Record<string, { value: number | null; unit: string; status: 'estimated' | 'measured' | 'unavailable'; reason: string }>;
+    metrics: Record<string, {
+      value: number | null;
+      unit: string;
+      status: 'estimated' | 'measured' | 'unavailable';
+      reason: string;
+      confidence?: number;
+      checks?: MetricCheck[];
+    }>;
     ballTrack3d: { frameIndex: number; positionM: number[]; centerPx?: number[] }[];
     clubTrack3d: { frameIndex: number; positionM: number[] }[];
   };
@@ -148,6 +224,7 @@ export interface CaptureAnalysis {
   imageFrameIndex: number;
   warnings: string[];
   image: { mimeType: 'image/jpeg'; base64: string };
+  secondaryImage?: { mimeType: 'image/jpeg'; base64: string };
   track: { frameIndex: number; x: number; y: number; score: number }[];
 }
 
@@ -172,6 +249,8 @@ export interface CapturePreview {
 }
 
 export interface CaptureFramePreview extends CapturePreview {
+  secondaryBase64?: string;
+  pairOffsetUs?: number;
   frameIndex: number;
   frameCount: number;
   timeMs: number | null;
@@ -201,19 +280,112 @@ export interface AprilTagCalibration {
   capturedAt?: string;
   version?: number;
   message?: string;
+  camera?: CalibrationCamera;
+  /** Solved camera pose above the tag's ground plane. */
+  groundPose?: { cameraHeightMm?: number; cameraPitchDeg?: number; errorPx?: number };
+  /** Top-camera calibration taken from the same tag in the same moment, when two cameras stream. */
+  secondary?: AprilTagCalibration;
+  secondaryError?: string;
+}
+
+/** Which physical camera a calibration action applies to: primary is the lower/detection camera. */
+export type CalibrationCamera = 'primary' | 'secondary';
+
+export type StereoCalibrationAction = 'status' | 'start' | 'capture' | 'solve' | 'activate' | 'end';
+export interface StereoCalibrationOptions {
+  columns?: number;
+  rows?: number;
+  squareMm?: number;
+  candidateId?: string;
+}
+
+export interface FrameUploadProgress {
+  captureId: string;
+  uploaded: number;
+  total: number;
+  state: 'running' | 'complete' | 'error';
+  message?: string;
+}
+export interface StereoCalibrationResult {
+  id: string;
+  passed: boolean;
+  rmsPx: number;
+  validationRmsPx: number;
+  validationMaxPx: number;
+  baselineMm: number;
+  trainingPairs: number;
+  validationPairs: number;
+  failures: string[];
+}
+export interface StereoCalibrationStatus {
+  version: number;
+  minimumPairs: number;
+  maximumPairs: number;
+  sessionId: string | null;
+  board: { columns: number; rows: number; squareMm: number } | null;
+  pairs: number;
+  candidate: StereoCalibrationResult | null;
+  active: StereoCalibrationResult | null;
 }
 
 export interface CalibrationCaptureStatus {
+  camera?: CalibrationCamera;
   totalSaved: number;
   totalWithCorners: number;
+  /** Per-camera counts; the top-level counts stay those of the primary camera. */
+  cameras?: Record<CalibrationCamera, { camera: CalibrationCamera; totalSaved: number; totalWithCorners: number }>;
 }
 
 export interface CalibrationImageResult extends CalibrationCaptureStatus {
-  index: number;
-  cornersFound: boolean;
-  columns: number;
-  rows: number;
-  image: { mimeType: 'image/jpeg'; base64: string };
+  index?: number;
+  cornersFound?: boolean;
+  columns?: number;
+  rows?: number;
+  image?: { mimeType: 'image/jpeg'; base64: string };
+  /** Set when the device could not save the view, e.g. the second camera is not streaming. */
+  error?: string;
+}
+
+export interface LensCalibrationSummary {
+  rmsPx?: number;
+  imageSize?: [number, number];
+  views?: number;
+  savedTo?: string;
+}
+
+export type ShotCoverageRating = 'good' | 'marginal' | 'insufficient';
+
+/** One typical launch projected through the saved lens + ground pose. */
+export interface ShotCoverageShot {
+  id: 'putt' | 'wedge' | 'iron' | 'driver';
+  label: string;
+  ballSpeedMps: number;
+  launchDeg: number;
+  travelPerFrameMm: number;
+  visiblePathMm: number;
+  /** Contact falls somewhere inside a frame interval, so the count is one of these two. */
+  framesMin: number;
+  framesMax: number;
+  pathNeededMm: number;
+  rating: ShotCoverageRating;
+}
+
+/** How many frames each kind of shot gets in view at the current frame rate. Geometry only. */
+export interface ShotCoverage {
+  version: number;
+  fps: number;
+  frameIntervalMs: number;
+  ballSource: 'live-ball' | 'assumed-placement';
+  ballPixel: [number, number];
+  ballDiameterPx: number;
+  cameraToBallMm: number;
+  headingSource: 'rolled-ball' | 'camera-axis';
+  downrangePathMm: number;
+  behindBallMm: number;
+  minimumFrames: number;
+  shots: ShotCoverageShot[];
+  notes: string[];
+  camera: CalibrationCamera;
 }
 
 export interface TargetLine {
@@ -226,6 +398,7 @@ export interface TargetLine {
 }
 
 export interface LensCalibrationResult {
+  camera?: CalibrationCamera;
   rmsPx: number;
   viewsUsed: number;
   viewsTotal: number;
@@ -234,6 +407,16 @@ export interface LensCalibrationResult {
 }
 
 export interface CameraDiagnostics {
+  cameraCount?: number;
+  primaryCameraIndex?: number;
+  secondaryCameraIndex?: number;
+  pairedFps?: number;
+  syncMode?: 'software';
+  syncReady?: boolean;
+  syncOffsetUs?: number;
+  secondaryFps?: number;
+  secondaryExposureUs?: number;
+  secondaryGain?: number;
   ballDetection?: BallDetection;
   aprilTag?: AprilTagCalibration;
   model?: string;
@@ -248,6 +431,23 @@ export interface CameraDiagnostics {
   focusScore?: number;
 }
 
+export type ReadinessStatus = 'ok' | 'warn' | 'fail';
+
+export interface ReadinessItem {
+  id: 'exposure' | 'ground' | 'stereo-rest' | 'club-profile' | string;
+  label: string;
+  status: ReadinessStatus;
+  /** What will go wrong and what to do about it. */
+  detail: string;
+}
+
+export interface Readiness {
+  version: 1;
+  status: ReadinessStatus;
+  items: ReadinessItem[];
+  checkedAt: string;
+}
+
 export interface DeviceStatus {
   automaticCapture?: boolean;
   name: string;
@@ -257,6 +457,7 @@ export interface DeviceStatus {
   transport?: 'ble';
   wifiProvisioning?: boolean;
   captureBackend?: 'camera' | 'simulator';
+  captureMode?: CaptureMode;
   selectedClubId?: ClubId;
   cameraConnected: boolean;
   camera?: CameraDiagnostics;
@@ -278,7 +479,12 @@ export interface DeviceStatus {
   storageFreeGb: number;
   calibrationVersion: string;
   groundCalibration?: AprilTagCalibration | null;
+  secondaryGroundCalibration?: AprilTagCalibration | null;
+  /** Pre-shot checks from the last ball placement, merged with the current club and exposure. */
+  readiness?: Readiness | null;
   calibrationCapture?: CalibrationCaptureStatus;
+  /** Installed lens intrinsics, keyed by camera; a missing key means that camera is uncalibrated. */
+  lensCalibration?: Partial<Record<CalibrationCamera, LensCalibrationSummary>>;
   targetLine?: TargetLine | null;
   lastSeenAt: string;
   preview?: {
@@ -325,17 +531,19 @@ export interface ExposureCalibrationResult {
 export type DeviceEvent =
   | { type: 'capture'; data: CaptureAnalysis }
   | { type: 'captureError'; data: { message: string } }
+  | { type: 'frameUploadProgress'; data: FrameUploadProgress }
   | { type: 'status'; data: DeviceStatus }
   | { type: 'ballPresence'; data: { present: boolean; confidence?: number } }
   | { type: 'shot'; data: DeviceShot }
   | { type: 'putt'; data: DevicePutt }
   | { type: 'processing'; data?: { progress?: number } }
-  | { type: 'preview'; data: { mimeType: 'image/jpeg'; base64: string; capturedAt: string; camera?: CameraDiagnostics } }
+  | { type: 'preview'; data: { mimeType: 'image/jpeg'; base64: string; secondaryBase64?: string; capturedAt: string; camera?: CameraDiagnostics } }
   | { type: 'calibrationImage'; data: CalibrationImageResult }
   | { type: 'exposureCalibration'; data: ExposureCalibrationResult }
+  | { type: 'readiness'; data: Readiness }
   | { type: 'ready' };
 
-export type AppTab = 'home' | 'putting' | 'calculator' | 'calibration' | 'history' | 'device';
+export type AppTab = 'home' | 'putting' | 'calculator' | 'calibration' | 'history' | 'device' | 'cloud';
 
 export type OpenGolfSimMode = 'web' | 'desktop';
 

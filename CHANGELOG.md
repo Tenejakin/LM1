@@ -1,5 +1,305 @@
 # Changelog
 
+## App 3.37.0 / Pi service 0.48.0 - 2026-09-25
+
+- Replace the flight model in both the app and the Pi. Checked against Trackman PGA Tour averages, the old model carried a driver 190 yd instead of 275 with a 13 yd apex; the new spin- and speed-dependent aerodynamics carry driver to wedge within 1-7%, with height and landing angle close. App and Pi produce identical carry.
+- Add model estimates from the measured launch: total distance, roll (on an assumed green for short steep landings, fairway otherwise), offline distance on the start line, apex, landing angle and hang time. Shown in shot details and, for total and apex, on the Monitor screen. All are labelled as calculated, never observed.
+- Estimate dynamic loft and spin loft from launch and attack angle with a rolling-contact impact model; it reproduces a tour 7-iron's ~21° dynamic loft. When launch sits more than 40° above the attack angle the model has no stable answer (one replayed chip gave 65°), so lofts are shown as unavailable.
+- Estimate backspin from club speed, launch and attack angle (fitted to tour spin within 10%) instead of the club average whenever the camera resolved the club; the club average remains the fallback. Carry, the simulator and session stats all use the same spin.
+- Add session tools: per-club averages with ± spread, carry/offline dispersion plot, gapping between clubs, and a per-shot "Exclude from session stats" toggle that syncs with the shot.
+
+## App 3.36.0 / Pi service 0.47.0 / protocol 2.33.0 - 2026-09-25
+
+- Measure the club with both cameras. The dark head barely shows on the mat, but the lit shaft and hosel highlight do; their vertex is triangulated in both views like the ball, with no swing-plane assumption. Club speed, attack angle and club path come from its 3D track. Replaying 15 real sand-wedge chips resolved 12, with smash mostly 1.16-1.38 (the single-camera path read 1.35-1.61, about 20% low on club speed).
+- Three frames are the minimum for every fitted motion: club (stereo and single camera) and ball trajectory, ball-size check and putt roll. More consistent frames join the least-squares fit; from five frames a constant-acceleration term follows the swing arc so attack angle is the value at impact, not the window average.
+- Keep the five-parameter free-start roll at six frames: on three frames it fits any track exactly and returned 0.1 m/s at 84° launch in a regression test.
+- Reject a club speed whose smash exceeds 1.55, above any real club.
+- Show attack angle and club path on the Monitor screen and in shot details, with the reason when unavailable. `clubPathDeg` is reported only from the two-camera track.
+
+## App 3.35.0 / Pi service 0.46.0 / protocol 2.32.0 - 2026-09-25
+
+Workflow fixes from an audit of 40 real captures, where measured shots were lost or polluted by setup faults that were only reported after the swing.
+
+- Check setup when the ball is placed: camera alignment (top camera offset, ray gap and resting-ball height, using the same limits as the stereo fit), ground calibration, exposure against the selected club's typical ball speed, and the clubface profile needed for strike. The Pi sends a `readiness` event and `status.readiness`; the Monitor and Putting screens show what to fix before hitting. Advisory only; it never blocks a capture.
+- Keep shots whose ball was measured when the club was not tracked. Club speed, smash and strike are shown as unavailable with the Pi's reason instead of the shot being discarded.
+- Classify full-shot movement that cannot be a strike as `not-a-strike`: under 2 m/s, more than 60° off the target line, or a ground roll with no club. These no longer enter shot history or reach the simulator.
+- Stop filling club speed, smash and strike from the club profile in the app. Missing values are null with a reason; older saved shots marked as club estimates display the same way.
+- Accept a tag-free club track of three clean frames (was four). On the stand the head is in view for 4-5 frames, of which the first is clipped by the image edge and the last merges with the ball; replaying 15 real chips recovered club speed on 13 instead of 7.
+- Reject a tag-free club speed whose smash exceeds 1.7, which no real club produces.
+
+## App 3.34.0 - 2026-09-25
+
+- Save the connected Raspberry Pi camera, capture, calibration, placement, and target-line settings to the signed-in user's Supabase preferences.
+- Refresh preference timestamps when an existing preference is updated.
+
+## App 3.33.0 / Pi service 0.45.0 / protocol 2.31.0 - 2026-09-25
+
+- Allow three clean paired stereo frames to receive measured-grade status when every existing timing, geometry, calibration, uncertainty, and fit-quality check passes.
+- Keep the two-frame path as an estimated ball-speed-only fallback.
+
+## App 3.32.0 / Pi service 0.44.0 / protocol 2.30.0 - 2026-09-25
+
+- Register putting captures even when face strike cannot be measured, and sync the putt to the signed-in Supabase account from the capture event if the Pi's putt event is absent.
+- Let the user explicitly recover a saved putt from the Pi into their account. Mark airborne captures and avoid showing fabricated roll or pace values.
+- Show putt cloud sync errors instead of silently discarding them.
+- Keep airborne putting captures out of automatic simulator sends and avoid duplicate sends when both capture and putt events arrive.
+
+## App 3.31.0 / Pi service 0.43.0 / protocol 2.29.0 - 2026-09-25
+
+- Show the Pi's current capture mode in the shot screen and provide a one-tap switch from Putting to Normal shot, including when putting is already armed.
+- Add a direct Normal shot switch on the Putting screen and keep the mode label in sync after reconnecting.
+- Block mode changes while a ball is detected so a live capture cannot change type midway.
+
+## App 3.30.0 - 2026-09-25
+
+- Show a camera-pair calibration fit score after validation, with explicit 100-point targets and the original error values.
+
+## Pi service 0.42.0 - 2026-09-24
+
+- Save a shorter full-shot burst after measured departure, while retaining the longer putting capture and keeping both cameras aligned.
+
+## App 3.29.0 - 2026-09-24
+
+- Upload every retained original-resolution camera frame for a shot to private Bunny Storage, with per-user Supabase frame records and resumable Pi uploads.
+- Show full-resolution frames in shot review after upload, even when the Pi is disconnected, and show upload progress in shot details.
+- Update the Pi service to 0.41.0 / BLE protocol 2.28.0 for direct ticketed frame uploads.
+
+## App 3.28.2 - 2026-09-24
+
+- Preserve Bunny image paths when shot data syncs again, including from older app builds.
+- Recover a missing image path from Bunny when restoring account history, or re-upload the capture from a connected Pi when the Bunny image is absent.
+- Show shot image upload errors on the Home screen so a failed camera image cannot look like a successful cloud upload.
+
+## App 3.28.1 - 2026-09-24
+
+- Link the LM1 Supabase project, reconcile the existing cloud schema migration, apply shot image columns, and deploy the authenticated `shot-images` Edge Function.
+- Configure the Bunny Storage endpoint as a function secret. The storage password still needs to be added in Supabase before image uploads can run.
+
+## App 3.28.0 - 2026-09-24
+
+- Install the Supabase server skill and migrate the shot image Edge Function to `@supabase/server` user authentication with row-level-secured database access.
+
+## App 3.27.0 - 2026-09-24
+
+- Save each signed-in user's live shots and putts to Supabase, upload primary and upper-camera shot images to private Bunny Storage through an authenticated Edge Function, and restore images in shot review.
+- Keep pending uploads scoped to the signed-in account and stop importing the shared Pi history into a user's cloud account.
+
+## App 3.26.0 - 2026-09-24
+
+- Refresh Supabase Auth tokens with React Native foreground/background state and retry cloud restores once after a JWT-related failure.
+
+## App 3.25.0 - 2026-09-24
+
+- Update Bunny Storage setup template with the LM1 Frankfurt storage endpoint and clarify that uploads require the write-capable storage password; CDN configuration is optional.
+
+## App 3.24.0 - 2026-09-24
+
+- Document Bunny Storage upload secrets as server-side Supabase Edge Function configuration; keep them out of the Expo client environment.
+
+## App 3.23.0 - 2026-09-24
+
+- Require a restored Supabase session before mounting the LM1 app, device providers, and feature tabs.
+
+## App 3.22.0 - 2026-09-24
+
+- Complete the initial Supabase account lifecycle with signup confirmation messaging, password reset email requests, and visible auth status feedback.
+
+## App 3.21.0 - 2026-09-24
+
+- Add optional Supabase account support, offline upload queues for shots and putts, a cloud account screen, and an initial row-level-secured cloud schema.
+
+## App 3.20.0 / Pi service 0.40.0 / protocol 2.27.0 - 2026-09-24
+
+- Estimate interval-average ball speed from exactly two clean stereo ball matches when their timing, ray geometry, resting-ball path, and one-pixel speed sensitivity pass strict checks.
+- Keep two-frame speed explicitly estimated; do not infer launch angle, direction, carry, or a measured-grade trajectory from two positions. Reject weak geometry rather than filling numbers.
+- Show two-frame speed provenance and uncertainty in iPhone capture review.
+
+## App 3.19.1 / Pi service 0.39.1 / protocol 2.26.1 - 2026-09-24
+
+- Show when a valid single-camera trajectory was used after stereo matching failed, and report stereo and mono failures separately when neither yields a trustworthy launch measurement.
+- Do not label a failed capture as having a single-camera measurement or mark a rejected stereo track as matched.
+
+## App 3.19.0 / Pi service 0.39.0 / protocol 2.26.0 - 2026-09-24
+
+- Restrict automatic ball placement and arming to the lower camera's left half (`x = 0%–50%`, `y = 30%–98%`), leaving the right half for left-to-right launch tracking. A ball crossing the zone boundary is rejected unless its full contour fits inside.
+- Move the live-preview target ring to the centre of that zone and explain the upper camera must also keep the ball visible.
+- Migrate only the previous stock ROI during offline Pi updates; preserve user-customized zones.
+
+## App 3.18.2 - 2026-09-24
+
+- Show start direction consistently as a magnitude with L/R in shot review, capture review and history.
+- Explain the left-to-right rig convention: R/positive means toward the cameras, L/negative means away. Keep the numeric sign unchanged in stored data and simulator messages.
+
+## App 3.18.1 / Pi service 0.38.1 / protocol 2.25.1 - 2026-09-24
+
+- Preserve tag-free silhouette club speed, smash factor and attack angle when no club marker profile is installed; an explicitly mismatched marker profile is still rejected.
+- Stack ball speed and carry on phone-sized shot reviews so the carry and measurement summary remain visible.
+- Label the assumed backspin used for carry without presenting it as camera-measured spin.
+
+## App 3.18.0 / Pi service 0.38.0 / protocol 2.25.0 - 2026-09-23
+
+- Carry is always a still-air flight-model estimate from launch speed, angle, target-line direction and backspin, never a landing measurement.
+- When spin is unavailable, use the selected club's typical spin scaled for shot speed and, when measured, adjusted for attack angle. Surface-spin failure remains visible in the capture review.
+- Retire the vacuum carry and club carry-factor calculations. Recalculate legacy app shots with the new model and label the model limits and assumed inputs.
+- Expose carry-model spin provenance on the Pi capture, and apply the same fallback to OpenGolfSim.
+
+## App 3.17.0 / Pi service 0.37.0 / protocol 2.24.0 - 2026-09-23
+
+- Added a separate fixed-pair calibration window with both live views, board settings, synchronized capture, held-out validation and explicit activation.
+- New `stereo_calibration.py` supports app-driven calibration and offline session solving, fixed lens inputs, symmetric checkerboard ordering, timing/diversity checks, versioned sessions and activation backups.
+- Activated pair geometry now supplies the top camera's world pose from the bottom camera's ground pose. Lens/resolution/camera-order mismatches reject stereo instead of reusing stale geometry.
+- Shot capture pauses during the calibration window; the lease expires after disconnection. Existing calibration and history are preserved until explicit activation; active pair snapshots accompany new captures.
+
+## App 3.16.1 / Pi service 0.36.1 / protocol 2.23.0 - 2026-09-23
+
+- Zero shot direction always follows the bottom camera's left-to-right axis projected onto the ground. Legacy manual target lines are ignored, not deleted.
+- Calibration screen explains automatic direction and removes manual roll controls. AprilTag rotation does not define the target heading.
+- Direction grading accepts the explicit camera-relative reference; physical alignment with the intended target remains the user's responsibility.
+- Regression tests cover saved-line override prevention and invariance under ground-tag coordinate rotation.
+
+## App 3.16.0 / Pi service 0.36.0 / protocol 2.23.0 - 2026-09-23
+
+- Reject stale target headings after ground recalibration and prevent setting the
+  target from a capture made in the previous ground coordinate system.
+- Separate club-motion evidence from ball movement. Captures without a resolved
+  pre-impact club track stay available for review but do not become full shots
+  or reach the simulator. No minimum shot speed is imposed on gentle chips.
+- Prefer the joint stereo launch when its geometry checks pass, even if the
+  single-camera fit succeeded. Preserve failed stereo checks and clearly name
+  the actual measurement source when using the single-camera estimate.
+- Recover a resting ball displaced within one diameter of the armed box, using
+  a persistent stationary cluster; constrain ground stereo fits to zero vertical
+  velocity. Hide club-profile placeholders for unresolved club, spin and strike
+  values in the main shot views.
+- Add an audit/replay script that uses each saved capture's original calibration
+  and shared sensor timestamps, writing separate comparison reports.
+
+## App 3.15.0 / Pi service 0.35.0 / protocol 2.22.0 - 2026-09-23
+
+- Do not create or send a camera shot when speed, launch angle, or direction is
+  unavailable. Keep the raw capture visible as failed tracking instead of
+  replacing missing ball speed with a club-profile default.
+- Preserve paired stereo frame indices and rejection counts on tracking failure.
+  Show matched frames and failed speed-quality checks in capture review.
+- Stop displaying an uncalibrated quality score as a percentage of accuracy for
+  camera shots. Retain measured/estimated labels and individual quality checks.
+
+## Pi service 0.34.0 / protocol 2.21.0 - 2026-09-23
+
+- Retry independent stereo ball-circle detection with a slightly more sensitive
+  edge threshold only when the normal pass cannot form a geometric camera pair.
+  The recovered pair must still pass size, ray-agreement, and trajectory checks.
+- Allow three paired frames spanning at least 8 ms to produce an estimated
+  stereo launch. Six paired frames remain required for measured-grade metrics.
+
+## Pi service 0.33.0 / protocol 2.21.0 - 2026-09-23
+
+- Detect ball-sized circles independently in both calibrated camera bursts when
+  the single-camera trajectory is missing or unreliable. Pair candidates by
+  ray agreement and apparent size, follow a coherent 3D path, and fit speed,
+  launch and direction from the paired sensor timestamps.
+- Recover the last stationary ball directly from the lower burst when its old
+  tracker supplies no track. Refine the upper resting-ball centre with a circle
+  fit so a nearby club does not shift the stereo start position.
+- Record the frame number and reason for each rejected independent candidate;
+  stop searching after the ball has been absent for eight frames.
+- On the saved 2026-09-23 shot, this recovers 10 paired frames that the old
+  lower-camera tracker skipped. The result remains an estimate pending
+  reference-launch-monitor validation.
+
+## Pi service 0.32.0 / protocol 2.21.0 - 2026-09-23
+
+- Use calibrated paired-camera observations for an independent stereo launch
+  fit when the single-camera trajectory fit fails, including failures caused by
+  unusable ball-outline size estimates.
+- Require both cameras' saved lens and ground-tag calibrations, matching frame
+  pairs, at least six upper-camera ball matches, close ray agreement, a plausible
+  start at the resting ball, and bounded reprojection residual before accepting
+  stereo recovery. Missing or poor stereo evidence leaves metrics unavailable.
+- Keep stereo as a cross-check when the single-camera fit succeeds. Record both
+  pose errors, pair timing, start-anchor error, stereo residual, and the
+  two-camera 3D track in capture analysis; BLE metric fields remain compatible.
+- This adds a calibrated stereo measurement path; accuracy still requires
+  validation against a reference launch monitor.
+
+## App 3.14.0 / Pi service 0.31.0 / protocol 2.21.0 - 2026-09-22
+
+- Lens calibration is now per camera. The Calibration screen has a Lower CAM0 /
+  Upper CAM1 selector that switches the checkerboard preview to that camera's
+  live view, shows only that camera's saved/corners-found counts, and reports
+  whether intrinsics are installed for it.
+- `captureCalibrationImage`, `clearCalibrationImages` and `runLensCalibration`
+  take `camera` (`primary` or `secondary`, default `primary`). Each camera keeps
+  its own folder of views and its own intrinsics file; the second camera writes
+  to `PINPOINT_SECONDARY_INTRINSICS_PATH`
+  (`/var/lib/pinpoint/intrinsics-secondary.json`). Views saved before this
+  release are moved into the primary camera's folder, so its counts carry over.
+- Capturing for the upper camera is refused when the second stream is not
+  running, instead of silently saving the lower camera's view.
+- Only a primary solve clears the saved ground calibration and target line,
+  because the measurement geometry is built on that lens. A secondary solve
+  leaves them alone.
+- Status adds `lensCalibration` (installed intrinsics per camera) and
+  `calibrationCapture.cameras` (counts per camera); the existing top-level
+  counts still describe the primary camera.
+- The second camera's intrinsics are stored only. Stereo calibration, extrinsics
+  and 3D measurement from both views remain unavailable; measurements still use
+  the lower camera alone.
+- Shot coverage at ~240 fps: new `shotCoverage` command and a Shot coverage
+  card on the Calibration screen. It projects a putt, wedge, 7-iron and driver
+  launch from the detected ball through the saved lens + ground pose, and
+  reports travel per frame, visible path and the 2 possible frame counts, rated
+  good (>=4), just enough (3) or too few. It also suggests moving the ball
+  upstream or the camera back. Geometry only.
+- 23 new Pi tests (220 total) pass. TypeScript and lint pass. Not yet run
+  against the physical dual-camera Pi.
+
+## App 3.13.0 / Pi service 0.30.0 / protocol 2.20.0 - 2026-09-22
+
+- Dual OV9281 acquisition for vertical enclosure v0.7.2: lower CAM0 triggers
+  one burst containing both views. Shared exposure/gain controls, dual live
+  previews, and matching upper frames in capture review and replay.
+- Software synchronization with independently buffered sensors, timestamp
+  pairing within 250 microseconds, and explicit failure when either camera
+  or timing lock is unavailable. Intermittent SyncReady metadata is retained.
+- Saves upper frames in camera-secondary, with separate timestamps and a contact
+  sheet. The main manifest records pair offsets; diagnostics include paired fps.
+- Verified profile: 640x400, requested 242 fps, 10-bit mode. Full detector/preview
+  run measured 241.56 paired fps and maximum 54 microseconds offset. Faster
+  243-245 fps stalled; 280/300 fps in 8-bit mode failed the pairing tolerance.
+- Measurement calculations still use the lower camera; stereo geometry and
+  physical accuracy need calibration and validation. Existing history works.
+- Versioned setup/backup/verification scripts and DUAL_CAMERA_SETUP.md describe
+  placement, lighting, measured results and rollback.
+
+## App 3.12.0 / Pi service 0.29.0 / protocol 2.19.0 - 2026-09-18
+
+Values are now labelled measured or estimated from real quality checks, instead of every camera value showing a flat 70%.
+
+- Pi: every reported metric is graded after analysis. It is labelled `measured` only when every quality gate passes: ground-tag pose error, trajectory-fit residual, speed and angle fit uncertainty, spin sample count, club-tag pose count, and a rolled-ball target line for start direction. Otherwise it is `estimated`, with a `confidence` that falls with each failed gate, scaled by how far the value missed. Each metric also lists its `checks`.
+- Previously no value was ever labelled measured, so the app gave every camera value 70%, and the overall score was capped at 65% by the fixed strike value.
+- Carry, face contact, roll/skid and all tag-free club values are always estimates, because each rests on a model or an assumption. Smash is measured only when both speeds are.
+- App: every value on the shot screen shows a Measured or Estimated badge. The percentage appears only on estimates. Tapping a value opens a small window with the quality checks (passed/failed) and the device's explanation of how the value was produced. Club-profile fallbacks explain why the camera could not provide the value.
+- Older Pi firmware without grades still works: its values show as estimates at the previous default.
+- Measured means "passed this device's own checks". It has not been validated against a reference launch monitor.
+- 6 new Pi tests for the grading; all Pi tests pass. TypeScript and lint pass.
+
+Sharper edges for the ball and the ground tag.
+
+- Ground AprilTag corners are now refined to sub-pixel accuracy (`CORNER_REFINE_SUBPIX`). OpenCV's default left them at the whole-pixel quad fit. On replays of the saved captures, the three worst tag poses dropped from 1.45 / 1.25 / 1.55 px to 1.04 / 1.17 / 0.96 px. The other methods were worse or lost the tag on one capture. Override with `PINPOINT_APRILTAG_CORNER_REFINE` (`none`, `subpix`, `contour`, `apriltag`).
+- The ball's apparent size now comes from a sub-pixel edge fit instead of the enclosing circle of a thresholded mask:
+  - 72 rays run outward from the tracked centre;
+  - each edge sits at the half-contrast crossing in the flicker-corrected difference image;
+  - RANSAC keeps the largest outline arc that is truly circular, and it must span at least 150°.
+  Real balls are side-lit, with a dim limb that fades into the background, and on these captures the top is cut off flat by a shadow line. A plain fit averaged both in. On synthetic balls the fit is within 0.6% of the true radius when evenly lit, and within about 1.2% when side-lit or cut off flat. On real frames each fit's outline residual is about 0.3 px, and the slow putt now has an edge-fitted size in 33 of 42 frames.
+- Size is weighted by its measured frame-to-frame jitter (0.65–0.9 px on real captures). The edge fit's centre is *not* used: which lit arc it locks onto shifts between frames, and it raised the track residual from about 1.5 to about 2.1 px against the template-matched centre.
+- New scale self-check using the standard 42.67 mm ball: `trajectoryFit.ballSizeRatio` is the measured over the predicted apparent size. Away from 1, the tag size, lens model or ground pose is scaling every distance, and so every speed. It is a grading check (within 5% for "measured"). On replays, the two clean ground-roll shots read 0.96–0.97. The flight shot reporting a 58° launch reads 0.83, so its implausible launch is now flagged.
+- Ball compression: a struck ball is flattened and ringing at contact, so the first moving frame's size, and any frame within 3 ms of it, is never used; only its position is.
+- Net effect on the saved captures is modest. Speeds moved by 0–4%. Track residual is unchanged at about 1.5 px, because it is dominated by the template centre, not size. Most values stay estimates, mainly because of that residual. `scripts/replay-edge-precision.py` reproduces the comparison; results are in `output/edge-precision/`.
+- JPEG replays with no reference launch monitor: tighter and more self-consistent, not proven more accurate.
+- 8 new Pi tests (synthetic edge-fit accuracy and the compression window).
+- Installer: `install.sh` now also installs `club_vision.py` (needed since 0.27.0, previously copied by hand) and `exposure_calibration.py` (needed since 0.28.0). Without it, an installer-only update to 0.28.0 would have left automatic exposure unable to import.
+
 ## App 3.11.0 / Pi service 0.28.0 - 2026-09-18
 
 Usability pass over the app, plus automatic exposure.

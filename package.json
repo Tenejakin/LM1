@@ -1,6 +1,6 @@
 {
   "name": "pinpoint-launch-monitor",
-  "version": "3.11.0",
+  "version": "3.37.0",
   "private": true,
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {
@@ -14,11 +14,13 @@
     "lint": "expo lint",
     "ogs:bridge": "node bridge/opengolfsim-bridge.cjs",
     "test:ogs": "node scripts/test-opengolfsim-bridge.cjs",
-    "test:capture": "node scripts/test-capture-client.cjs"
+    "test:capture": "node scripts/test-capture-client.cjs",
+    "test:camera-shot": "node scripts/test-capture-estimates.cjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.1.1",
     "@react-native-async-storage/async-storage": "2.2.0",
+    "@supabase/supabase-js": "^2.117.1",
     "expo": "~54.0.37",
     "expo-build-properties": "~1.0.10",
     "expo-dev-client": "~6.0.21",

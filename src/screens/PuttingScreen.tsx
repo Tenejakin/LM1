@@ -6,6 +6,7 @@ import Svg, { Circle, Defs, LinearGradient, Line, Path, Stop } from 'react-nativ
 
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { CaptureReview } from '@/components/CaptureReview';
+import { ReadinessCard } from '@/components/ReadinessCard';
 import { Eyebrow, MetricTile, PrimaryButton, SectionHeader, Surface } from '@/components/ui';
 import { useLaunchMonitor } from '@/context/LaunchMonitorContext';
 import { colors, radii, spacing } from '@/theme';
@@ -20,7 +21,7 @@ import { useUnits } from '@/context/UnitsContext';
 
 const METERS_TO_FEET = 3.28084;
 
-export function PuttingScreen({ onOpenDevice }: { onOpenDevice: () => void }) {
+export function PuttingScreen({ onOpenDevice, onOpenNormalShot }: { onOpenDevice: () => void; onOpenNormalShot: () => void }) {
   const insets = useSafeAreaInsets();
   const {
     state,
@@ -32,12 +33,16 @@ export function PuttingScreen({ onOpenDevice }: { onOpenDevice: () => void }) {
     captureMode,
     ballDetected,
     armPutting,
-    disarm,
+    getLatestPuttRecoveryCandidate,
+    saveRecoveredPutt,
     trigger,
     clearError,
   } = useLaunchMonitor();
   const [targetInput, setTargetInput] = useState('3.0');
   const [stimpInput, setStimpInput] = useState('10');
+  const [recoveryCandidate, setRecoveryCandidate] = useState<Putt | null>(null);
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const [recoveryMessage, setRecoveryMessage] = useState<string | null>(null);
   const targetDistanceM = clamp(parseDecimal(targetInput) ?? 3, 0.5, 30);
   const stimpFeet = clamp(parseDecimal(stimpInput) ?? 10, 5, 15);
   const recentPutts = useMemo(() => putts.slice(0, 4), [putts]);
@@ -49,7 +54,7 @@ export function PuttingScreen({ onOpenDevice }: { onOpenDevice: () => void }) {
     if (state === 'offline' || state === 'error') onOpenDevice();
     else if (state === 'ready') void armPutting();
     else if (puttingArmed) void trigger();
-    else if (state === 'armed') void disarm();
+    else if (state === 'armed') void armPutting();
   };
 
   const primaryLabel = automaticCapture && puttingArmed
@@ -59,7 +64,7 @@ export function PuttingScreen({ onOpenDevice }: { onOpenDevice: () => void }) {
     : puttingArmed
       ? isDemo ? 'Simulate putt' : isPiTest ? 'Send test putt' : 'Manual putt trigger'
       : state === 'armed'
-        ? 'Disarm shot mode first'
+        ? 'Switch to putting mode'
         : state === 'processing'
           ? 'Analyzing putt'
           : state === 'connecting'
@@ -75,6 +80,7 @@ export function PuttingScreen({ onOpenDevice }: { onOpenDevice: () => void }) {
       showsVerticalScrollIndicator={false}
     >
       <ScreenHeader title="Putting" subtitle="Pace & start-line monitor" state={state} demo={isDemo} />
+      {automaticCapture && puttingArmed ? <ReadinessCard readiness={status?.readiness} /> : null}
       <CaptureReview />
 
       {error ? (
@@ -121,10 +127,58 @@ export function PuttingScreen({ onOpenDevice }: { onOpenDevice: () => void }) {
           label={primaryLabel}
           icon={state === 'ready' ? 'radio' : puttingArmed ? 'ellipse' : 'link'}
           onPress={handlePrimary}
-          disabled={state === 'processing' || state === 'connecting' || (automaticCapture && puttingArmed)}
+          disabled={state === 'processing' || state === 'connecting' || (automaticCapture && puttingArmed) || (state === 'armed' && !puttingArmed && ballDetected)}
           loading={state === 'processing' || state === 'connecting'}
         />
+        {captureMode === 'putting' && (state === 'ready' || state === 'armed') ? (
+          <PrimaryButton
+            label="Switch to normal shot"
+            icon="golf"
+            variant="outline"
+            onPress={onOpenNormalShot}
+            disabled={ballDetected}
+          />
+        ) : null}
+        {ballDetected && state === 'armed' ? (
+          <Text style={styles.setupBody}>Remove the ball before switching capture modes.</Text>
+        ) : null}
       </Surface>
+
+      {!isDemo && state !== 'offline' && state !== 'connecting' ? (
+        <Surface style={styles.setupCard}>
+          <Text style={styles.setupTitle}>Missing a putt?</Text>
+          <Text style={styles.setupBody}>Find the latest saved putting capture on this Pi, then choose whether to save it to your account.</Text>
+          <PrimaryButton label="Find last Pi putt" variant="outline" loading={recoveryBusy} disabled={recoveryBusy}
+            onPress={() => void (async () => {
+              setRecoveryBusy(true);
+              setRecoveryMessage(null);
+              try {
+                const candidate = await getLatestPuttRecoveryCandidate();
+                setRecoveryCandidate(candidate);
+                if (!candidate) setRecoveryMessage('No unsaved putt with usable measurements was found on this Pi.');
+              } catch (caught) {
+                setRecoveryMessage(caught instanceof Error ? caught.message : 'Could not read saved Pi captures.');
+              } finally { setRecoveryBusy(false); }
+            })()} />
+          {recoveryCandidate ? <>
+            <Text style={styles.setupBody}>Saved {new Date(recoveryCandidate.capturedAt).toLocaleString()} · ball speed {recoveryCandidate.ballSpeedMps.toFixed(2)} m/s · launch {recoveryCandidate.launchAngleDeg.toFixed(1)}°</Text>
+            {recoveryCandidate.airborne ? <Text style={styles.errorText}>The ball was airborne; roll distance and pace will not be estimated.</Text> : null}
+            <PrimaryButton label="Save this putt to my account" loading={recoveryBusy} disabled={recoveryBusy}
+              onPress={() => void (async () => {
+                setRecoveryBusy(true);
+                setRecoveryMessage(null);
+                try {
+                  await saveRecoveredPutt(recoveryCandidate);
+                  setRecoveryCandidate(null);
+                  setRecoveryMessage('Putt saved to your Supabase account.');
+                } catch (caught) {
+                  setRecoveryMessage(caught instanceof Error ? caught.message : 'Could not save this putt.');
+                } finally { setRecoveryBusy(false); }
+              })()} />
+          </> : null}
+          {recoveryMessage ? <Text style={styles.setupBody}>{recoveryMessage}</Text> : null}
+        </Surface>
+      ) : null}
 
       {activePutt ? (
         <PuttResult putt={activePutt} targetDistanceM={targetDistanceM} stimpFeet={stimpFeet} />
@@ -188,7 +242,11 @@ function PuttResult({
         </View>
       </View>
 
-      <Surface style={styles.paceCard}>
+      {putt.airborne ? (
+        <Surface style={styles.paceCard}>
+          <Text style={styles.errorText}>Ball airborne · {putt.launchAngleDeg.toFixed(1)}° launch. Roll distance and pace are unavailable for this capture.</Text>
+        </Surface>
+      ) : <Surface style={styles.paceCard}>
         <View>
           <Eyebrow>{putt.rollDistanceM === undefined ? 'Estimated roll' : 'Measured roll'}</Eyebrow>
           <View style={styles.rollRow}>
@@ -203,7 +261,7 @@ function PuttResult({
             {paceLabel(rollDistanceM, targetDistanceM)}
           </Text>
         </View>
-      </Surface>
+      </Surface>}
 
       <View style={styles.metricsRow}>
         <MetricTile label="Ball speed" value={units.speed(putt.ballSpeedMps)} unit={units.speedLabel} accent />
@@ -211,7 +269,7 @@ function PuttResult({
         <MetricTile label="Smash" value={putt.smashFactor.toFixed(2)} />
       </View>
 
-      <Surface style={styles.pathCard}>
+      {!putt.airborne ? <Surface style={styles.pathCard}>
         <View style={styles.pathHeader}>
           <View>
             <Eyebrow>Start line & pace</Eyebrow>
@@ -225,7 +283,7 @@ function PuttResult({
           </View>
         </View>
         <PuttPath putt={putt} rollDistanceM={rollDistanceM} targetDistanceM={targetDistanceM} />
-      </Surface>
+      </Surface> : null}
 
       <Surface style={styles.detailCard}>
         <DetailRow label="Launch direction" value={startLineLabel(putt.launchDirectionDeg)} />
@@ -334,11 +392,11 @@ function PuttRow({
         <Text style={styles.puttNumberText}>{putt.number}</Text>
       </View>
       <View style={styles.puttMain}>
-        <Text style={styles.puttDistance}>{rollDistanceM.toFixed(2)} m</Text>
+        <Text style={styles.puttDistance}>{putt.airborne ? 'Airborne' : `${rollDistanceM.toFixed(2)} m`}</Text>
         <Text style={styles.puttMeta}>{units.speedWithUnit(putt.ballSpeedMps)} · {startLineLabel(putt.launchDirectionDeg)}</Text>
       </View>
       <View style={styles.puttPace}>
-        <Text style={styles.puttPaceValue}>{paceLabel(rollDistanceM, targetDistanceM)}</Text>
+        <Text style={styles.puttPaceValue}>{putt.airborne ? 'Roll unavailable' : paceLabel(rollDistanceM, targetDistanceM)}</Text>
         <Text style={styles.puttConfidence}>{putt.measurementSource ? 'Accuracy not validated' : Math.round(putt.confidence * 100) + '% confidence'}</Text>
       </View>
     </Surface>
@@ -358,7 +416,7 @@ function puttingHero(state: string, mode: string, fps?: number, isPiTest = false
   if (state === 'armed' && mode === 'putting') return isPiTest
     ? { eyebrow: 'Connection test armed', title: 'Ready to test putting', body: 'Send a synthetic putt from the Raspberry Pi.' }
     : { eyebrow: 'Putting mode armed', title: 'Roll when ready', body: 'The capture window is watching the ball and putter.' };
-  if (state === 'armed') return { eyebrow: 'Full-shot mode active', title: 'Disarm before putting', body: 'Switch capture modes safely before rolling a putt.' };
+  if (state === 'armed') return { eyebrow: 'Normal shot active', title: 'Switch to putting', body: 'Change mode before placing the ball for a putt.' };
   if (state === 'processing') return isPiTest
     ? { eyebrow: 'Test event received', title: 'Checking live data', body: 'The Pi is sending a synthetic putting result.' }
     : { eyebrow: 'Tracking roll', title: 'Analyzing putt', body: 'Calculating pace, start line, skid, and strike.' };
@@ -368,6 +426,7 @@ function puttingHero(state: string, mode: string, fps?: number, isPiTest = false
 }
 
 function puttStrikeLabel(putt: Putt): string {
+  if (!putt.strike) return 'Not measured';
   if (Math.abs(putt.strike.xMm) < 1) return 'Centered';
   return `${Math.abs(putt.strike.xMm).toFixed(0)} mm ${putt.strike.xMm > 0 ? 'toe' : 'heel'}`;
 }

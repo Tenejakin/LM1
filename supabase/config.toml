@@ -1,0 +1,5 @@
+[functions.shot-images]
+verify_jwt = false
+
+[functions.shot-frame-ingest]
+verify_jwt = false

@@ -3,6 +3,7 @@ import React, { createContext, PropsWithChildren, useCallback, useContext, useEf
 
 import { MPH_PER_MPS } from '@/utils/speed';
 import { YARDS_PER_METER } from '@/utils/carry';
+import { useCloudSync } from '@/context/CloudSyncContext';
 
 export type SpeedUnit = 'kmh' | 'mph';
 export type DistanceUnit = 'm' | 'yd';
@@ -44,6 +45,7 @@ type UnitsValue = {
 const UnitsContext = createContext<UnitsValue | null>(null);
 
 export function UnitsProvider({ children }: PropsWithChildren) {
+  const { session, savePreference, restorePreferences } = useCloudSync();
   const [ready, setReady] = useState(false);
   const [speedUnit, setSpeedUnitState] = useState<SpeedUnit>('kmh');
   const [distanceUnit, setDistanceUnitState] = useState<DistanceUnit>('m');
@@ -59,6 +61,11 @@ export function UnitsProvider({ children }: PropsWithChildren) {
         if (cancelled) return;
         if (isSpeedUnit(savedSpeed)) setSpeedUnitState(savedSpeed);
         if (isDistanceUnit(savedDistance)) setDistanceUnitState(savedDistance);
+        if (session) {
+          const preferences = await restorePreferences();
+          if (isSpeedUnit(preferences.speedUnit)) setSpeedUnitState(preferences.speedUnit);
+          if (isDistanceUnit(preferences.distanceUnit)) setDistanceUnitState(preferences.distanceUnit);
+        }
       } finally {
         if (!cancelled) setReady(true);
       }
@@ -66,17 +73,19 @@ export function UnitsProvider({ children }: PropsWithChildren) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [session, restorePreferences]);
 
   const setSpeedUnit = useCallback((unit: SpeedUnit) => {
     setSpeedUnitState(unit);
     void AsyncStorage.setItem(SPEED_KEY, unit);
-  }, []);
+    void savePreference('speedUnit', unit).catch(() => {});
+  }, [savePreference]);
 
   const setDistanceUnit = useCallback((unit: DistanceUnit) => {
     setDistanceUnitState(unit);
     void AsyncStorage.setItem(DISTANCE_KEY, unit);
-  }, []);
+    void savePreference('distanceUnit', unit).catch(() => {});
+  }, [savePreference]);
 
   const value = useMemo<UnitsValue>(() => {
     const speedIn = (unit: SpeedUnit, mps: number) => (unit === 'mph' ? mps * MPH_PER_MPS : mps * 3.6);

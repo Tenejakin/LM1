@@ -252,28 +252,70 @@ export function StatusBadge({ state, demo = false }: { state: DeviceState; demo?
   );
 }
 
+export interface MeasurementLabel {
+  measured: boolean;
+  /** Shown only on estimates; a measured value passed every device check. */
+  confidence?: number;
+}
+
+export function MeasurementBadge({ label }: { label: MeasurementLabel }) {
+  const tone = label.measured ? colors.accent : colors.orange;
+  return (
+    <View style={styles.measurementRow}>
+      <View style={[styles.measurementBadge, label.measured ? styles.measuredBadge : styles.estimatedBadge]}>
+        <Ionicons name={label.measured ? 'checkmark-circle' : 'analytics'} size={10} color={tone} />
+        <Text style={[styles.measurementText, { color: tone }]}>{label.measured ? 'Measured' : 'Estimated'}</Text>
+      </View>
+      {!label.measured && label.confidence !== undefined ? (
+        <Text style={styles.measurementConfidence}>{Math.round(label.confidence * 100)}%</Text>
+      ) : null}
+    </View>
+  );
+}
+
 export function MetricTile({
   label,
   value,
   unit,
   accent = false,
   note,
+  measurement,
+  onPress,
 }: {
   label: string;
   value: string;
   unit?: string;
   accent?: boolean;
   note?: string;
+  measurement?: MeasurementLabel;
+  /** Makes the tile tappable, e.g. to explain how the value was produced. */
+  onPress?: () => void;
 }) {
-  return (
-    <View style={styles.metricTile}>
+  const content = (
+    <>
+      {onPress ? (
+        <Ionicons name="information-circle-outline" size={12} color={colors.textDim} style={styles.metricInfoIcon} />
+      ) : null}
       <Text style={styles.metricLabel}>{label}</Text>
       <View style={styles.metricValueRow}>
         <Text style={[styles.metricValue, accent && styles.metricValueAccent]}>{value}</Text>
         {unit ? <Text style={styles.metricUnit}>{unit}</Text> : null}
       </View>
+      {measurement ? <MeasurementBadge label={measurement} /> : null}
       {note ? <Text style={styles.metricNote}>{note}</Text> : null}
-    </View>
+    </>
+  );
+  if (!onPress) return <View style={styles.metricTile}>{content}</View>;
+  return (
+    <Pressable
+      accessibilityHint="Shows how this value was measured or estimated"
+      accessibilityLabel={`${label} ${value}${unit ? ` ${unit}` : ''}`}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [styles.metricTile, pressed && styles.metricTilePressed]}
+    >
+      {content}
+    </Pressable>
   );
 }
 
@@ -371,6 +413,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.line,
   },
+  metricTilePressed: { opacity: 0.75 },
+  metricInfoIcon: { position: 'absolute', top: 5, right: 5 },
+  measurementRow: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', columnGap: 5, marginTop: 6 },
+  measurementConfidence: { color: colors.orange, fontSize: 10, fontWeight: '800' },
   metricLabel: {
     color: colors.textMuted,
     fontSize: 10,
@@ -379,6 +425,19 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     marginBottom: spacing.xs,
   },
+  measurementBadge: {
+    alignSelf: 'flex-start',
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+  },
+  measuredBadge: { backgroundColor: 'rgba(199, 243, 107, 0.1)', borderColor: 'rgba(199, 243, 107, 0.35)' },
+  estimatedBadge: { backgroundColor: 'rgba(255, 184, 106, 0.1)', borderColor: 'rgba(255, 184, 106, 0.35)' },
+  measurementText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.3 },
   metricValueRow: { flexDirection: 'row', alignItems: 'baseline', gap: 4 },
   metricValue: { color: colors.text, fontSize: 25, fontWeight: '700', letterSpacing: -1 },
   metricValueAccent: { color: colors.accent },

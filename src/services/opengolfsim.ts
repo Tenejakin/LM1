@@ -1,4 +1,6 @@
 import { CaptureAnalysis, OpenGolfSimConfig, OpenGolfSimResult, Putt, Shot } from '@/types';
+import { selectSpin } from '@/utils/carry';
+import { isClubId } from '@/data/clubs';
 
 const CONNECTION_TIMEOUT_MS = 7_000;
 const WEB_SOCKET_ROOT = 'wss://app.opengolfsim.com/api';
@@ -63,26 +65,8 @@ function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
 }
 
-const fallbackSpinByClub: Record<Shot['clubId'], number> = {
-  driver: 2600,
-  '3-wood': 3500,
-  '5-wood': 4200,
-  '3-hybrid': 4300,
-  '4-hybrid': 4700,
-  '4-iron': 4800,
-  '5-iron': 5300,
-  '6-iron': 5900,
-  '7-iron': 6500,
-  '8-iron': 7200,
-  '9-iron': 7900,
-  'pitching-wedge': 8600,
-  'gap-wedge': 9200,
-  'sand-wedge': 9800,
-  'lob-wedge': 10_200,
-};
-
 function fallbackSpinRpm(shot: Shot): number {
-  return fallbackSpinByClub[shot.clubId];
+  return selectSpin(shot.clubId, shot.ballSpeedMps, shot.launchAngleDeg, null, shot.clubSpeedMps, shot.attackAngleDeg).rpm;
 }
 
 export function toOpenGolfSimShot(shot: Shot) {
@@ -121,6 +105,8 @@ export function toOpenGolfSimPutt(putt: Putt) {
  * three measured values is missing rather than inventing one.
  */
 export function toOpenGolfSimCapture(capture: CaptureAnalysis) {
+  if (capture.classification !== 'motion-observed'
+      || (capture.mode === 'full-shot' && capture.measurements?.shotEvidence?.status === 'not-a-strike')) return null;
   const metrics = capture.measurements?.metrics;
   const speed = metrics?.ballSpeedMps?.value;
   const launch = metrics?.launchAngleDeg?.value;
@@ -128,6 +114,7 @@ export function toOpenGolfSimCapture(capture: CaptureAnalysis) {
   if (speed === null || speed === undefined || launch === null || launch === undefined || direction === null || direction === undefined) {
     return null;
   }
+  if (![speed, launch, direction].every(Number.isFinite) || speed <= 0) return null;
   if (capture.mode === 'putting') {
     const rollingSpinRpm = speed / (2 * Math.PI * 0.02135) * 60;
     return {
@@ -142,7 +129,7 @@ export function toOpenGolfSimCapture(capture: CaptureAnalysis) {
       },
     };
   }
-  const clubId = (capture.clubId in fallbackSpinByClub ? capture.clubId : 'driver') as Shot['clubId'];
+  const clubId = isClubId(capture.clubId) ? capture.clubId : 'driver';
   const measuredSpin = metrics?.spinRpm?.value;
   const measuredAxis = metrics?.spinAxisDeg?.value;
   return {
@@ -152,7 +139,8 @@ export function toOpenGolfSimCapture(capture: CaptureAnalysis) {
       ballSpeed: Number(Math.max(0, speed).toFixed(3)),
       verticalLaunchAngle: Number(clamp(launch, 0, 45).toFixed(2)),
       horizontalLaunchAngle: Number(clamp(direction, -45, 45).toFixed(2)),
-      spinSpeed: Math.round(Math.max(0, measuredSpin ?? fallbackSpinByClub[clubId])),
+      spinSpeed: Math.round(Math.max(0, selectSpin(clubId, speed, launch, measuredSpin,
+        metrics?.clubSpeedMps?.value, metrics?.attackAngleDeg?.value).rpm)),
       spinAxis: Number(clamp(measuredAxis ?? 0, -45, 45).toFixed(2)),
     },
   };

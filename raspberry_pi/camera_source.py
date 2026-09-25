@@ -7,6 +7,7 @@ import math
 import os
 import threading
 import time
+from collections import deque
 from pathlib import Path
 from typing import Any, Callable
 
@@ -21,7 +22,7 @@ DEFAULT_CAMERA_SETTINGS_PATH = Path("/var/lib/pinpoint/camera-settings.json")
 _lock = threading.Lock()
 _live: dict[str, Any] = {}
 _updated = 0.0
-_active_capture: CsiCapture | None = None
+_active_capture: CsiCapture | DualCsiCapture | None = None
 
 
 def uses_csi() -> bool:
@@ -183,6 +184,7 @@ def auto_calibrate_camera(grab_frame: "Callable[[], Any]") -> dict[str, Any]:
             min_gain=MIN_CAMERA_GAIN,
             max_gain=MAX_CAMERA_GAIN,
             gain_step=CAMERA_GAIN_STEP,
+            settle_frames=12 if isinstance(capture, DualCsiCapture) else 2,
         )
     except Exception:
         # Never strand the camera on a probe setting when the sweep fails.
@@ -204,18 +206,23 @@ def auto_calibrate_camera(grab_frame: "Callable[[], Any]") -> dict[str, Any]:
 class CsiCapture:
     """Picamera2 adapter returning OpenCV-compatible images from one owned stream."""
 
-    def __init__(self) -> None:
+    def __init__(self, index: int | None = None, *, sync_mode: Any = None,
+                 start: bool = True, publish: bool = True) -> None:
         from picamera2 import Picamera2
 
         self.camera = None
+        self.publish = publish
         self.metadata: dict[str, Any] = {}
         width, height = map(int, os.getenv("PINPOINT_CAMERA_RESOLUTION", "1280x800").split("x"))
         fps = float(os.getenv("PINPOINT_CAMERA_FPS", "30"))
         if width <= 0 or height <= 0 or fps <= 0:
             raise ValueError("Camera dimensions and frame rate must be positive")
-        camera = Picamera2(int(os.getenv("PINPOINT_CAMERA_INDEX", "0")))
+        self.index = int(os.getenv("PINPOINT_CAMERA_INDEX", "0")) if index is None else index
+        camera = Picamera2(self.index)
         try:
             controls: dict[str, Any] = {"FrameRate": fps, "AeEnable": True}
+            if sync_mode is not None:
+                controls["SyncMode"] = sync_mode
             exposure = configured_exposure_us()
             gain = configured_camera_gain()
             if exposure > 0:
@@ -223,20 +230,22 @@ class CsiCapture:
                                 AnalogueGain=gain)
             config = camera.create_video_configuration(
                 main={"size": (width, height), "format": "RGB888"},
-                sensor={"output_size": (width, height), "bit_depth": 10},
+                sensor={"output_size": (width, height), "bit_depth": int(os.getenv("PINPOINT_CAMERA_BIT_DEPTH", "10"))},
                 # Extra queued requests absorb short stalls in the detection loop
                 # instead of dropping 200 fps frames (640x400 RGB is ~0.8 MB each).
                 controls=controls, buffer_count=max(4, int(os.getenv("PINPOINT_CAMERA_BUFFER_COUNT", "8"))),
             )
             camera.configure(config)
-            camera.start()
+            if start:
+                camera.start()
             self.model = str(camera.camera_properties.get("Model", "CSI camera"))
             self.exposure_us = exposure
             self.gain = gain
             self.camera = camera
             global _active_capture
-            with _lock:
-                _active_capture = self
+            if publish:
+                with _lock:
+                    _active_capture = self
         except Exception:
             camera.close()
             raise
@@ -271,6 +280,10 @@ class CsiCapture:
         if self.camera is None:
             return False, None
         job = self.camera.capture_request(wait=False)
+        return self.finish_read(job)
+
+    def finish_read(self, job: Any) -> tuple[bool, Any]:
+        """Complete a request already queued, allowing both sensors to run together."""
         try:
             request = self.camera.wait(job, timeout=2)
         except TimeoutError:
@@ -280,14 +293,16 @@ class CsiCapture:
             frame = request.make_array("main")
             self.metadata = request.get_metadata()
             duration = self.metadata.get("FrameDuration", 0)
-            record_camera_diagnostics({
+            diagnostics = {
                 "model": self.model, "width": frame.shape[1], "height": frame.shape[0],
                 "fps": round(1_000_000 / duration, 1) if duration else 0,
                 "exposureUs": self.metadata.get("ExposureTime", 0),
                 "gain": round(self.metadata.get("AnalogueGain", 1), 2),
                 "autoExposure": self.exposure_us <= 0,
                 "autofocus": "AfMode" in self.camera.camera_controls,
-            })
+            }
+            if self.publish:
+                record_camera_diagnostics(diagnostics)
             return True, frame
         finally:
             request.release()
@@ -303,4 +318,176 @@ class CsiCapture:
                 camera.stop()
             finally:
                 camera.close()
-        clear_camera_diagnostics()
+        if self.publish:
+            clear_camera_diagnostics()
+
+
+class DualCsiCapture:
+    """One owner for two software-synchronised OV9281 streams.
+
+    Frames are paired by their sensor clocks, never by host read order. A missing
+    camera or lost timing lock fails the pair so the detector cannot arm on an
+    incomplete capture. This is acquisition, not stereo calibration/measurement.
+    """
+
+    def __init__(self) -> None:
+        from libcamera import controls
+
+        self.cameras: list[CsiCapture] = []
+        self._condition = threading.Condition()
+        self._stop = threading.Event()
+        self._queues = [deque(maxlen=16), deque(maxlen=16)]
+        self._threads: list[threading.Thread] = []
+        self._error: Exception | None = None
+        self._pair_times: deque[int] = deque(maxlen=128)
+        self.metadata: dict[str, Any] = {}
+        self.secondary_metadata: dict[str, Any] = {}
+        self.secondary_frame = None
+        self.tolerance_us = float(os.getenv("PINPOINT_CAMERA_SYNC_TOLERANCE_US", "250"))
+        fps = float(os.getenv("PINPOINT_CAMERA_FPS", "200"))
+        if not 0 < self.tolerance_us < 500_000 / fps:
+            raise ValueError("Camera sync tolerance must be positive and less than half a frame")
+        primary = int(os.getenv("PINPOINT_CAMERA_INDEX", "0"))
+        secondary = int(os.getenv("PINPOINT_SECONDARY_CAMERA_INDEX", "1"))
+        if primary == secondary:
+            raise ValueError("Dual cameras must have different indexes")
+        try:
+            for index, mode in ((primary, controls.rpi.SyncModeEnum.Server),
+                                (secondary, controls.rpi.SyncModeEnum.Client)):
+                self.cameras.append(CsiCapture(index, sync_mode=mode, start=False, publish=False))
+            self.cameras[1].camera.start()
+            self.cameras[0].camera.start()
+            self.exposure_us = self.cameras[0].exposure_us
+            self.gain = self.cameras[0].gain
+            for index in range(2):
+                thread = threading.Thread(target=self._collect, args=(index,),
+                                          name=f"lm1-camera-{index}", daemon=True)
+                self._threads.append(thread)
+                thread.start()
+            global _active_capture
+            with _lock:
+                _active_capture = self
+        except Exception:
+            self.release()
+            raise
+
+    def isOpened(self) -> bool:
+        return len(self.cameras) == 2 and all(c.isOpened() for c in self.cameras)
+
+    def _set_both(self, method: str, value: Any, previous: Any) -> None:
+        try:
+            for camera in self.cameras:
+                getattr(camera, method)(value)
+            with self._condition:
+                for queue in self._queues:
+                    queue.clear()
+        except Exception:
+            for camera in self.cameras:
+                getattr(camera, method)(previous)
+            raise
+
+    def set_exposure(self, exposure_us: int) -> None:
+        self._set_both("set_exposure", exposure_us, self.exposure_us)
+        self.exposure_us = exposure_us
+
+    def set_gain(self, gain: float) -> None:
+        self._set_both("set_gain", gain, self.gain)
+        self.gain = gain
+
+    def _collect(self, index: int) -> None:
+        """Drain each stream independently so pairing cannot chase newer frames."""
+        try:
+            camera = self.cameras[index]
+            sync_ready = False
+            while not self._stop.is_set():
+                ok, frame = camera.read()
+                if not ok:
+                    raise RuntimeError(f"Camera {camera.index} stopped delivering frames")
+                metadata = dict(camera.metadata)
+                # libcamera reports SyncReady intermittently, not on every frame.
+                # Retain its last explicit state; timestamp tolerance is still
+                # checked for every individual pair, including after a drift.
+                if "SyncReady" in metadata:
+                    sync_ready = bool(metadata["SyncReady"])
+                metadata["SyncReady"] = sync_ready
+                if not metadata.get("SensorTimestamp"):
+                    raise RuntimeError("Both cameras must supply sensor timestamps")
+                with self._condition:
+                    self._queues[index].append((frame, metadata))
+                    self._condition.notify_all()
+        except Exception as error:
+            with self._condition:
+                self._error = error
+                self._condition.notify_all()
+
+    def read(self) -> tuple[bool, Any]:
+        if not self.isOpened():
+            return False, None
+        first, second = self.cameras
+        deadline = time.monotonic() + 5
+        with self._condition:
+            while True:
+                if self._error is not None:
+                    raise RuntimeError(f"Dual camera capture failed: {self._error}") from self._error
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RuntimeError("Dual camera timing did not lock within five seconds")
+                if not all(self._queues):
+                    self._condition.wait(min(remaining, 0.1))
+                    continue
+                frame, metadata = self._queues[0][0]
+                other, other_metadata = self._queues[1][0]
+                a, b = metadata["SensorTimestamp"], other_metadata["SensorTimestamp"]
+                offset = (b - a) / 1000
+                if bool(other_metadata.get("SyncReady")) and abs(offset) <= self.tolerance_us:
+                    self._queues[0].popleft()
+                    self._queues[1].popleft()
+                    break
+                record_camera_diagnostics({"cameraCount": 2, "syncReady": False, "syncOffsetUs": offset})
+                self._queues[0 if a <= b else 1].popleft()
+        self.metadata = metadata
+        self.secondary_metadata = other_metadata
+        self.secondary_frame = other
+        self._pair_times.append(metadata["SensorTimestamp"])
+        elapsed = self._pair_times[-1] - self._pair_times[0]
+        paired_fps = round((len(self._pair_times) - 1) * 1e9 / elapsed, 1) if elapsed > 0 else 0
+        duration = self.metadata.get("FrameDuration", 0)
+        secondary_duration = self.secondary_metadata.get("FrameDuration", 0)
+        record_camera_diagnostics({
+            "model": first.model, "width": frame.shape[1], "height": frame.shape[0],
+            "fps": round(1_000_000 / duration, 1) if duration else 0,
+            "exposureUs": self.metadata.get("ExposureTime", 0),
+            "gain": round(self.metadata.get("AnalogueGain", 1), 2),
+            "autoExposure": self.exposure_us <= 0, "autofocus": False,
+            "cameraCount": 2, "primaryCameraIndex": first.index,
+            "pairedFps": paired_fps,
+            "secondaryCameraIndex": second.index, "syncMode": "software",
+            "syncReady": True, "syncOffsetUs": round(offset, 1),
+            "syncToleranceUs": self.tolerance_us,
+            "secondaryFps": round(1_000_000 / secondary_duration, 1) if secondary_duration else 0,
+            "secondaryExposureUs": self.secondary_metadata.get("ExposureTime", 0),
+            "secondaryGain": round(self.secondary_metadata.get("AnalogueGain", 1), 2),
+        })
+        return True, frame
+
+    def release(self) -> None:
+        global _active_capture
+        self._stop.set()
+        for thread in self._threads:
+            thread.join(timeout=2.5)
+        with _lock:
+            if _active_capture is self:
+                _active_capture = None
+        cameras, self.cameras = self.cameras, []
+        try:
+            for camera in reversed(cameras):
+                try:
+                    camera.release()
+                except Exception:
+                    # Always attempt to close the other sensor too.
+                    pass
+        finally:
+            self.secondary_frame = None
+            for queue in self._queues:
+                queue.clear()
+            clear_camera_diagnostics()

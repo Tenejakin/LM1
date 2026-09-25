@@ -180,9 +180,24 @@ class BallPresenceDetectorTests(unittest.TestCase):
 
 
 class BallDetectorConfigurationTests(unittest.TestCase):
-    def test_default_roi_is_the_expanded_hitting_area(self) -> None:
+    def test_default_roi_is_the_left_half_hitting_area(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
-            self.assertEqual(DetectionConfig.from_environment().roi, (0.05, 0.30, 0.95, 0.98))
+            self.assertEqual(DetectionConfig.from_environment().roi, (0.0, 0.30, 0.50, 0.98))
+
+    @unittest.skipIf(cv2 is None or np is None, "OpenCV is installed on the Raspberry Pi")
+    def test_default_zone_arms_left_but_not_centre_or_right(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            config = DetectionConfig.from_environment()
+        empty = np.full((400, 640, 3), 70, dtype=np.uint8)
+        for x, should_arm in ((160, True), (320, False), (420, False)):
+            with self.subTest(x=x):
+                detector = BallPresenceDetector(config)
+                for _ in range(config.calibration_frames):
+                    detector.update(empty)
+                frame = empty.copy()
+                cv2.circle(frame, (x, 210), 20, (235, 235, 235), -1)
+                observations = [detector.update(frame) for _ in range(config.present_frames + 2)]
+                self.assertEqual(observations[-1].present, should_arm)
 
     def test_roi_validation(self) -> None:
         self.assertEqual(parse_roi("0.1,0.2,0.8,0.9"), (0.1, 0.2, 0.8, 0.9))

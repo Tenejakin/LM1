@@ -2,11 +2,90 @@
 
 
 
-Protocol version 2.17.0
+Protocol version 2.31.0
+
+Protocol 2.31.0 permits a three-frame stereo trajectory to receive measured-grade status when every timing, geometry, calibration, and fit-quality gate passes. Protocol 2.30.0 permits `putt.strike: null` when face contact is unavailable and adds `putt.airborne` for launch above 10°. Ball/putter speed, smash and launch inputs are still required before a putt result is emitted.
+
+Protocol 2.29.0 adds `captureMode` (`full-shot` or `putting`) to status responses and status events. Clients should use this device-reported value when showing the active mode after reconnecting. Sending `arm` with a different mode switches modes while armed, provided a capture is not processing; the app also waits until the ball is removed.
+
+Protocol 2.27.0 permits a `shared-tag-stereo-two-point-v1` speed-only estimate.
+Capture `tracking.status` is `stereo-two-point`, with `speedOnly: true` and
+`speedUncertaintyPct`; launch angle, direction, and carry remain unavailable.
+The resting-ball/impact bracket checks the two-point path but is not treated
+as an exact third timed observation.
+
+Protocol 2.26.1 adds `tracking.monoFallback`, `tracking.stereoFailure`, and
+`tracking.monoFailure` to capture summaries. `tracking.source` is null when no
+ball speed survived validation; a rejected stereo fit does not count as a
+stereo-matched measurement.
+
+Protocol 2.26.0 changes the default lower-camera placement `preview.roi` to
+`[0,0.30,0.50,0.98]` and its `preview.target` to `[0.25,0.72]`. This is a
+placement/arming region only; outgoing-ball analysis continues across the full
+frames from both cameras. Custom `PINPOINT_BALL_ROI` values remain supported.
+
+For the fixed left-to-right rig, `startDirectionDeg` remains a signed number:
+positive is right/toward the cameras, negative is left/away, and zero is the
+bottom camera's across-image target line. This is a display clarification in
+app 3.18.2, not a protocol sign change.
+
+Protocol 2.25.1 preserves tag-free club measurements when no club-marker
+profile ID is attached to the capture. A present marker profile ID still must
+match the selected club. The returned metric values and confidence retain the
+camera's estimated provenance.
+
+Protocol 2.25.0 adds `capture.measurements.carryModel` with `version`,
+`spinSource`, `spinRpmUsed`, and `attackAngleDegUsed`. `estimatedCarryM` is
+always a modeled still-air target-line distance to the launch-height plane;
+it is never a measured landing. Missing spin uses the selected club's average,
+scaled for ball speed and adjusted for attack angle only when that angle was
+resolved. Wind, terrain, spin-axis curvature and landing-height differences
+are not included.
+
+Protocol 2.23.0 adds `measurements.shotEvidence` (`status`: `club-motion-observed`
+or `motion-only`, `clubFrames`, `reason`) and `measurements.tracking.source`
+(`stereo` or `single-camera`). Full-shot consumers must not promote or send a
+`motion-only` capture as a shot. Putting still accepts resolved ground motion.
+The matched-pair count describes detection evidence; `source` identifies the
+fit actually used for the returned launch metrics.
+
+Protocol 2.32.0 changes the meaning of `motion-only`: the ball was measured but no
+pre-impact club track was resolved. Such a capture is a shot with club speed,
+smash and strike unavailable. A new full-shot status, `not-a-strike`, marks
+movement that cannot be a strike (ball speed under 2 m/s, direction more than 60°
+off the target line, or a ground roll with no club seen); consumers must not
+promote or send it. Putting captures are never classified this way.
+
+Protocol 2.32.0 also adds pre-shot readiness. When a ball arms, the Pi checks the
+resting ball in both cameras and sends
+`{"type":"readiness","data":{"version":1,"status":"ok|warn|fail","items":[...],"checkedAt":"..."}}`.
+Each item has `id` (`exposure`, `ground`, `stereo-rest`, `club-profile`), `label`,
+`status` and a `detail` saying what will fail and how to fix it; `stereo-rest` also
+reports `offsetPx`, `rayGapMm` and `heightErrorMm`. The same object is returned as
+`status.readiness`, re-evaluated for the current club and mode (null on the
+simulator backend). It is advisory and never blocks a capture.
+
+Protocol 2.22.0 adds a bounded `capture.measurements.tracking` summary to BLE
+capture events and `listCaptures`: `status` (`failed`, `stereo-matched`, or
+`single-camera`), `lowerFrames`, `pairedFrames`, `pairedFrameIndices`, `spanMs`,
+`detection`, `imageResidualPx`, `failure`, and candidate `rejections`. Full
+per-frame geometry stays in saved `analysis.json`. A failed track has null
+physical metrics; the app does not replace missing ball speed with a club
+profile or send it as a simulator shot. Three stereo pairs can produce an
+estimate, while at least three clean pairs are required for measured-grade status.
+
+Pi service 0.33.0 adds an optional stereo launch path without changing the BLE
+contract. When both cameras have valid lens intrinsics and saved AprilTag poses,
+paired ball detections can triangulate depth and recover speed, launch and start
+direction even when the monocular ball track or outline fit fails. The capture's
+`measurements.method` and `measurements.diagnostics.stereo` identify this path;
+missing calibration or failed stereo quality gates leave the metrics
+unavailable. The upper pose must be within five seconds of the lower pose, and
+each paired exposure must be within 250 μs.
 
 Protocol 2.17.0: `{"type":"status","mtu":247}` states the connection's negotiated ATT MTU (23–517). The Pi then sends notification chunks of `min(244, mtu - 3)` bytes and reports `notificationChunkBytes` in status; a status request without `mtu` restores 20-byte chunks. Send it first on every connection.
 
-Service 0.15.0 adds `capture.measurements`: a `method` string, per-field `metrics` with `value` (number or null), `unit`, `status` (`estimated`/`unavailable`), and `reason`. Full 3D/spin traces are stored in Pi `analysis.json`; the BLE summary omits them to bound transfer size. Complete core results also emit the existing shot/putt shape with `simulated: false` and `measurementSource: monocular-estimate`. Optional metrics are omitted when unavailable; confidence is uncalibrated and must be shown as unvalidated. See LAUNCH_MEASUREMENTS.md for setup and coordinate conventions.
+Service 0.15.0 adds `capture.measurements`: a `method` string, per-field `metrics` with `value` (number or null), `unit`, `status` (`estimated`/`unavailable`), and `reason`. Full 3D/spin traces are stored in Pi `analysis.json`; the BLE summary omits them to bound transfer size. Complete core results also emit the existing shot/putt shape with `simulated: false` and `measurementSource: monocular-estimate`. Optional metrics are omitted when unavailable. Reported metrics also carry `confidence` (0.05–0.95) and `checks` (`[{label, passed}]`); `status` is `measured` only when every check passed, otherwise `estimated`. Confidence is a quality grade, not a calibrated error bound. See LAUNCH_MEASUREMENTS.md for setup and coordinate conventions.
 
 Service 0.27.0 adds `clubPathDeg` and `attackAngleDeg` to `metrics`, using the same value/unit/status/reason shape, so existing consumers need no change and may ignore them. The tag-free clubhead path supplies `clubSpeedMps`, `smashFactor` and `attackAngleDeg` when no club AprilTag is calibrated; `clubPathDeg` comes only from a calibrated club tag, because the silhouette path's swing plane is defined by the ball's own direction and a path taken from it would merely restate `startDirectionDeg`. `diagnostics.clubSilhouette` reports method, candidate and accepted frame counts, fit residual and, when resolved, shaft lean. Everything on this path is an estimate whose reason names the swing-plane assumption behind it, and `strikeXmm`/`strikeYmm` additionally require a measured `club-profile.json` rather than being inferred.
 
@@ -112,6 +191,7 @@ Supported commands:
 
 - `{"id":"15","type":"captureFrame","captureId":"capture-123","frameIndex":60}` returns one compact frame from the exact rolling burst attached to a shot, including its frame timestamp and estimated departure index.
 - `{"id":"16","type":"captureContactSheet","captureId":"capture-123"}` (service 0.17.0) returns `mimeType`, `base64` and `captureId` for that burst's saved 12-frame `contact-sheet.jpg` (about 25–40 KB of base64). Invalid, pruned or sheet-less captures return an error. Use a 45-second BLE timeout.
+- `{"id":"17","type":"uploadCaptureFrames","captureId":"capture-123","frameCount":250,"ticket":"<short-lived-ticket>","indices":[0,1,2]}` (service 0.41.0) starts an HTTPS upload of the original JPEGs retained on the Pi. The Pi posts both camera files for each index to Supabase using a shot-scoped ticket and returns `{captureId,uploaded,total,state}` immediately. It emits `frameUploadProgress` events every ten frames and on completion or error. `captureFrameUploadStatus` returns the current upload state. The app supplies only missing indices when resuming an interrupted upload. `PINPOINT_SUPABASE_PROJECT_REF` must be configured on the Pi.
 
 - `{"id":"16","type":"setExposure","exposureUs":180}` applies a live manual CSI exposure from 20–250 μs, persists it across restarts, returns updated status, and emits a status event. LM1 must be ready (not armed or processing).
 
@@ -257,3 +337,20 @@ Status and preview data optionally include `camera`: `model`, `width`, `height`,
 ## Ball presence (2.4.0)
 
 `preview.data.camera.ballDetection` contains `state` (`calibrating`, `waiting`, `detected`, `disabled`) and `bounds` (normalized left, top, width, height, or null). It describes the accompanying image, independently of manual arming and synthetic shot state. Clients hide detected state on stale/disconnected previews.
+
+
+## Dual camera extension - protocol 2.20.0 / service 0.30.0
+
+When PINPOINT_DUAL_CAMERA is enabled, preview events optionally include
+`secondaryBase64` (JPEG) alongside the unchanged primary `base64`. Camera
+metadata includes `cameraCount`, `primaryCameraIndex`, `secondaryCameraIndex`,
+`syncMode=software`, `syncReady`, `syncOffsetUs`, `syncToleranceUs`, `pairedFps`,
+`secondaryFps`, `secondaryExposureUs` and `secondaryGain`. `pairedFps` measures
+accepted timestamp-matched pairs; sensor `fps` is not proof of retained frames.
+Both cameras share the lower-camera ball trigger and exposure/gain commands.
+
+Capture events can include `secondaryImage` for the same `imageFrameIndex`.
+`captureFrame` responses optionally include `secondaryBase64` and `pairOffsetUs`
+for the requested frame index. Single-camera history keeps the old payload.
+The existing physical-measurement contract is unchanged: stereo calibration
+and triangulation are not implemented by this acquisition update.

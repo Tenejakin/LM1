@@ -24,6 +24,14 @@ async function main() {
         return { id: 'test', mtu: 247, disconnect() {}, async write(wire) {
           const request = JSON.parse(wire);
           if (request.type === 'status') assert.equal(request.mtu, 247);
+          if (request.type === 'stereoCalibration') {
+            assert.equal(request.action, 'start');
+            assert.equal(request.columns, 5);
+            assert.equal(request.rows, 5);
+            assert.equal(request.squareMm, 25);
+            send({ type: 'response', id: request.id, data: { version: 1, pairs: 0, sessionId: 'paired-test' } });
+            return;
+          }
           send({ type: 'response', id: request.id, data: request.type === 'status'
             ? { state: 'ready', protocolVersion: '2.13.0', automaticCapture: true }
             : [capture] });
@@ -42,7 +50,13 @@ async function main() {
   assert.equal(events[3].type, 'captureError');
   assert.equal(events[3].data.message, 'Capture unavailable');
   assert.equal((await client.listCaptures())[0].id, capture.id);
+  const stereo = await client.stereoCalibration('start', { columns: 5, rows: 5, squareMm: 25 });
+  assert.equal(stereo.sessionId, 'paired-test');
+  assert.equal(stereo.pairs, 0);
   assert.equal(events.some((event) => event.type === 'shot'), false);
+  send({ type: 'preview', data: { mimeType: 'image/jpeg', base64: 'bG93ZXI=', secondaryBase64: 'dXBwZXI=', camera: { cameraCount: 2, syncReady: true } } });
+  assert.equal(events.at(-1).data.secondaryBase64, 'dXBwZXI=');
+  assert.equal(events.at(-1).data.camera.syncReady, true);
   client.disconnect();
   console.log('Capture client fragmented-BLE integration test passed.');
 }

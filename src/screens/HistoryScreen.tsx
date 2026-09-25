@@ -12,6 +12,10 @@ import { useN8n } from '@/context/N8nContext';
 import { useUnits } from '@/context/UnitsContext';
 import { colors, radii, spacing } from '@/theme';
 import { CaptureAnalysis, N8nSendState, Shot } from '@/types';
+import { directionLabel } from '@/utils/direction';
+import { measuredSmash, measuredStrike } from '@/utils/shotValues';
+import { includedShots } from '@/utils/session';
+import { SessionClubs } from '@/components/SessionClubs';
 
 type Filter = 'session' | 'fastest' | 'centered';
 
@@ -61,9 +65,9 @@ export function HistoryScreen({ onOpenShot, onOpenCalculator }: { onOpenShot: (s
   const speedSamples = useMemo(() => {
     const shotIds = new Set(shots.map((shot) => shot.id));
     return [
-      ...shots.map((shot) => ({ id: shot.id, ballSpeedMps: shot.ballSpeedMps })),
+      ...includedShots(shots).map((shot) => ({ id: shot.id, ballSpeedMps: shot.ballSpeedMps })),
       ...captures.flatMap((capture) => {
-      if (shotIds.has(capture.id)) return [];
+      if (shotIds.has(capture.id) || (capture.mode === 'full-shot' && capture.measurements?.shotEvidence?.status === 'not-a-strike')) return [];
       const speed = captureMetric(capture, 'ballSpeedMps');
       return speed === null ? [] : [{ id: capture.id, ballSpeedMps: speed }];
     }),
@@ -73,9 +77,12 @@ export function HistoryScreen({ onOpenShot, onOpenCalculator }: { onOpenShot: (s
   const sortedShots = useMemo(() => {
     if (filter === 'fastest') return [...shots].sort((a, b) => b.ballSpeedMps - a.ballSpeedMps);
     if (filter === 'centered') {
-      return [...shots].sort(
-        (a, b) => Math.hypot(a.strike.xMm, a.strike.yMm) - Math.hypot(b.strike.xMm, b.strike.yMm),
-      );
+      // Shots without a measured strike cannot be ranked by it and sort last.
+      const offset = (shot: Shot) => {
+        const strike = measuredStrike(shot);
+        return strike ? Math.hypot(strike.xMm, strike.yMm) : Number.POSITIVE_INFINITY;
+      };
+      return [...shots].sort((a, b) => offset(a) - offset(b));
     }
     return shots;
   }, [filter, shots]);
@@ -88,8 +95,10 @@ export function HistoryScreen({ onOpenShot, onOpenCalculator }: { onOpenShot: (s
       ? speedSamples.reduce((sum, sample) => sum + (sample.ballSpeedMps - avgBall) ** 2, 0) / speedSamples.length
       : 0;
     const consistency = avgBall > 0 ? Math.max(0, 100 - (Math.sqrt(variance) / avgBall) * 300) : 0;
-    const avgSmash = shots.length ? shots.reduce((sum, shot) => sum + shot.smashFactor, 0) / shots.length : null;
-    const avgCarry = shots.length ? shots.reduce((sum, shot) => sum + shot.estimatedCarryM, 0) / shots.length : null;
+    const counted = includedShots(shots);
+    const smashSamples = counted.map(measuredSmash).filter((smash): smash is number => smash !== null);
+    const avgSmash = smashSamples.length ? smashSamples.reduce((sum, smash) => sum + smash, 0) / smashSamples.length : null;
+    const avgCarry = counted.length ? counted.reduce((sum, shot) => sum + shot.estimatedCarryM, 0) / counted.length : null;
     return { avgBall, avgSmash, avgCarry, consistency };
   }, [shots, speedSamples]);
 
@@ -100,7 +109,7 @@ export function HistoryScreen({ onOpenShot, onOpenCalculator }: { onOpenShot: (s
     >
       <ScreenHeader
         title="Sessions"
-        subtitle={captures.length ? `${shots.length} shots · ${captures.length} camera hits today` : `${shots.length} shots today`}
+        subtitle={captures.length ? `${shots.length} shots · ${captures.length} captures today` : `${shots.length} shots today`}
         state={state}
         demo={isDemo}
       />
@@ -132,6 +141,8 @@ export function HistoryScreen({ onOpenShot, onOpenCalculator }: { onOpenShot: (s
           <View style={[styles.trackFill, { width: `${stats.consistency}%` }]} />
         </View>
       </Surface>
+
+      <SessionClubs shots={shots} />
 
       <View style={styles.calculatorSection}>
         <Surface style={styles.calculatorCard}>
@@ -183,13 +194,15 @@ export function HistoryScreen({ onOpenShot, onOpenCalculator }: { onOpenShot: (s
                   <Surface style={[styles.hitRow, styles.hitRowCell]}>
                     <View style={styles.hitMeta}>
                       <Text style={styles.hitTitle}>
-                        {capture.mode === 'putting' ? 'Putt' : 'Shot'} {captures.length - index}
+                        Capture {captures.length - index}
                       </Text>
                       <Text style={styles.hitTime}>
                         {Number.isNaN(time.getTime()) ? '' : time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                       </Text>
-                      <Text style={[styles.hitClass, capture.classification === 'motion-observed' ? styles.hitClassOk : styles.hitClassWeak]}>
-                        {capture.classification === 'motion-observed' ? 'ball tracked' : 'ball not seen leaving'}
+                      <Text style={[styles.hitClass, speed !== null && capture.classification === 'motion-observed' ? styles.hitClassOk : styles.hitClassWeak]}>
+                        {capture.mode === 'full-shot' && capture.measurements?.shotEvidence?.status === 'not-a-strike' ? 'not a strike'
+                          : capture.mode === 'full-shot' && speed === null ? 'tracking failed'
+                          : capture.classification === 'motion-observed' ? 'ball motion seen' : 'ball not seen leaving'}
                       </Text>
                     </View>
                     <View style={styles.hitMetrics}>
@@ -207,9 +220,9 @@ export function HistoryScreen({ onOpenShot, onOpenCalculator }: { onOpenShot: (s
                       </View>
                       <View style={styles.hitMetric}>
                         <Text style={[styles.hitValue, direction === null && styles.hitMissing]}>
-                          {direction === null ? '—' : direction.toFixed(1)}
+                          {direction === null ? '—' : directionLabel(direction)}
                         </Text>
-                        <Text style={styles.hitUnit}>dir°</Text>
+                        <Text style={styles.hitUnit}>direction</Text>
                       </View>
                     </View>
                   </Surface>
@@ -225,8 +238,8 @@ export function HistoryScreen({ onOpenShot, onOpenCalculator }: { onOpenShot: (s
             })}
           </View>
           <Text style={styles.hitNote}>
-            Camera hits keep the raw analysis. Tracked full shots also appear in the shot log below —
-            anything the camera could not measure is marked as an estimate.
+            Camera hits keep the raw analysis. Only hits with camera-derived speed,
+            launch and direction appear as shots below; failed tracking stays here as unavailable.
           </Text>
         </View>
       ) : null}

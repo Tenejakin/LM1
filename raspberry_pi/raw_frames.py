@@ -36,6 +36,7 @@ STATE_REFRESH_SECONDS = 1.0
 DARK_COUNTS = 120.0     # a scene whose 99.5th percentile is under this fits in 8 bits at 1 count per level
 BRIGHT_COUNTS = 200.0   # above this it would start to saturate, so the picture is used instead
 DWELL_FRAMES = 12       # consecutive frames before the source changes (about 50 ms at 242 fps)
+LEAVE_DWELL_FRAMES = 24 # leaving raw because the scene brightened also waits, so one flash-lit frame cannot flip the source
 
 
 def analysis_source() -> str:
@@ -51,9 +52,20 @@ def counts_per_level() -> float:
 
 
 def raw_to_gray8(raw: Any, black_level: float | None = None, per_level: float | None = None) -> np.ndarray:
-    """Linear 8-bit grey from raw words: (word - black) / (RAW_SCALE x counts-per-level), clipped to 0..255."""
+    """Linear 8-bit grey from raw words: (word - black) / (RAW_SCALE x counts-per-level), clipped to 0..255.
+
+    This ran on every frame of both cameras while strobing and was about a quarter of the service's CPU time. At one
+    count per level with a whole-number black level it is two OpenCV passes instead of the float32 chain: a saturating
+    16-bit subtract of the black level, then scale by 1/64 and narrow with saturation. OpenCV rounds half to even where
+    the formula rounds half up; the 1/256 offset lifts the exact halves over the line (nothing else is within it, as the
+    scaled values are multiples of 1/64), so the result is identical to the float formula for every 16-bit word.
+    """
     black = raw_black_level() if black_level is None else black_level
     step = RAW_SCALE * (counts_per_level() if per_level is None else per_level)
+    words = np.asarray(raw)
+    if (words.dtype == np.uint16 and words.ndim == 2 and step == RAW_SCALE and float(black).is_integer()
+            and 0 <= black <= 65535):
+        return cv2.convertScaleAbs(cv2.subtract(words, int(black)), alpha=1.0 / RAW_SCALE, beta=1.0 / 256.0)
     levels = (np.asarray(raw, dtype=np.float32) - float(black)) / step
     return np.clip(levels + 0.5, 0, 255).astype(np.uint8)
 
@@ -69,6 +81,9 @@ class RawAnalysis:
         self._using_raw = False
         self._streak = 0
         self._changed = False
+        # Set by the ball monitor while a ball is on the mat or armed: a switch restarts the detector's empty-plane
+        # calibration, which would learn the ball as background and drop it.
+        self.hold = False
 
     def _is_strobing(self) -> bool:
         now = time.monotonic()
@@ -91,8 +106,12 @@ class RawAnalysis:
         return self._using_raw and self._is_strobing()
 
     def _update_auto(self, raw: Any) -> None:
-        """Hysteresis: raw while strobing in a dark scene, the picture otherwise."""
-        if not self._is_strobing():
+        """Hysteresis: raw while strobing in a dark scene, the picture otherwise.
+
+        A change restarts the ball detector's calibration, so it never happens while a ball is present (`hold`), and
+        brightening only counts after a steady run of bright frames, not a single flash-lit one."""
+        strobing = self._is_strobing()
+        if not strobing:
             wanted = False
         else:
             counts = (np.asarray(raw)[::4, ::4].astype(np.float32) - raw_black_level()) / RAW_SCALE
@@ -101,9 +120,13 @@ class RawAnalysis:
         if wanted == self._using_raw:
             self._streak = 0
             return
+        if self.hold and strobing:
+            self._streak = 0
+            return
         self._streak += 1
-        if not wanted or self._streak >= DWELL_FRAMES:
-            # Leaving raw (strobe off or the scene brightened) is immediate; entering waits for a steady dark scene.
+        # Strobe switched off is a deliberate change and applies at once; entering raw and leaving it on brightness dwell.
+        needed = 1 if not strobing else (DWELL_FRAMES if wanted else LEAVE_DWELL_FRAMES)
+        if self._streak >= needed:
             self._using_raw = wanted
             self._streak = 0
             self._changed = True

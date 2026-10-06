@@ -25,13 +25,61 @@ def _bright_scene(scene_p995_counts: float | None, picture_p995: float | None) -
     return picture_p995 is not None and picture_p995 > 200.0
 
 
+def _strobe_failure(report: dict[str, Any], exposure_us: float, lit: bool) -> str:
+    """Why the flash-copy search found nothing, from `strobe_copies.estimate_with_report`.
+
+    The long strobe exposure is never the cause: the copy search does not use the 250 us rule,
+    which only guards the ordinary frame-by-frame measurement.
+    """
+    reason = report.get("reason")
+    tail = "Switch Light to Auto, Flat or Daylight to measure shots in this light."
+    if reason == "pattern-too-short":
+        gaps = report.get("gapsUs") or []
+        expected = report.get("expectedSpeedMps")
+        return (f"Not measured: the ring was flashing, but this club's flash pattern"
+                f"{f' (set for {expected:.0f} m/s)' if expected else ''} fits only {len(gaps) + 1} flash"
+                f"{'' if len(gaps) == 0 else 'es'} in one frame, and the copy search needs at least 3 copies in a frame. "
+                "A slow ball needs wide gaps between flashes so the copies do not overlap, and a frame is only about 4 ms long. "
+                "Strobe measures fast shots (driver or long iron); for this club use Auto, Flat or Daylight.")
+    if reason in ("no-controller", "not-strobing", "no-pattern"):
+        seen = report.get("lightMode") or "unknown"
+        detail = report.get("controllerError")
+        return (f"Not measured: Light is set to Strobe, but the ring was not flashing when this shot was analysed (the light "
+                f"controller reported '{seen}'{f', error: {detail}' if detail else ''}), so there were no flash copies to find. "
+                "Check the ESP32 is connected on the Pi's USB port, then set Light to Strobe again. " + tail)
+    found = int(report.get("maxCopies") or 0)
+    searched = int(report.get("framesSearched") or 0)
+    speed = report.get("separatesAboveMps")
+    expected = report.get("expectedSpeedMps")
+    head = (f"Not measured: strobe mode looks for separate flash copies of the ball in the frames after it leaves "
+            f"(the {exposure_us:.0f} us exposure is expected, not the problem). ")
+    if reason == "too-few-copies" and report.get("maxCopySpanBalls", 0.0) < 0.8:
+        return (head + f"The best of {searched} frames held {found} cop{'y' if found == 1 else 'ies'}, and the copies sat within {report.get('maxCopySpanBalls', 0):.1f} "
+                "ball widths of each other: the ball moved too little between flashes, so they merged into one. "
+                + (f"This flash pattern separates the copies above about {speed:.0f} m/s" if speed else "The flashes are too close together for this speed")
+                + (f" (set for {expected:.0f} m/s)" if expected else "") + ". A fast hit is needed. ")
+    if reason in ("no-copies", "no-usable-frames"):
+        cause = ("the room is lit, so the flashes are lost in the room light" if lit
+                 else "no bright round copy stood out from the background; check the ring is on and the room is dark")
+        return head + f"None was found in {searched} frames: {cause}. " + tail
+    if reason == "too-few-copies":
+        return head + f"At most {found} copies were found in {searched} frames and at least 3 are needed. " + tail
+    fit = report.get("unreliableFit") or {}
+    extra = (f" Best attempt: {fit.get('copies')} copies, {fit.get('fitResidualMm')} mm residual"
+             f"{', ambiguous start' if fit.get('ambiguous') else ''}." if fit else "")
+    return head + f"{found} copies were found but they did not fit the flash pattern.{extra} " + tail
+
+
 def friendly_failure(failure: str | None, *, exposure_us: float | None, light_mode: str | None, ball_px: float | None,
-                     scene_p995_counts: float | None = None, picture_p995: float | None = None) -> str | None:
+                     scene_p995_counts: float | None = None, picture_p995: float | None = None,
+                     strobe: dict[str, Any] | None = None) -> str | None:
     """The failure text with the cause first; unrelated or empty failures are returned unchanged."""
     if not failure:
         return failure
     if failure.startswith(EXPOSURE_GATE_PREFIX) and exposure_us:
         e = float(exposure_us)
+        if strobe and strobe.get("reason") and (light_mode == "strobe" or e > STROBE_EXPOSURE_US):
+            return _strobe_failure(strobe, e, _bright_scene(scene_p995_counts, picture_p995))
         if light_mode == "strobe" or e > STROBE_EXPOSURE_US:
             lit = _bright_scene(scene_p995_counts, picture_p995)
             cause = ("the room is lit, so the ring's flashes are lost in the room light and the ball is just a smear"

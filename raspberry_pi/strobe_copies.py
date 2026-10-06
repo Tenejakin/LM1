@@ -165,23 +165,64 @@ def analyse_frame(frame: Any, gaps_us: Sequence[float], period_us: float, ball_p
     return {"copies": copies, "fit": fit_flash_track(copies, gaps_us, period_us, ball_px, expected_speed_mps)}
 
 
+def separation_speed_mps(gaps_us: Sequence[float]) -> float | None:
+    """Speed above which the copies of the two closest flashes stop touching (one ball width apart)."""
+    gaps = [float(g) for g in gaps_us if g and g > 0]
+    return round(BALL_DIAMETER_MM / 1000.0 / (min(gaps) / 1e6), 1) if gaps else None
+
+
+def _span_in_balls(copies: Sequence[dict[str, float]], ball_px: float) -> float:
+    if len(copies) < 2 or ball_px <= 0:
+        return 0.0
+    xs = [c["x"] for c in copies]
+    ys = [c["y"] for c in copies]
+    return float(math.hypot(max(xs) - min(xs), max(ys) - min(ys)) / ball_px)
+
+
 def estimate_from_frames(frames: Sequence[tuple[float, Any]], bounds: Sequence[float], start_index: int,
                          light: dict[str, Any] | None, search_frames: int = 14,
                          raw_frames: dict[int, Any] | None = None, raw_black: float = 1024.0) -> dict[str, Any] | None:
-    """Best reliable fit over the frames just after the ball leaves, or None.
+    """Best reliable fit over the frames just after the ball leaves, or None (see `estimate_with_report`)."""
+    return estimate_with_report(frames, bounds, start_index, light, search_frames, raw_frames, raw_black)[0]
+
+
+def estimate_with_report(frames: Sequence[tuple[float, Any]], bounds: Sequence[float], start_index: int,
+                         light: dict[str, Any] | None, search_frames: int = 14,
+                         raw_frames: dict[int, Any] | None = None, raw_black: float = 1024.0,
+                         ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """Best reliable fit over the frames just after the ball leaves, plus a report of how far the search got.
 
     `light` is the light controller's status: it only counts while the ring was strobing,
     and it carries the exact flash pattern and rate the ESP32 was running. The empty-scene
-    background is the median of the last three frames, where the ball is gone.
+    background is the median of the last three frames, where the ball is gone. The report is
+    always returned, with a `reason` code when no fit came out, so a failed strobe shot says
+    whether the ring was not strobing, no copies showed, the copies merged, or they did not fit.
     """
-    if not light or light.get("mode") != "strobe" or not light.get("pattern"):
-        return None
-    pattern = light["pattern"]
+    light = light or {}
+    pattern = light.get("pattern") or {}
     gaps = pattern.get("gapsUs") or []
+    report: dict[str, Any] = {
+        "lightMode": light.get("mode"), "controllerConnected": light.get("connected"),
+        "controllerReportedMode": light.get("reportedMode"), "controllerError": light.get("error"),
+        "rateHz": light.get("rateHz"), "pulseUs": pattern.get("pulseUs"), "gapsUs": list(gaps),
+        "expectedSpeedMps": pattern.get("ballSpeedMps"), "separatesAboveMps": separation_speed_mps(gaps),
+        "framesSearched": 0, "maxCopies": 0, "maxCopySpanBalls": 0.0, "reason": None,
+    }
+    if not light:
+        report["reason"] = "no-controller"
+        return None, report
+    if light.get("mode") != "strobe":
+        report["reason"] = "not-strobing"
+        return None, report
+    if not pattern:
+        report["reason"] = "no-pattern"
+        return None, report
     if len(gaps) < 2 or len(frames) < start_index + 5:
-        return None
+        report["reason"] = "pattern-too-short" if len(gaps) < 2 else "too-few-frames"
+        return None, report
     period_us = 1_000_000 // int(light.get("rateHz") or 242)
     ball_px = float(max(bounds[2], bounds[3]))
+    report["ballPx"] = round(ball_px, 1)
     # Prefer the raw 10-bit frames: linear, and the faint flash copies are not crushed to black.
     tail = [raw_frames[i] for i in range(len(frames) - 3, len(frames)) if raw_frames and i in raw_frames]
     use_raw = bool(raw_frames) and len(tail) == 3
@@ -189,7 +230,9 @@ def estimate_from_frames(frames: Sequence[tuple[float, Any]], bounds: Sequence[f
         background = np.median(np.stack([raw_to_counts(raw, raw_black) for raw in tail]), axis=0)
     else:
         background = np.median(np.stack([_gray_frame(image) for _, image in frames[-3:]]), axis=0).astype(np.uint8)
+    report["source"] = "raw" if use_raw else "8bit"
     best = None
+    unreliable = None
     for index in range(max(0, start_index - 1), min(len(frames) - 3, start_index + search_frames)):
         if use_raw and index in raw_frames:
             image, level = raw_to_counts(raw_frames[index], raw_black), RAW_MIN_LEVEL
@@ -199,7 +242,13 @@ def estimate_from_frames(frames: Sequence[tuple[float, Any]], bounds: Sequence[f
                 continue  # raw background cannot be subtracted from an 8-bit frame
         result = analyse_frame(image, gaps, period_us, ball_px, background,
                                expected_speed_mps=pattern.get("ballSpeedMps"), min_level=level)
+        report["framesSearched"] += 1
+        found = len(result["copies"])
+        report["maxCopies"] = max(report["maxCopies"], found)
+        report["maxCopySpanBalls"] = round(max(report["maxCopySpanBalls"], _span_in_balls(result["copies"], ball_px)), 2)
         fit = result["fit"]
+        if fit and not fit["reliable"] and (unreliable is None or fit["copies"] > unreliable["copies"]):
+            unreliable = fit
         if not fit or not fit["reliable"]:
             continue
         rank = (fit["copies"], -fit["fitResidualMm"])
@@ -207,9 +256,21 @@ def estimate_from_frames(frames: Sequence[tuple[float, Any]], bounds: Sequence[f
             best = {"rank": rank, "frameIndex": index, "fit": fit, "copiesFound": len(result["copies"]),
                     "source": "raw" if use_raw else "8bit"}
     if best is None:
-        return None
+        if report["framesSearched"] == 0:
+            report["reason"] = "no-usable-frames"
+        elif report["maxCopies"] == 0:
+            report["reason"] = "no-copies"
+        elif report["maxCopies"] < 3:
+            report["reason"] = "too-few-copies"
+        elif unreliable is not None:
+            report["reason"] = "no-fit"
+            report["unreliableFit"] = {key: unreliable[key] for key in ("copies", "fitResidualMm", "ambiguous", "ballSpeedMps")}
+        else:
+            report["reason"] = "no-fit"
+        return None, report
     best.pop("rank")
-    return best
+    report["bestCopies"] = best["fit"]["copies"]
+    return best, report
 
 
 def _gray_frame(image: Any) -> np.ndarray:

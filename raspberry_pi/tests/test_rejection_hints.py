@@ -42,6 +42,56 @@ class ExposureGateTests(unittest.TestCase):
         self.assertEqual(friendly_failure(EXPOSURE, exposure_us=None, light_mode="flat", ball_px=47), EXPOSURE)
 
 
+class StrobeReportTests(unittest.TestCase):
+    BASE = {"lightMode": "strobe", "separatesAboveMps": 45.0, "expectedSpeedMps": 62.0, "framesSearched": 14}
+
+    def say(self, **report):
+        return friendly_failure(EXPOSURE, exposure_us=3891, light_mode="strobe", ball_px=52,
+                                strobe={**self.BASE, **report})
+
+    def test_the_exposure_is_never_blamed_for_a_strobe_shot(self):
+        for report in ({"reason": "no-copies", "maxCopies": 0}, {"reason": "too-few-copies", "maxCopies": 1, "maxCopySpanBalls": 0.3},
+                       {"reason": "no-fit", "maxCopies": 5}, {"reason": "not-strobing", "lightMode": "off"},
+                       {"reason": "pattern-too-short", "gapsUs": [1970]}):
+            text = self.say(**report)
+            self.assertIn("Not measured", text)
+            self.assertNotIn("too long", text)
+            self.assertNotIn("smear", text)
+
+    def test_a_ring_that_was_not_flashing_is_named(self):
+        text = self.say(reason="not-strobing", lightMode="off", controllerError="no serial port")
+        self.assertIn("ring was not flashing", text)
+        self.assertIn("'off'", text)
+        self.assertIn("no serial port", text)
+
+    def test_a_pattern_with_too_few_flashes_is_not_blamed_on_the_ring(self):
+        text = self.say(reason="pattern-too-short", gapsUs=[1970], expectedSpeedMps=29.8)
+        self.assertIn("ring was flashing", text)
+        self.assertIn("fits only 2 flashes in one frame", text)
+        self.assertIn("set for 30 m/s", text)
+        self.assertNotIn("not flashing", text)
+        self.assertIn("1 flash", self.say(reason="pattern-too-short", gapsUs=[]))
+
+    def test_a_slow_ball_says_what_speed_would_separate_the_copies(self):
+        text = self.say(reason="too-few-copies", maxCopies=1, maxCopySpanBalls=0.2)
+        self.assertIn("1 copy", text)
+        self.assertIn("above about 45 m/s", text)
+        self.assertIn("A fast hit is needed", text)
+
+    def test_no_copies_in_a_lit_room_blames_the_room_light(self):
+        lit = friendly_failure(EXPOSURE, exposure_us=3891, light_mode="strobe", ball_px=52, scene_p995_counts=800,
+                               strobe={**self.BASE, "reason": "no-copies", "maxCopies": 0})
+        self.assertIn("room is lit", lit)
+
+    def test_copies_that_do_not_fit_say_how_close_they_came(self):
+        text = self.say(reason="no-fit", maxCopies=4, unreliableFit={"copies": 4, "fitResidualMm": 5.2, "ambiguous": False})
+        self.assertIn("did not fit the flash pattern", text)
+        self.assertIn("5.2 mm residual", text)
+
+    def test_without_a_report_the_old_strobe_wording_remains(self):
+        self.assertIn("strobe mode (3891 us exposure)", friendly_failure(EXPOSURE, exposure_us=3891, light_mode="strobe", ball_px=52))
+
+
 class OutlinesTests(unittest.TestCase):
     def test_a_small_ball_is_told_to_move_the_camera_closer(self):
         text = friendly_failure(OUTLINES, exposure_us=95, light_mode="flat", ball_px=18)

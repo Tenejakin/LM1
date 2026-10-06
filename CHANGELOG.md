@@ -1,5 +1,25 @@
 # Changelog
 
+## Pi service 0.62.3 - 2026-10-06
+
+- Cut the CPU cost of strobing in the dark. Profiling the idle service with py-spy showed about 28 % of its time in the raw-10-bit-to-8-bit conversion that runs on every frame of both cameras (a float32 subtract, divide, add, clip and cast). It is now two OpenCV passes (a saturating 16-bit subtract, then a scaled saturating narrow) and takes about 0.06 ms per frame instead of 0.9 ms on a PC, with output identical to the old formula for every 16-bit word; other black levels or scales still use the old arithmetic. The Pi was reaching 83 C and throttling, which dropped frames to 80-120 fps.
+- A strobe shot whose club pattern fits fewer than 3 flashes per frame (a wedge's single 1970 us gap) is now explained as that, not as the ring not flashing: copies for slow balls need wide gaps and a frame is only about 4 ms long.
+- Tests compare the fast conversion with the formula over every 16-bit word.
+
+## Pi service 0.62.2 - 2026-10-06
+
+- Fix a stuck white status LED with no ball detected. In strobe mode the analysis source flipped between the raw 10-bit and 8-bit pictures several times in a few seconds (a single flash-lit frame was enough to leave raw), and every flip restarted the ball detector's empty-plane calibration. With the ball on the mat the new calibration learned it as background, so the detector reported nothing while the Pi still thought a ball was present and kept the LED white.
+- The source no longer changes while a ball is on the mat or armed, and leaving raw because the scene brightened now needs 24 steady frames (about 100 ms) instead of one. Turning strobe off still switches at once.
+- If a switch does restart the detector while it held a ball, the Pi now reports the ball removed so the app and the LED return to searching.
+- Add tests for the flash-lit frame and the ball-on-mat cases.
+
+## Pi service 0.62.1 - 2026-10-06
+
+- Strobe shots that cannot be measured now say why. The old message blamed the long strobe exposure, but the 250 us rule only guards the ordinary frame-by-frame measurement; the flash-copy search does not use it. The new text names what the copy search found: the ring was not flashing when the shot was analysed (with the light controller's mode and error), no copies stood out (or the room light drowned them), copies merged because the ball moved too little between flashes (with the speed that would separate them for the active flash pattern), or copies were found but did not fit the pattern.
+- Always save a `diagnostics.strobe` report on strobe captures, including failed ones: light mode, controller state, flash pattern, frames searched, most copies in any frame, copy span in ball widths, and a reason code.
+- When a strobe fit measures the shot, the ordinary path's exposure complaint is no longer shown as a failure.
+- Add tests for each reason code and the wording. No change to which shots are measured.
+
 ## Night strobe prototype 0.8.0 / full shot review 0.1.1 - 2026-10-02
 
 - Replay all ten brighter-setting shots and recover ball tracks of three to five positions. Export projected launch speed and angle, multi-position fit, horizontal/vertical velocity, observed displacement and duration, apparent radius change, and a stationary-to-moving departure bracket where visible.

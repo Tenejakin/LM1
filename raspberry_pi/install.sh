@@ -65,6 +65,10 @@ install -m 0644 "${SCRIPT_DIR}/stereo_check.py" /opt/pinpoint/stereo_check.py
 install -m 0644 "${SCRIPT_DIR}/readiness.py" /opt/pinpoint/readiness.py
 install -m 0644 "${SCRIPT_DIR}/frame_uploader.py" /opt/pinpoint/frame_uploader.py
 install -m 0644 "${SCRIPT_DIR}/ogs_bridge.py" /opt/pinpoint/ogs_bridge.py
+install -m 0644 "${SCRIPT_DIR}/light_controller.py" /opt/pinpoint/light_controller.py
+install -m 0644 "${SCRIPT_DIR}/raw_frames.py" /opt/pinpoint/raw_frames.py
+install -m 0644 "${SCRIPT_DIR}/rejection_hints.py" /opt/pinpoint/rejection_hints.py
+install -m 0644 "${SCRIPT_DIR}/strobe_copies.py" /opt/pinpoint/strobe_copies.py
 install -m 0644 "${SCRIPT_DIR}/requirements.txt" /opt/pinpoint/requirements.txt
 rm -f /opt/pinpoint/pinpoint_server.py
 

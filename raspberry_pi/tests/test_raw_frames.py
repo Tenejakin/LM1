@@ -49,6 +49,36 @@ class RawToGrayTests(unittest.TestCase):
             self.assertEqual(analysis_source(), "auto")
 
 
+def reference_gray8(raw, black, per_level=1.0):
+    """The original float32 formula, kept here as the standard the fast path must match."""
+    levels = (np.asarray(raw, dtype=np.float32) - float(black)) / (64.0 * per_level)
+    return np.clip(levels + 0.5, 0, 255).astype(np.uint8)
+
+
+class FastConversionTests(unittest.TestCase):
+    EVERY_WORD = np.arange(65536, dtype=np.uint16).reshape(256, 256)
+
+    def test_matches_the_float_formula_for_every_16_bit_word(self):
+        for black in (0.0, 1.0, 31.0, 32.0, 63.0, 64.0, 1024.0, 4096.0, 40000.0, 65535.0):
+            with self.subTest(black=black):
+                self.assertTrue((raw_to_gray8(self.EVERY_WORD, black, 1.0) == reference_gray8(self.EVERY_WORD, black)).all())
+
+    def test_other_scales_and_fractional_black_levels_use_the_general_path_and_still_match(self):
+        for black, per_level in ((1024.0, 0.5), (1024.0, 2.0), (1000.5, 1.0), (1024.0, 0.3)):
+            with self.subTest(black=black, per_level=per_level):
+                self.assertTrue((raw_to_gray8(self.EVERY_WORD, black, per_level)
+                                 == reference_gray8(self.EVERY_WORD, black, per_level)).all())
+
+    def test_result_is_8_bit_and_keeps_the_frame_shape(self):
+        frame = np.full((400, 640), 1024 + 64 * 40, np.uint16)
+        out = raw_to_gray8(frame, 1024.0, 1.0)
+        self.assertEqual((out.dtype, out.shape), (np.uint8, (400, 640)))
+        self.assertTrue((out == 40).all())
+
+    def test_other_dtypes_still_convert(self):
+        self.assertTrue((raw_to_gray8(np.full((4, 4), 1024 + 64 * 7, np.int32), 1024.0, 1.0) == 7).all())
+
+
 class RawAnalysisTests(unittest.TestCase):
     DARK = np.full((8, 8), 1024 + 64 * 40, np.uint16)      # 40 counts: a dark scene
     MIDDLE = np.full((8, 8), 1024 + 64 * 150, np.uint16)   # between the two limits
@@ -78,14 +108,37 @@ class RawAnalysisTests(unittest.TestCase):
         self.assertIs(self.feed(lit, self.BRIGHT, 30), PICTURE)
         self.assertFalse(lit.consume_change())
 
-    def test_hysteresis_keeps_raw_in_the_middle_band_and_leaves_at_once_when_it_brightens(self):
+    def test_hysteresis_keeps_raw_in_the_middle_band_and_leaves_when_it_stays_bright(self):
         analysis = RawAnalysis(light("strobe"), source="auto")
         self.feed(analysis, self.DARK, 15)
         analysis.consume_change()
         self.assertTrue((self.feed(analysis, self.MIDDLE, 20) == 150).all())   # still raw
         self.assertFalse(analysis.consume_change())
-        self.assertIs(self.feed(analysis, self.BRIGHT, 1), PICTURE)           # saturating: back to the picture now
+        self.assertTrue((self.feed(analysis, self.BRIGHT, 10) == 255).all())  # a few bright frames are not enough
+        self.assertFalse(analysis.consume_change())
+        self.assertIs(self.feed(analysis, self.BRIGHT, 20), PICTURE)          # saturating for good: back to the picture
         self.assertTrue(analysis.consume_change())
+
+    def test_one_flash_lit_frame_does_not_flip_the_source(self):
+        analysis = RawAnalysis(light("strobe"), source="auto")
+        self.feed(analysis, self.DARK, 15)
+        analysis.consume_change()
+        for _ in range(10):
+            self.feed(analysis, self.BRIGHT, 1)
+            self.feed(analysis, self.DARK, 3)
+        self.assertFalse(analysis.consume_change())
+
+    def test_the_source_never_changes_while_a_ball_is_on_the_mat(self):
+        analysis = RawAnalysis(light("strobe"), source="auto")
+        analysis.hold = True
+        self.assertIs(self.feed(analysis, self.DARK, 40), PICTURE)     # would enter raw, but a ball is present
+        self.assertFalse(analysis.consume_change())
+        analysis.hold = False
+        self.feed(analysis, self.DARK, 15)
+        self.assertTrue(analysis.consume_change())
+        analysis.hold = True
+        self.assertFalse((self.feed(analysis, self.BRIGHT, 40) == 77).all())   # still raw-derived
+        self.assertFalse(analysis.consume_change())
 
     def test_a_middle_band_scene_does_not_start_raw(self):
         analysis = RawAnalysis(light("strobe"), source="auto")

@@ -26,7 +26,7 @@ from camera_source import (
 from light_controller import get_light_controller
 from raw_frames import RawAnalysis
 from rejection_hints import friendly_failure
-from strobe_copies import estimate_from_frames, metrics_from_fit
+from strobe_copies import estimate_with_report, metrics_from_fit
 
 try:
     import cv2
@@ -1003,6 +1003,14 @@ def analyze_departure(
         motion_track=track, secondary_frames=list(buffer.secondary.frames) if buffer.secondary is not None else None,
     )
     try:
+        light = get_light_controller()
+        strobe, strobe_report = estimate_with_report(
+            raw_frames, bounds, analysis_index, light.status() if light else None,
+            raw_frames=buffer.raw_by_index(), raw_black=buffer.raw_black or 1024.0)
+    except Exception:  # noqa: BLE001 - an optional estimate must never break the analysis
+        LOGGER.exception("Strobe copy analysis failed")
+        strobe, strobe_report = None, None
+    try:
         light_status = get_light_controller().status() if get_light_controller() else {}
         raw_scene = None
         if buffer.raw:
@@ -1010,10 +1018,12 @@ def analyze_departure(
             raw_scene = float(np.percentile(counts, 99.5))
         picture_scene = float(np.percentile(np.asarray(frames[len(frames) // 2][1])[::4, ::4], 99.5))
         original_failure = measurements.get("failure")
-        measurements["failure"] = friendly_failure(
+        measurements["failure"] = None if strobe is not None else friendly_failure(
             original_failure, exposure_us=exposure, light_mode=light_status.get("mode"),
-            ball_px=float(max(bounds[2], bounds[3])), scene_p995_counts=raw_scene, picture_p995=picture_scene)
+            ball_px=float(max(bounds[2], bounds[3])), scene_p995_counts=raw_scene, picture_p995=picture_scene,
+            strobe=strobe_report)
         if measurements["failure"] != original_failure:
+            # A strobe fit measured the shot, so the ordinary path's exposure complaint no longer applies.
             measurements.setdefault("diagnostics", {})["rejection"] = {"original": original_failure}
     except Exception:  # noqa: BLE001 - explaining a failure must never turn it into a different one
         LOGGER.exception("Could not explain the rejection")
@@ -1022,20 +1032,15 @@ def analyze_departure(
         "diameter": 5, "sigmaColor": 12, "sigmaSpace": 3,
         "elapsedMs": round(denoise_ms, 1), "rawFramesPreserved": True,
     }
-    try:
-        light = get_light_controller()
-        strobe = estimate_from_frames(raw_frames, bounds, analysis_index, light.status() if light else None,
-                                      raw_frames=buffer.raw_by_index(), raw_black=buffer.raw_black or 1024.0)
-    except Exception:  # noqa: BLE001 - an optional estimate must never break the analysis
-        LOGGER.exception("Strobe copy analysis failed")
-        strobe = None
+    if strobe_report is not None:
+        measurements["diagnostics"]["strobe"] = strobe_report
     if strobe is not None:
         metrics = measurements.setdefault("metrics", {})
         for key, entry in metrics_from_fit(strobe["fit"]).items():
             if (metrics.get(key) or {}).get("status", "unavailable") == "unavailable":
                 metrics[key] = entry
-        measurements["diagnostics"]["strobe"] = {"frameIndex": strobe["frameIndex"], "copies": strobe["fit"]["copies"],
-                                                 "fitResidualMm": strobe["fit"]["fitResidualMm"], "source": strobe["source"]}
+        measurements["diagnostics"]["strobe"].update({"frameIndex": strobe["frameIndex"], "copies": strobe["fit"]["copies"],
+                                                      "fitResidualMm": strobe["fit"]["fitResidualMm"], "source": strobe["source"]})
         warnings.append("Ball speed and launch angle come from flash copies in one frame: image-plane estimates.")
     measured_first_moving = measurements.get("estimatedImpactFrameIndex")
     if isinstance(measured_first_moving, int):
@@ -1461,11 +1466,17 @@ class BallMonitor:
                         continue
                     failed_reads = 0
                     frame_index += 1
+                    self.raw_analysis.hold = bool(detector.stable_present or armed_ball_bounds is not None
+                                                  or suspected_departure_at is not None)
                     frame = self._analysis_frames(capture, frame)
                     if self.raw_analysis.consume_change():
                         # An empty-plane reference learned from one kind of frame is wrong for the other.
                         LOGGER.info("Analysis frames switched to %s; restarting ball detector calibration",
                                     "raw 10-bit" if self.raw_analysis.active() else "the 8-bit picture")
+                        if detection_enabled and (detector.stable_present or armed_ball_bounds is not None):
+                            # The restart forgets the ball; say so, or the app and the status LED keep showing a ball
+                            # the detector no longer has.
+                            emit(BallEvent(False))
                         detector = BallPresenceDetector()
                         rolling_frames.clear()
                         calibration_logged = False

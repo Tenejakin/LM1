@@ -10,7 +10,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from light_controller import strobe_pattern
 from strobe_copies import (
-    analyse_frame, estimate_from_frames, fit_flash_track, find_copies, flash_times_us, metrics_from_fit, raw_to_counts,
+    analyse_frame, estimate_from_frames, estimate_with_report, fit_flash_track, find_copies, flash_times_us, metrics_from_fit,
+    raw_to_counts, separation_speed_mps,
 )
 
 PERIOD_US = 4132
@@ -205,6 +206,57 @@ class WholeCaptureTests(unittest.TestCase):
         self.assertEqual(metrics["ballSpeedMps"]["value"], 61.9)
         self.assertEqual(metrics["launchAngleDeg"]["unit"], "deg")
         self.assertIn("6 flash copies", metrics["ballSpeedMps"]["reason"])
+
+
+class ReportTests(unittest.TestCase):
+    LIGHT = WholeCaptureTests.LIGHT
+    BOUNDS = (174, 274, 52, 52)
+
+    def frames(self, **kwargs):
+        return WholeCaptureTests().frames(self.LIGHT["pattern"]["gapsUs"], **kwargs)
+
+    def test_a_good_shot_reports_the_copies_it_found(self):
+        found, report = estimate_with_report(self.frames(), self.BOUNDS, 9, self.LIGHT)
+        self.assertIsNotNone(found)
+        self.assertIsNone(report["reason"])
+        self.assertEqual(report["lightMode"], "strobe")
+        self.assertGreaterEqual(report["bestCopies"], 4)
+        self.assertGreater(report["framesSearched"], 0)
+
+    def test_the_wrapper_returns_the_same_fit(self):
+        frames = self.frames()
+        self.assertEqual(estimate_from_frames(frames, self.BOUNDS, 9, self.LIGHT),
+                         estimate_with_report(frames, self.BOUNDS, 9, self.LIGHT)[0])
+
+    def test_names_why_the_ring_was_not_used(self):
+        frames = self.frames()
+        self.assertEqual(estimate_with_report(frames, self.BOUNDS, 9, None)[1]["reason"], "no-controller")
+        report = estimate_with_report(frames, self.BOUNDS, 9, {**self.LIGHT, "mode": "flat"})[1]
+        self.assertEqual((report["reason"], report["lightMode"]), ("not-strobing", "flat"))
+        self.assertEqual(estimate_with_report(frames, self.BOUNDS, 9, {**self.LIGHT, "pattern": None})[1]["reason"], "no-pattern")
+        short = {**self.LIGHT, "pattern": {"gapsUs": [900], "ballSpeedMps": 30.0}}
+        self.assertEqual(estimate_with_report(frames, self.BOUNDS, 9, short)[1]["reason"], "pattern-too-short")
+
+    def test_an_empty_dark_scene_reports_no_copies(self):
+        rng = np.random.default_rng(3)
+        frames = [(i * 0.004131, np.clip(rng.normal(3, 2, (400, 640)), 0, 255).astype(np.uint8)) for i in range(30)]
+        found, report = estimate_with_report(frames, self.BOUNDS, 9, self.LIGHT)
+        self.assertIsNone(found)
+        self.assertEqual(report["reason"], "no-copies")
+        self.assertEqual(report["maxCopies"], 0)
+
+    def test_a_slow_ball_reports_merged_copies_and_the_speed_that_would_separate_them(self):
+        # 1 m/s: the copies land a few mm apart, so they merge into one ball-sized blob.
+        frames = self.frames(speed=1.0)
+        found, report = estimate_with_report(frames, self.BOUNDS, 9, self.LIGHT)
+        self.assertIsNone(found)
+        self.assertEqual(report["reason"], "too-few-copies")
+        self.assertLess(report["maxCopySpanBalls"], 0.8)
+        self.assertEqual(report["separatesAboveMps"], separation_speed_mps(self.LIGHT["pattern"]["gapsUs"]))
+
+    def test_separation_speed_is_one_ball_width_over_the_shortest_gap(self):
+        self.assertAlmostEqual(separation_speed_mps([950, 1020, 1100]), 44.9, delta=0.1)
+        self.assertIsNone(separation_speed_mps([]))
 
 
 class RawFrameTests(unittest.TestCase):

@@ -14,3 +14,7 @@ tmp/stereo-calibration-web-3.17.0/
 
 # Supabase CLI state (linked project, pooler address)
 supabase/.temp/
+
+# Generated captures and firmware build output
+output/
+hardware/strobe-test/strobe_master/build*/

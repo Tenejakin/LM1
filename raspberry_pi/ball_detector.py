@@ -9,6 +9,7 @@ import os
 import json
 import re
 import shutil
+import statistics
 import threading
 import time
 from collections import deque
@@ -18,7 +19,14 @@ from pathlib import Path
 from typing import Any
 
 from apriltag_calibration import AprilTagDetector, load_apriltag_calibration
-from camera_source import CsiCapture, DualCsiCapture, auto_calibrate_camera, record_camera_diagnostics, uses_csi
+from camera_source import (
+    CsiCapture, DualCsiCapture, RAW_SCALE, auto_calibrate_light, raw_black_level, record_camera_diagnostics,
+    take_exposure_cap_hint, uses_csi,
+)
+from light_controller import get_light_controller
+from raw_frames import RawAnalysis
+from rejection_hints import friendly_failure
+from strobe_copies import estimate_from_frames, metrics_from_fit
 
 try:
     import cv2
@@ -295,12 +303,37 @@ class DetectionObservation:
     bounds: tuple[int, int, int, int] | None
 
 
+def _is_staggered(capture: Any) -> bool:
+    """True only for a real dual camera running staggered; fakes and single cameras are never staggered."""
+    return isinstance(capture, DualCsiCapture) and getattr(capture, "stagger", False) is True
+
+
+# Raw 10-bit frames are 0.5 MB each and the Pi has 1 GB, so only a short window around the shot is kept
+# (about 100 frames per camera, 50 MB) and only the frames near the impact are written to disk.
+RAW_RING_FRAMES = int(os.getenv("PINPOINT_RAW_BUFFER_FRAMES", "100"))
+RAW_SAVE_BEFORE = int(os.getenv("PINPOINT_RAW_SAVE_BEFORE", "25"))
+RAW_SAVE_AFTER = int(os.getenv("PINPOINT_RAW_SAVE_AFTER", "45"))
+# The detector only confirms a departure ~100 frames after the hit, by which time a plain "last 100 frames" ring has
+# already thrown away the frames before the impact (measured: every raw capture started 20 frames AFTER the hit).
+# So the ring is pinned the moment the ball first looks gone: it keeps everything from just before that, adds the
+# next RAW_AFTER_PIN frames and then stops adding raw frames (memory), until the departure is confirmed or dismissed.
+RAW_PIN_BACK = RAW_SAVE_BEFORE + 5
+RAW_AFTER_PIN = RAW_SAVE_AFTER + 15
+RAW_HARD_CAP = int(os.getenv("PINPOINT_RAW_BUFFER_HARD_CAP", "160"))
+
+
 class RollingFrameBuffer:
     """Keeps a compact diagnostic history until the ball leaves the view."""
 
     def __init__(self, max_frames: int) -> None:
         self.frames: deque[tuple[float, Any]] = deque(maxlen=max(1, max_frames))
         self.metadata: deque[dict[str, Any]] = deque(maxlen=max(1, max_frames))
+        # (sensor timestamp, raw frame): the most recent RAW_RING_FRAMES, or from the pin point while pinned.
+        self.raw: deque[tuple[int, Any]] = deque()
+        self._raw_limit = max(1, min(max_frames, RAW_RING_FRAMES))
+        self._raw_pin_stamp: int | None = None
+        self._raw_after_pin = 0
+        self.raw_black = 0
         self.secondary: RollingFrameBuffer | None = None
 
     def append(self, frame: Any, captured_at: float | None = None, metadata: dict[str, Any] | None = None,
@@ -313,9 +346,20 @@ class RollingFrameBuffer:
             self.secondary.append(secondary_frame, metadata=secondary_metadata)
         elif self.secondary is not None:
             raise RuntimeError("Second camera frame missing from paired burst")
+        raw_frame = (metadata or {}).get("RawFrame")
+        raw_black = raw_black_level(metadata) if raw_frame is not None else 0
         metadata = {key: value for key, value in (metadata or {}).items() if key in ("SensorTimestamp", "ExposureTime", "FrameDuration", "AnalogueGain") and isinstance(value, (int, float))}
         if metadata.get("SensorTimestamp"):
             captured_at = metadata["SensorTimestamp"] / 1e9
+        if raw_frame is not None and metadata.get("SensorTimestamp"):
+            self.raw_black = raw_black
+            if self._raw_pin_stamp is None:
+                self.raw.append((int(metadata["SensorTimestamp"]), raw_frame))
+            else:
+                self._raw_after_pin += 1
+                if self._raw_after_pin <= RAW_AFTER_PIN:
+                    self.raw.append((int(metadata["SensorTimestamp"]), raw_frame))
+            self._evict_raw()
         self.frames.append((time.time() if captured_at is None else captured_at, frame.copy()))
         self.metadata.append(metadata)
 
@@ -323,9 +367,35 @@ class RollingFrameBuffer:
     def timestamp_source(self) -> str:
         return "sensor" if self.metadata and all(m.get("SensorTimestamp") for m in self.metadata) else "host"
 
+    def _evict_raw(self) -> None:
+        while len(self.raw) > RAW_HARD_CAP:
+            self.raw.popleft()
+        while len(self.raw) > self._raw_limit and (self._raw_pin_stamp is None or self.raw[0][0] < self._raw_pin_stamp):
+            self.raw.popleft()
+
+    def pin_raw(self, back_frames: int = RAW_PIN_BACK) -> None:
+        """Keep the raw frames from `back_frames` before now: the ball has just looked gone (see RAW_AFTER_PIN)."""
+        if self._raw_pin_stamp is None and self.metadata:
+            index = max(0, len(self.metadata) - 1 - back_frames)
+            self._raw_pin_stamp = self.metadata[index].get("SensorTimestamp") or None
+            self._raw_after_pin = 0
+        if self.secondary is not None:
+            self.secondary.pin_raw(back_frames)
+
+    def unpin_raw(self) -> None:
+        """The departure was a false alarm: go back to a plain rolling window."""
+        self._raw_pin_stamp = None
+        self._raw_after_pin = 0
+        self._evict_raw()
+        if self.secondary is not None:
+            self.secondary.unpin_raw()
+
     def clear(self) -> None:
         self.frames.clear()
         self.metadata.clear()
+        self.raw.clear()
+        self._raw_pin_stamp = None
+        self._raw_after_pin = 0
         if self.secondary is not None:
             self.secondary.clear()
 
@@ -334,8 +404,34 @@ class RollingFrameBuffer:
         while len(self.frames) > last_index + 1:
             self.frames.pop()
             self.metadata.pop()
+        if self.raw and self.metadata:
+            last_stamp = self.metadata[-1].get("SensorTimestamp") or 0
+            while self.raw and self.raw[-1][0] > last_stamp:
+                self.raw.pop()
         if self.secondary is not None:
             self.secondary.trim_after(last_index)
+
+    def raw_by_index(self) -> dict[int, Any]:
+        """Raw frames keyed by their position in `frames`, for the frames that still have one."""
+        if not self.raw:
+            return {}
+        by_stamp = {stamp: frame for stamp, frame in self.raw}
+        return {index: by_stamp[m["SensorTimestamp"]] for index, m in enumerate(self.metadata)
+                if m.get("SensorTimestamp") in by_stamp}
+
+    def _save_raw(self, destination: Path, impact_frame_index: int | None) -> dict[str, Any] | None:
+        """Write the raw frames around the impact as 16-bit PNGs (value = 10-bit count x RAW_SCALE)."""
+        frames = self.raw_by_index()
+        if not frames:
+            return None
+        centre = impact_frame_index if impact_frame_index is not None else max(frames)
+        wanted = sorted(index for index in frames if centre - RAW_SAVE_BEFORE <= index <= centre + RAW_SAVE_AFTER)
+        for index in wanted:
+            # Light compression: this runs on the Pi after the result has already been sent.
+            if not cv2.imwrite(str(destination / f"raw-{index:04d}.png"), frames[index], [cv2.IMWRITE_PNG_COMPRESSION, 1]):
+                raise RuntimeError(f"Could not write raw frame {index}")
+        return {"format": "png16", "valueIs": f"10-bit count x {RAW_SCALE}", "scale": RAW_SCALE,
+                "blackLevel": self.raw_black, "frames": wanted}
 
     def save(
         self,
@@ -366,6 +462,7 @@ class RollingFrameBuffer:
             if not cv2.imwrite(str(image_path), frame, [cv2.IMWRITE_JPEG_QUALITY, 95]):
                 raise RuntimeError(f"Could not write rolling capture frame {image_path}")
         self._save_contact_sheet(destination, impact_frame_index)
+        raw_manifest = self._save_raw(destination, impact_frame_index)
         manifest = {
             "captureId": capture_id or destination.name,
             "capturedAtUnix": time.time() if self.timestamp_source == "sensor" else started_at,
@@ -383,6 +480,8 @@ class RollingFrameBuffer:
             "ballBounds": list(ball_bounds) if ball_bounds is not None else None,
             "purpose": "Ball departure evidence; physical launch metrics require validated tracking and calibration",
         }
+        if raw_manifest is not None:
+            manifest["raw"] = raw_manifest
         if self.secondary is not None:
             if len(self.secondary.frames) != len(self.frames) or self.timestamp_source != "sensor" or self.secondary.timestamp_source != "sensor":
                 raise RuntimeError("Paired capture has incomplete frames or sensor timestamps")
@@ -391,15 +490,19 @@ class RollingFrameBuffer:
             offsets = [(b["SensorTimestamp"] - a["SensorTimestamp"]) / 1000
                        for a, b in zip(self.metadata, self.secondary.metadata)]
             absolute_offsets = sorted(abs(value) for value in offsets)
+            median_offset = statistics.median(offsets)
+            staggered = abs(median_offset) > 600.0
             manifest["dualCamera"] = {
-                "mode": "software", "frameCount": len(offsets),
+                "mode": "stagger" if staggered else "software", "frameCount": len(offsets),
+                "staggered": staggered, "staggerOffsetUs": round(median_offset, 1) if staggered else None,
                 "primaryCameraIndex": int(os.getenv("PINPOINT_CAMERA_INDEX", "0")),
                 "secondaryCameraIndex": int(os.getenv("PINPOINT_SECONDARY_CAMERA_INDEX", "1")),
                 "secondaryPath": "camera-secondary", "pairOffsetsUs": offsets,
                 "maxAbsOffsetUs": max(absolute_offsets),
                 "medianAbsOffsetUs": absolute_offsets[len(absolute_offsets) // 2],
                 "stereoCalibrated": False,
-                "note": "Both views share the trigger. Stereo measurements are not calibrated.",
+                "note": ("The top camera runs half a frame behind the lower one; analyse each view at its own timestamp."
+                         if staggered else "Both views share the trigger. Stereo measurements are not calibrated."),
             }
         apriltag_calibration = load_apriltag_calibration() if include_calibration else None
         if apriltag_calibration is not None:
@@ -899,11 +1002,41 @@ def analyze_departure(
         frames, bounds, analysis_index, buffer.timestamp_source, exposure,
         motion_track=track, secondary_frames=list(buffer.secondary.frames) if buffer.secondary is not None else None,
     )
+    try:
+        light_status = get_light_controller().status() if get_light_controller() else {}
+        raw_scene = None
+        if buffer.raw:
+            counts = (np.asarray(buffer.raw[-1][1])[::4, ::4].astype(np.float32) - (buffer.raw_black or 1024)) / RAW_SCALE
+            raw_scene = float(np.percentile(counts, 99.5))
+        picture_scene = float(np.percentile(np.asarray(frames[len(frames) // 2][1])[::4, ::4], 99.5))
+        original_failure = measurements.get("failure")
+        measurements["failure"] = friendly_failure(
+            original_failure, exposure_us=exposure, light_mode=light_status.get("mode"),
+            ball_px=float(max(bounds[2], bounds[3])), scene_p995_counts=raw_scene, picture_p995=picture_scene)
+        if measurements["failure"] != original_failure:
+            measurements.setdefault("diagnostics", {})["rejection"] = {"original": original_failure}
+    except Exception:  # noqa: BLE001 - explaining a failure must never turn it into a different one
+        LOGGER.exception("Could not explain the rejection")
     measurements.setdefault("diagnostics", {})["preprocessing"] = {
         "version": 1, "denoise": os.getenv("PINPOINT_ANALYSIS_DENOISE", "bilateral"),
         "diameter": 5, "sigmaColor": 12, "sigmaSpace": 3,
         "elapsedMs": round(denoise_ms, 1), "rawFramesPreserved": True,
     }
+    try:
+        light = get_light_controller()
+        strobe = estimate_from_frames(raw_frames, bounds, analysis_index, light.status() if light else None,
+                                      raw_frames=buffer.raw_by_index(), raw_black=buffer.raw_black or 1024.0)
+    except Exception:  # noqa: BLE001 - an optional estimate must never break the analysis
+        LOGGER.exception("Strobe copy analysis failed")
+        strobe = None
+    if strobe is not None:
+        metrics = measurements.setdefault("metrics", {})
+        for key, entry in metrics_from_fit(strobe["fit"]).items():
+            if (metrics.get(key) or {}).get("status", "unavailable") == "unavailable":
+                metrics[key] = entry
+        measurements["diagnostics"]["strobe"] = {"frameIndex": strobe["frameIndex"], "copies": strobe["fit"]["copies"],
+                                                 "fitResidualMm": strobe["fit"]["fitResidualMm"], "source": strobe["source"]}
+        warnings.append("Ball speed and launch angle come from flash copies in one frame: image-plane estimates.")
     measured_first_moving = measurements.get("estimatedImpactFrameIndex")
     if isinstance(measured_first_moving, int):
         first_moving_index = min(first_moving_index, measured_first_moving) if first_moving_index is not None else measured_first_moving
@@ -1219,6 +1352,7 @@ class BallMonitor:
         self.height = int(os.getenv("PINPOINT_DETECTOR_HEIGHT", "400" if uses_csi() else "480"))
         self.fps = int(os.getenv("PINPOINT_CAMERA_FPS", "30"))
         self.frame_stride = max(1, int(os.getenv("PINPOINT_BALL_FRAME_STRIDE", "4" if uses_csi() else "3")))
+        self.raw_analysis = RawAnalysis(get_light_controller())
         self.preview_interval = max(
             1.0,
             float(os.getenv("PINPOINT_BLE_PREVIEW_INTERVAL_SECONDS", "3")),
@@ -1313,6 +1447,9 @@ class BallMonitor:
                         calibration_logged = False
                         reset_event.clear()
                         LOGGER.info("Ball detector empty-plane calibration reset; keep the detection area clear")
+                    if _is_staggered(capture):
+                        # The second camera may only be restarted while the mat is empty.
+                        capture.idle = not detector.stable_present and suspected_departure_at is None
                     ok, frame = capture.read()
                     if not ok:
                         failed_reads += 1
@@ -1324,6 +1461,23 @@ class BallMonitor:
                         continue
                     failed_reads = 0
                     frame_index += 1
+                    frame = self._analysis_frames(capture, frame)
+                    if self.raw_analysis.consume_change():
+                        # An empty-plane reference learned from one kind of frame is wrong for the other.
+                        LOGGER.info("Analysis frames switched to %s; restarting ball detector calibration",
+                                    "raw 10-bit" if self.raw_analysis.active() else "the 8-bit picture")
+                        detector = BallPresenceDetector()
+                        rolling_frames.clear()
+                        calibration_logged = False
+                        armed_ball_bounds = None
+                        suspected_departure_at = None
+                        warmup_until = time.monotonic() + 3
+                        continue
+                    if _is_staggered(capture) and capture.pairing_ok is False:
+                        # Out of step or re-locking: nothing measured now would pair up, so the ball cannot arm.
+                        # The camera re-locks itself as soon as the mat is empty.
+                        rolling_frames.clear()
+                        continue
                     if calibration_capture_event is not None and calibration_capture_event.is_set():
                         calibration_capture_event.clear()
                         requested = calibration_capture_camera() if calibration_capture_camera else "primary"
@@ -1339,6 +1493,9 @@ class BallMonitor:
                                 from stereo_calibration import capture_pair
                                 if not isinstance(capture, DualCsiCapture):
                                     raise ValueError("Both cameras must be streaming for a stereo pair.")
+                                if _is_staggered(capture):
+                                    raise ValueError("Calibrate the camera pair with staggered capture off (PINPOINT_CAMERA_STAGGER): "
+                                                     "the two views must be taken at the same instant.")
                                 result = {"stereo": True, "data": capture_pair(
                                     frame, capture.secondary_frame,
                                     [capture.metadata.get("SensorTimestamp"), capture.secondary_metadata.get("SensorTimestamp")],
@@ -1449,6 +1606,8 @@ class BallMonitor:
                         ) <= max(2, round(0.1 * max(armed_ball_bounds[2:]))):
                             last_ball_frame = frame.copy()
                         observed_ball_frames += 1
+                        if suspected_departure_at is not None:
+                            rolling_frames.unpin_raw()
                         suspected_departure_at = None
                         false_removal_rejections = 0  # A real ball re-confirms; a static ghost never does.
                     elif observation.present and suspected_departure_at is None and rolling_frames.frames:
@@ -1457,6 +1616,7 @@ class BallMonitor:
                         # This is only a hint: a club addressing the ball can trip it
                         # early, so measure_launch searches well beyond it.
                         suspected_departure_at = rolling_frames.frames[-1][0]
+                        rolling_frames.pin_raw()
 
                     if not observation.changed:
                         continue
@@ -1696,7 +1856,7 @@ class BallMonitor:
             return probe
 
         try:
-            result = auto_calibrate_camera(grab_frame)
+            result = auto_calibrate_light(grab_frame, get_light_controller(), take_exposure_cap_hint())
         except Exception as error:  # noqa: BLE001 - the app shows whatever went wrong
             LOGGER.warning("Exposure calibration failed: %s", error)
             return {"ok": False, "error": str(error)}
@@ -1786,7 +1946,16 @@ class BallMonitor:
             if not ok:
                 LOGGER.warning("Camera stopped while collecting post-impact frames")
                 return
+            frame = self._analysis_frames(capture, frame)
             self._append_capture_frame(rolling_frames, capture, frame)
+
+    def _analysis_frames(self, capture: Any, frame: Any) -> Any:
+        """The frames the detector and buffer see: raw-derived while strobing (see raw_frames.py), else the picture."""
+        converted = self.raw_analysis.frame(frame, getattr(capture, "metadata", None))
+        if isinstance(capture, DualCsiCapture) and capture.secondary_frame is not None:
+            capture.secondary_frame = self.raw_analysis.frame(
+                capture.secondary_frame, getattr(capture, "secondary_metadata", None), follow=True)
+        return converted
 
     @staticmethod
     def _append_capture_frame(rolling_frames: RollingFrameBuffer, capture: Any, frame: Any) -> None:

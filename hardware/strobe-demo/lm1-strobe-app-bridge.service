@@ -1,0 +1,15 @@
+[Unit]
+Description=LM1 Strobe App Bridge 0.5.0
+After=bluetooth.service lm1-night-demo.service
+Requires=bluetooth.service
+Conflicts=pinpoint.service
+
+[Service]
+Type=simple
+User=root
+EnvironmentFile=-/etc/default/pinpoint
+WorkingDirectory=/home/lm1/strobe-demo-v0.6.0
+ExecStart=/opt/pinpoint/.venv/bin/python -u /home/lm1/strobe-demo-v0.6.0/app_bridge.py
+Restart=on-failure
+RestartSec=3
+

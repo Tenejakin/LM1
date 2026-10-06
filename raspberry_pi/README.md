@@ -459,6 +459,37 @@ scp -i "$env:USERPROFILE/.ssh/lm1_codex_ed25519" lm1@192.168.0.140:/var/lib/pinp
 These settings verify the camera and positioning. They do not implement measured launch speed, angle or spin.
 
 
+## Staggered cameras (0.55.0, experimental)
+
+Set `PINPOINT_CAMERA_STAGGER=true` in `/etc/default/pinpoint` and restart the service. The two sensors then run
+without libcamera sync and the upper one is held about half a frame (2 ms) behind the lower one, so the pair sees
+the ball twice as often in time. The phase is chosen at start by restarting the upper camera until it lands near half
+a frame, watched on every pair, and restored while the mat is empty if it drifts (about 25 minutes of margin).
+Ball detection pauses while it is out of step. Club stereo is skipped on staggered bursts, and the camera pair must be
+calibrated with the flag off. `scripts/test-stagger-phase.py` measures the phase behaviour on the device (stop the
+service first), and `scripts/simulate-stagger.py` estimates the gain for each shot type.
+
+## Level rig: no tag (0.54.0)
+
+By default the Pi no longer needs the AprilTag. It assumes the stand sits level on the surface the ball is
+hit from: gravity runs down the rig at the lower camera's stored pitch, the target is to the right of where the
+bottom camera points, and the camera height is a stand constant that each shot corrects from the resting ball
+(up to 40 mm). Lens intrinsics and the checkerboard camera-pair calibration are still required.
+
+The tilt is a per-unit constant in `/var/lib/pinpoint/rig.json`, written once by `install.sh` from the saved
+tag calibrations of both cameras (fused through the stereo pair), or by hand:
+
+```text
+python /opt/pinpoint/rig_pose.py --show
+python /opt/pinpoint/rig_pose.py --from-tags --dry-run
+python /opt/pinpoint/rig_pose.py --set 8.5 157.5     # pitch in degrees, height in mm
+```
+
+A tilt error costs accuracy: pitch error e shifts launch direction by about e x tan(launch angle) and a sideways
+lean shifts launch angle by about the lean, so keep the stand level and re-measure the constants if the stand or
+camera mounts change. `PINPOINT_GROUND_MODE=tag` restores the AprilTag ground calibration described below.
+`scripts/compare-ground-modes.py` replays saved captures both ways and reports the difference.
+
 ## AprilTag calibration (0.12.0)
 
 Print `output/pdf/lm1-apriltag-36h11-id0-100mm-v1.0.0.pdf` at 100% and verify its 100 mm ruler. Place the tag flat beside the ball with its top edge parallel to the intended target line. The Calibration screen outlines a detected tag and reports detection quality. **Capture AprilTag calibration** persists `/var/lib/pinpoint/apriltag-calibration.json`.
@@ -481,3 +512,27 @@ Departure analysis uses a gentle per-frame bilateral filter (5 px, sigma colour 
 ## Stored ground calibration (0.26.0)
 
 Reset empty plane with the ball removed, then place the ground tag flat and fully visible and use Capture AprilTag calibration. Lens calibration at the exact current resolution must exist first. Successful capture saves 3D ground pose and lens inputs; you may remove the ground tag afterward. Keep camera position, focus, capture mode and surface fixed. Empty-plane reset and successful lens recalibration clear ground geometry and target line. Recalibrate with the tag again, then set target line from a roll. Old planar-only saved records are insufficient for tag removal. With no stored pose, a visible ground tag retains the previous burst fallback. Stored-pose diagnostics are retained in each analysis.
+
+## Light controller (optional, service 0.57.0)
+
+An ESP32-S3 on the IR ring can switch it off, steady or strobing. Plug it into a Pi USB port, flash
+`hardware/strobe-test/strobe_master`, then add this to `/etc/default/pinpoint` and restart the service:
+
+```
+PINPOINT_LIGHT_CONTROL=esp32
+# PINPOINT_LIGHT_PORT=/dev/ttyACM0   # only if auto-detection picks the wrong port
+```
+
+Without `PINPOINT_LIGHT_CONTROL` nothing changes. The Device screen's Light selector (Auto, Daylight, Flat,
+Strobe) then moves the camera and the ring together. See `DEVICE_API.md` for `setLightMode`.
+
+## Raw 10-bit frames (optional, service 0.59.0)
+
+`PINPOINT_CAMERA_RAW=true` in `/etc/default/pinpoint` makes every camera frame also carry its linear raw 10-bit data
+(only with `PINPOINT_CAMERA_BIT_DEPTH=10`). The service keeps the last 100 raw frames per camera
+(`PINPOINT_RAW_BUFFER_FRAMES`, about 50 MB each) and saves those from 25 before to 45 after the impact next to the
+JPEGs as 16-bit `raw-NNNN.png` files (value = 10-bit count x 64, data floor about 1024; `capture.json` has a `raw` entry).
+Open them with `cv2.imread(path, cv2.IMREAD_UNCHANGED)`; subtract the black level and divide by 64 to get counts.
+
+`PINPOINT_ANALYSIS_SOURCE=auto|raw|isp` chooses what the ball detector sees (default `auto`: raw-derived frames only while
+strobing in a dark scene, the 8-bit picture otherwise; see `raw_frames.py` for why raw is not simply better).

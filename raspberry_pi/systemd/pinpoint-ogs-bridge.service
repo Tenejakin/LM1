@@ -1,0 +1,20 @@
+[Unit]
+Description=LM1 PRO OpenGolfSim bridge (WebSocket 3112 to OpenGolfSim TCP 3111)
+After=network-online.target NetworkManager.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+EnvironmentFile=-/etc/default/pinpoint
+WorkingDirectory=/opt/pinpoint
+ExecStart=/opt/pinpoint/.venv/bin/python /opt/pinpoint/ogs_bridge.py
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+
+[Install]
+WantedBy=multi-user.target

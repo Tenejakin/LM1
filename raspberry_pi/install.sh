@@ -58,13 +58,22 @@ install -m 0644 "${SCRIPT_DIR}/lens_calibration.py" /opt/pinpoint/lens_calibrati
 install -m 0644 "${SCRIPT_DIR}/stereo_calibration.py" /opt/pinpoint/stereo_calibration.py
 install -m 0644 "${SCRIPT_DIR}/target_line.py" /opt/pinpoint/target_line.py
 install -m 0644 "${SCRIPT_DIR}/shot_coverage.py" /opt/pinpoint/shot_coverage.py
+install -m 0644 "${SCRIPT_DIR}/rig_pose.py" /opt/pinpoint/rig_pose.py
 install -m 0644 "${SCRIPT_DIR}/camera_source.py" /opt/pinpoint/camera_source.py
 install -m 0644 "${SCRIPT_DIR}/apriltag_calibration.py" /opt/pinpoint/apriltag_calibration.py
 install -m 0644 "${SCRIPT_DIR}/stereo_check.py" /opt/pinpoint/stereo_check.py
 install -m 0644 "${SCRIPT_DIR}/readiness.py" /opt/pinpoint/readiness.py
 install -m 0644 "${SCRIPT_DIR}/frame_uploader.py" /opt/pinpoint/frame_uploader.py
+install -m 0644 "${SCRIPT_DIR}/ogs_bridge.py" /opt/pinpoint/ogs_bridge.py
 install -m 0644 "${SCRIPT_DIR}/requirements.txt" /opt/pinpoint/requirements.txt
 rm -f /opt/pinpoint/pinpoint_server.py
+
+# Level-rig ground (service 0.54.0): write this unit's tilt and height once, from the saved tag
+# calibrations, so the tag is no longer needed. An existing rig.json is never overwritten.
+if [[ ! -f /var/lib/pinpoint/rig.json ]]; then
+  (cd /opt/pinpoint && /opt/pinpoint/.venv/bin/python rig_pose.py --from-tags) \
+    || echo "No rig.json written (no saved tag calibration); the level rig uses default constants until 'python rig_pose.py --set PITCH HEIGHT' is run."
+fi
 
 if [[ "${OFFLINE}" == false ]]; then
   python3 -m venv --clear --system-site-packages /opt/pinpoint/.venv
@@ -78,6 +87,7 @@ if ! /opt/pinpoint/.venv/bin/python -c 'import cv2; assert hasattr(cv2, "aruco")
 fi
 
 install -m 0644 "${SCRIPT_DIR}/systemd/pinpoint.service" /etc/systemd/system/pinpoint.service
+install -m 0644 "${SCRIPT_DIR}/systemd/pinpoint-ogs-bridge.service" /etc/systemd/system/pinpoint-ogs-bridge.service
 rm -f /etc/avahi/services/pinpoint.service
 
 if [[ ! -f /etc/default/pinpoint ]]; then
@@ -141,6 +151,8 @@ bluetoothctl power on
 systemctl daemon-reload
 systemctl enable pinpoint.service
 systemctl restart pinpoint.service
+systemctl enable pinpoint-ogs-bridge.service
+systemctl restart pinpoint-ogs-bridge.service
 
 echo
 echo "LM1 PRO BLE service is installed and running."
@@ -148,4 +160,5 @@ if [[ "${OFFLINE}" == true ]]; then
   echo "Offline update reused the existing system and Python packages."
 fi
 echo "Check it with: systemctl status pinpoint --no-pager"
+echo "OpenGolfSim bridge: ws://<LM1 address>:3112 (systemctl status pinpoint-ogs-bridge --no-pager)"
 echo "The mobile app should now discover a nearby device named LM1 PRO."

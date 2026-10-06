@@ -17,6 +17,8 @@ import { CaptureReview } from '@/components/CaptureReview';
 import { ReadinessCard } from '@/components/ReadinessCard';
 import { SwingLoop } from '@/components/SwingLoop';
 import { ClubSelector } from '@/components/ClubSelector';
+import { SessionBanner } from '@/components/SessionBanner';
+import { StaggerNotice } from '@/components/StaggerNotice';
 import { directionLabel, ShotRow, StrikeMap, TrajectoryChart } from '@/components/ShotVisuals';
 import { Eyebrow, HelpText, MetricTile, PrimaryButton, SectionHeader, StepRow, Surface } from '@/components/ui';
 import { useLaunchMonitor } from '@/context/LaunchMonitorContext';
@@ -175,6 +177,8 @@ export function HomeScreen({
         </View>
       ) : null}
 
+      <StaggerNotice />
+      <SessionBanner onOpenSessions={onOpenHistory} />
       <ClubSelector disabled={state === 'armed' || state === 'processing' || state === 'connecting'} />
 
       <LinearGradient

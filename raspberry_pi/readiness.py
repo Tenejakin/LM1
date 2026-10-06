@@ -23,12 +23,15 @@ from typing import Any
 import numpy as np
 
 from flight_model import CLUB_BALL_SPEED_MPS
-from launch_measurements import (MAX_MOTION_BLUR_M, RADIUS, load_setup, secondary_camera,
-                                 stored_ground_pose)
+from launch_measurements import (MAX_MOTION_BLUR_M, RADIUS, RIG_MAX_SURFACE_OFFSET_MM, load_setup,
+                                 secondary_camera, stored_ground_pose)
+from rig_pose import ground_mode, level_rig_pose
 
 # Search the top view this far around the ground-plane prediction. Wider than the
 # 15 px pass limit so a ball that is off can be found and the offset reported.
 UPPER_SEARCH_PX = 60.0
+# The level rig's camera height is a stand constant, so the ball can sit further from the prediction.
+RIG_UPPER_SEARCH_PX = 100.0
 MPS_TO_MPH = 2.23694
 
 
@@ -50,8 +53,12 @@ def _lower_rest_pixel(camera: dict[str, Any], image: Any, bounds: tuple[int, int
 
 
 def stereo_rest_check(lower: dict[str, Any], upper: dict[str, Any], lower_image: Any, upper_image: Any,
-                      bounds: tuple[int, int, int, int]) -> dict[str, Any]:
-    """Locate the resting ball in both views and say whether the shared calibration still holds."""
+                      bounds: tuple[int, int, int, int], level_rig: bool = False) -> dict[str, Any]:
+    """Locate the resting ball in both views and say whether the shared calibration still holds.
+
+    With the level rig the ground height is a stand constant that each shot corrects from
+    the ball, so the height limit is the correction limit rather than the tag-era gate.
+    """
     from stereo_check import (MAX_RAY_GAP_MM, MAX_REST_HEIGHT_ERROR_MM,
                               _circle_candidates, _gray, _project, _ray, _triangulate)
     label = "Camera alignment"
@@ -67,14 +74,15 @@ def stereo_rest_check(lower: dict[str, Any], upper: dict[str, Any], lower_image:
     radius = RADIUS * upper["K"][0, 0] / depth
     lower_ray = _ray(lower, rest_px)
     candidates = []
+    search_px = RIG_UPPER_SEARCH_PX if level_rig else UPPER_SEARCH_PX
     for circle in _circle_candidates(_gray(upper_image), radius):
-        if np.linalg.norm(circle[:2] - predicted) > UPPER_SEARCH_PX:
+        if np.linalg.norm(circle[:2] - predicted) > search_px:
             continue
         point, gap = _triangulate(lower_ray, _ray(upper, circle[:2]))
         candidates.append((gap, circle[:2].astype(float), point))
     if not candidates:
         return _item("stereo-rest", label, "warn",
-                     f"The top camera could not find the resting ball within {UPPER_SEARCH_PX:.0f} px of where "
+                     f"The top camera could not find the resting ball within {search_px:.0f} px of where "
                      "calibration expects it. It may be hidden, badly lit, or a camera has moved.")
     # The true ball is the circle whose ray meets the lower camera's ray.
     gap, upper_px, point = min(candidates, key=lambda item: item[0])
@@ -86,10 +94,16 @@ def stereo_rest_check(lower: dict[str, Any], upper: dict[str, Any], lower_image:
     if gap_mm > MAX_RAY_GAP_MM:
         return _item("stereo-rest", label, "fail",
                      f"The two cameras no longer agree on where the ball is (their views miss by {gap_mm:.0f} mm, "
-                     f"limit {MAX_RAY_GAP_MM:.0f} mm). A camera or the stand has moved: recalibrate both cameras "
-                     "with the AprilTag.", **values)
+                     f"limit {MAX_RAY_GAP_MM:.0f} mm). A camera or the stand has moved: "
+                     + ("recalibrate the camera pair." if level_rig else "recalibrate both cameras with the AprilTag."),
+                     **values)
     where = "above" if height_error_mm > 0 else "below"
-    if abs(height_error_mm) > MAX_REST_HEIGHT_ERROR_MM:
+    if level_rig and abs(height_error_mm) > RIG_MAX_SURFACE_OFFSET_MM:
+        return _item("stereo-rest", label, "fail",
+                     f"The ball appears {abs(height_error_mm):.0f} mm {where} where the level rig expects the ground "
+                     f"(limit {RIG_MAX_SURFACE_OFFSET_MM:.0f} mm): the stand is not on the surface the ball is on, or it "
+                     "is tilted. Stand it on the hitting surface, level.", **values)
+    if not level_rig and abs(height_error_mm) > MAX_REST_HEIGHT_ERROR_MM:
         return _item("stereo-rest", label, "fail",
                      f"The ball appears {abs(height_error_mm):.0f} mm {where} the calibrated ground (limit "
                      f"{MAX_REST_HEIGHT_ERROR_MM:.0f} mm): the stand has moved or the tag was calibrated on a "
@@ -135,19 +149,27 @@ TARGET_FRAMES = 5
 # ball overlapping the club and cannot be used.
 CLUB_PATH_FACTOR = 1.4
 BALL_CONTACT_FRAMES = 2
-# Ball diameters in the lower image that tracked reliably on 2026-09-25 (26-27 px and 61 px
-# failed; 40-47 px worked).
-MIN_BALL_DIAMETER_PX = 32
+# Ball diameters in the lower image, checked on every saved capture since 2026-09-25 (2026-09-29):
+# 40-56 px was measured 44 times in 53, under 40 px once in 14 and over 56 px 3 times in 10. A big
+# ball crosses the view in about three frames; a small one is too faint for the tracker to hold.
+MIN_BALL_DIAMETER_PX = 40
 MAX_BALL_DIAMETER_PX = 56
+TARGET_BALL_DIAMETER_PX = 47
 
 
-def placement_geometry(image_shape: tuple[int, ...], bounds: tuple[int, int, int, int]) -> dict[str, Any]:
-    """Room around the resting ball in millimetres, using the ball itself as the ruler."""
+def placement_geometry(image_shape: tuple[int, ...], bounds: tuple[int, int, int, int],
+                       focal_px: float | None = None) -> dict[str, Any]:
+    """Room around the resting ball in millimetres, using the ball itself as the ruler.
+
+    With the lens's focal length the ball's distance from the camera follows from its size too.
+    """
     height, width = image_shape[:2]
     x, y, w, h = bounds
     diameter = float(max(w, h))
     mm_per_px = BALL_DIAMETER_MM / max(diameter, 1.0)
+    depth_mm = focal_px * BALL_DIAMETER_MM / max(diameter, 1.0) if focal_px else None
     return {"id": "placement-geometry", "label": "", "status": "ok", "detail": "",
+            **({"depthMm": round(depth_mm, 1)} if depth_mm else {}),
             "ballDiameterPx": round(diameter, 1), "mmPerPx": round(mm_per_px, 4),
             "behindMm": round(x * mm_per_px, 1), "aheadMm": round((width - x - w) * mm_per_px, 1),
             "aboveMm": round(y * mm_per_px, 1), "imageWidthPx": width}
@@ -169,14 +191,17 @@ def placement_check(geometry: dict[str, Any] | None, speeds: dict[str, float], m
     values = {"clubFrames": round(club_frames, 1), "ballFrames": round(ball_frames, 1),
               "ballDiameterPx": geometry["ballDiameterPx"], "speedBasis": basis}
     diameter = geometry["ballDiameterPx"]
-    if diameter < MIN_BALL_DIAMETER_PX:
-        return _item("placement", label, "warn",
-                     f"The ball is small in the image ({diameter:.0f} px): move it closer to the cameras until it "
-                     f"is about {MIN_BALL_DIAMETER_PX + 8} px across, or it may not be tracked.", **values)
-    if diameter > MAX_BALL_DIAMETER_PX:
-        return _item("placement", label, "warn",
-                     f"The ball is very close to the cameras ({diameter:.0f} px): it leaves the view within a few "
-                     f"frames. Move it further away until it is about {MAX_BALL_DIAMETER_PX - 12} px across.", **values)
+    if diameter < MIN_BALL_DIAMETER_PX or diameter > MAX_BALL_DIAMETER_PX:
+        small = diameter < MIN_BALL_DIAMETER_PX
+        depth = geometry.get("depthMm")
+        distance = (f"about {abs(depth * diameter / TARGET_BALL_DIAMETER_PX - depth) / 10:.0f} cm "
+                    if depth else "")
+        direction = "closer to the cameras" if small else "further from the cameras"
+        reason = ("too small for the tracker to follow once it moves" if small
+                  else "so large that it leaves the view within about three frames")
+        return _item("placement", label, "fail",
+                     f"The ball is {diameter:.0f} px across, {reason}. Most shots are lost outside "
+                     f"{MIN_BALL_DIAMETER_PX} to {MAX_BALL_DIAMETER_PX} px. Move it {distance}{direction}.", **values)
     needed_behind = TARGET_FRAMES * club_step / CLUB_PATH_FACTOR
     needed_ahead = (TARGET_FRAMES + BALL_CONTACT_FRAMES) * ahead_step
     spare_behind = geometry["behindMm"] - needed_behind
@@ -208,13 +233,29 @@ def camera_checks(lower_image: Any, upper_image: Any, bounds: tuple[int, int, in
     try:
         height, width = lower_image.shape[:2]
         matrix, distortion = load_setup((width, height))
+        for item in items:
+            if item["id"] == "placement-geometry" and item.get("ballDiameterPx"):
+                item["depthMm"] = round(float(matrix[0, 0]) * BALL_DIAMETER_MM / item["ballDiameterPx"], 1)
         ground_id = int(os.getenv("PINPOINT_APRILTAG_ID", "0"))
         tag_size = float(os.getenv("PINPOINT_APRILTAG_SIZE_MM", "100")) / 1000
-        pose = stored_ground_pose((width, height), ground_id, tag_size, matrix, distortion)
-        if pose is None:
-            raise ValueError("No saved ground calibration; capture the AprilTag with both cameras.")
-        items.append(_item("ground", "Ground calibration", "ok",
-                           f"Saved ground pose loaded (tag fit {pose['errorPx']:.2f} px)."))
+        level_rig = ground_mode() == "rig"
+        if level_rig:
+            pose = level_rig_pose()
+            rig = pose["rig"]
+            constants = f"pitch {rig['pitchDeg']:.1f}°, height {rig['heightMm']:.0f} mm"
+            if rig.get("source") == "default":
+                items.append(_item("ground", "Ground", "warn",
+                                   f"Level rig with default constants ({constants}); no rig.json has been saved for this "
+                                   "unit. Direction and launch depend on the pitch being right."))
+            else:
+                items.append(_item("ground", "Ground", "ok",
+                                   f"Level rig, no tag needed ({constants}). Keep the stand on the hitting surface, level."))
+        else:
+            pose = stored_ground_pose((width, height), ground_id, tag_size, matrix, distortion)
+            if pose is None:
+                raise ValueError("No saved ground calibration; capture the AprilTag with both cameras.")
+            items.append(_item("ground", "Ground calibration", "ok",
+                               f"Saved ground pose loaded (tag fit {pose['errorPx']:.2f} px)."))
         if upper_image is not None and bounds is not None:
             lower = _camera(matrix, distortion, pose["rotation"], pose["translation"])
             upper_size = upper_image.shape[1], upper_image.shape[0]
@@ -222,7 +263,7 @@ def camera_checks(lower_image: Any, upper_image: Any, bounds: tuple[int, int, in
                 (matrix, distortion, pose["rotation"], pose["translation"]), upper_size,
                 ground_id, tag_size, pose.get("capturedAt"))
             upper = _camera(upper_matrix, upper_distortion, upper_pose["rotation"], upper_pose["translation"])
-            items.append(stereo_rest_check(lower, upper, lower_image, upper_image, bounds))
+            items.append(stereo_rest_check(lower, upper, lower_image, upper_image, bounds, level_rig))
     except (OSError, ValueError, KeyError, TypeError, np.linalg.LinAlgError) as error:
         items.append(_item("ground", "Ground calibration", "fail", str(error)))
     except Exception as error:  # cv2.error and friends: report, never break arming.

@@ -1,6 +1,6 @@
 {
   "name": "pinpoint-launch-monitor",
-  "version": "3.39.0",
+  "version": "3.44.0",
   "private": true,
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {
@@ -15,7 +15,8 @@
     "ogs:bridge": "node bridge/opengolfsim-bridge.cjs",
     "test:ogs": "node scripts/test-opengolfsim-bridge.cjs",
     "test:capture": "node scripts/test-capture-client.cjs",
-    "test:camera-shot": "node scripts/test-capture-estimates.cjs"
+    "test:camera-shot": "node scripts/test-capture-estimates.cjs",
+    "test:sessions": "node scripts/test-sessions.cjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.1.1",

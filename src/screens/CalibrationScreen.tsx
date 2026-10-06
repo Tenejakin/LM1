@@ -76,16 +76,20 @@ export function CalibrationScreen() {
     : `Upper camera (CAM${secondaryCameraIndex})`;
   const lensPreviewFrame = lensCamera === 'primary' ? previewFrame : secondaryPreviewFrame;
   const lensPreviewReady = Boolean(lensPreviewFrame) && boardReady && (lensCamera === 'primary' || dualCamera);
+  const rig = status?.rig;
+  // In level-rig mode (service 0.54.0+) the Pi takes the ground from the stand itself and ignores the tag.
+  const levelRig = rig?.mode === 'rig' && !rig.error;
   const calibrationLabel = useMemo(() => {
+    if (levelRig) return 'Level rig · no tag needed';
     if (tagCalibration) return 'AprilTag calibration saved';
     if (tagReady) return 'AprilTag locked - ready to capture';
     if (boardReady) return 'Searching for AprilTag 36h11 ID 0';
     return 'Waiting for live camera';
-  }, [boardReady, tagCalibration, tagReady]);
+  }, [boardReady, levelRig, tagCalibration, tagReady]);
 
   return (
     <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]} showsVerticalScrollIndicator={false}>
-      <ScreenHeader title="Calibration" subtitle="AprilTag metric reference" state={state} demo={isDemo} />
+      <ScreenHeader title="Calibration" subtitle={levelRig ? 'Level rig · lens and camera pair' : 'AprilTag metric reference'} state={state} demo={isDemo} />
       <PrimaryButton label="Calibrate both cameras as a fixed pair" icon="scan" onPress={() => setStereoOpen(true)} />
       {stereoOpen ? <StereoCalibrationScreen onClose={() => setStereoOpen(false)} /> : null}
 
@@ -93,7 +97,14 @@ export function CalibrationScreen() {
         <View style={styles.heroIcon}><Ionicons name="scan" color={colors.accent} size={29} /></View>
         <View style={styles.heroCopy}>
           <Text style={styles.heroTitle}>{calibrationLabel}</Text>
-          <Text style={styles.heroBody}>Use the printed {APRILTAG_SIZE_MM} mm AprilTag whenever LM1 is moved. It establishes ground level, tilt and scale. The bottom camera defines left-to-right zero direction.</Text>
+          <Text style={styles.heroBody}>
+            {levelRig
+              ? `Stand LM1 on the surface you hit from, level, with the target to the right of where the cameras point. `
+                + `Ground is taken from the stand: camera pitched ${rig?.pitchDeg?.toFixed(1) ?? '—'}°, ${rig?.heightMm?.toFixed(0) ?? '—'} mm above the surface `
+                + '(the resting ball corrects the height on every shot). Direction zero is straight across the bottom camera image. The AprilTag is not used.'
+                + (rig?.source === 'default' ? ' These are default values: none have been saved for this unit yet, so pitch may be off.' : '')
+              : `Use the printed ${APRILTAG_SIZE_MM} mm AprilTag whenever LM1 is moved. It establishes ground level, tilt and scale. The bottom camera defines left-to-right zero direction.`}
+          </Text>
         </View>
       </Surface>
 

@@ -16,12 +16,20 @@ import numpy as np
 import club_vision
 from capture_quality import shot_evidence
 from apriltag_calibration import tag_detector_parameters
+from rig_pose import ground_mode, level_rig_pose
 
 RADIUS = 0.021335
 STRICT_TAG_POSE_ERROR_PX = 1.0
 # Longest ball smear accepted during one exposure; shared with the pre-shot readiness check.
 MAX_MOTION_BLUR_M = 0.004
 MAX_ESTIMATED_TAG_POSE_ERROR_PX = 3.0
+# The level-rig camera height is a constant of the stand; the resting ball may correct it by this much.
+RIG_MAX_SURFACE_OFFSET_MM = 40.0
+# A single-camera fit slower than this is not a ball in flight: the tracker has locked onto something
+# static (a shadow, the club shaft, a foot) after the ball left. It must not steer the two-camera search.
+MIN_PLAUSIBLE_MONO_SPEED_MPS = 0.3
+# Ground-pose sources that take the upper camera from the stereo pair and the height from the resting ball.
+BALL_GROUNDED_SOURCES = ("stored-calibration", "level-rig")
 MAX_GROUND_TAG_DETECTIONS = 12
 # Below this the camera's across-image axis is too close to vertical to project onto the ground.
 MIN_CAMERA_HEADING_HORIZONTAL = 0.1
@@ -117,8 +125,16 @@ def _flag_check(label, passed, penalty):
     return {"label": label, "passed": bool(passed), "penalty": 1.0 if passed else penalty}
 
 
+def _ground_check(context):
+    """The ground reference gate: the tag fit, or for the level rig whether the resting ball confirmed the height."""
+    if context.get("groundSource") == "level-rig":
+        return _flag_check("Level rig: camera height confirmed by the resting ball (tilt is assumed level)",
+                           context.get("rigHeightFromBall"), 0.8)
+    return _limit_check("Ground tag pose error", context["poseErrorPx"], MEASURED_TAG_POSE_ERROR_PX, " px")
+
+
 def _ball_checks(context):
-    checks = [_limit_check("Ground tag pose error", context["poseErrorPx"], MEASURED_TAG_POSE_ERROR_PX, " px")]
+    checks = [_ground_check(context)]
     if context.get("stereoFailure"):
         checks.append(_flag_check(f"Two-camera validation failed: {context['stereoFailure']}", False, 0.65))
     fit = context.get("ballFit")
@@ -134,7 +150,9 @@ def _ball_checks(context):
         stereo = context.get("stereo")
         if stereo is not None:
             from stereo_check import MEASURED_STEREO_FRAMES
-            checks.append(_limit_check("Paired stereo frames", stereo["frames"], MEASURED_STEREO_FRAMES, "",
+            # A staggered pair samples two instants, one per camera, so it counts twice toward the minimum.
+            checks.append(_limit_check("Stereo sample instants" if stereo.get("staggered") else "Paired stereo frames",
+                                       stereo.get("instants", stereo["frames"]), MEASURED_STEREO_FRAMES, "",
                                        higher_is_better=True))
             # Triangulated depth vouches for the distance independently, so the apparent
             # ball size (whose outline is the least reliable measurement) is not needed.
@@ -177,7 +195,7 @@ def _club_checks(context, result):
                          higher_is_better=True),
         ]
     return [
-        _limit_check("Ground tag pose error", context["poseErrorPx"], MEASURED_TAG_POSE_ERROR_PX, " px"),
+        _ground_check(context),
         _limit_check("Club tag poses", len(result.get("clubTrack3d", [])), MEASURED_CLUB_TAG_POSES, "",
                      higher_is_better=True),
     ]
@@ -348,7 +366,8 @@ MAX_SURFACE_OFFSET_MM = 25.0
 SURFACE_MAX_RAY_GAP_MM = 6.0
 
 
-def resting_ball_surface(frames, secondary_frames, bounds, impact_index, lower_camera, upper_camera):
+def resting_ball_surface(frames, secondary_frames, bounds, impact_index, lower_camera, upper_camera,
+                         max_offset_mm=MAX_SURFACE_OFFSET_MM):
     """Height (m) of the surface under the resting ball relative to the calibrated ground, or None.
 
     Several still frames are tried (the club can hide the ball near impact) and the one
@@ -368,7 +387,7 @@ def resting_ball_surface(frames, secondary_frames, bounds, impact_index, lower_c
             continue
         if best is None or check["rayGapMm"] < best["rayGapMm"]:
             best = {**check, "frameIndex": index}
-    if best is None or abs(best["heightErrorMm"]) > MAX_SURFACE_OFFSET_MM:
+    if best is None or abs(best["heightErrorMm"]) > max_offset_mm:
         return None, best
     return best["heightErrorMm"] / 1000, best
 
@@ -471,8 +490,11 @@ def camera_target_heading_rad(rotation):
     return math.atan2(right[1], right[0])
 
 
-def target_line_note(heading, source):
+def target_line_note(heading, source, pose_source=None):
     """State which reference the angle is measured against; the two are not interchangeable."""
+    if pose_source == "level-rig":
+        return ("Measured against the camera's across-image axis, taken as the direction of the target: "
+                "the monitor is assumed to be squared to the target and level.")
     if source == "camera-axis":
         return (f"Measured against the camera's across-image axis ({math.degrees(heading):.1f}° from the tag), "
                 f"which assumes the monitor is squared to the target.")
@@ -1318,19 +1340,25 @@ def stereo_measurement(frames, secondary_frames, rest_px, fit, observations, sta
             raise ValueError("Ground pose is too uncertain for a two-point speed estimate.")
         stereo["accepted"] = True
         return stereo
-    from stereo_check import MAX_PAIR_OFFSET_US, MAX_RAY_GAP_MM, MAX_REST_HEIGHT_ERROR_MM, MAX_START_ANCHOR_ERROR_MM, MAX_STEREO_RMS_PX
+    from stereo_check import (MAX_PAIR_OFFSET_US, MAX_RAY_GAP_MM, MAX_REST_HEIGHT_ERROR_MM, MAX_START_ANCHOR_ERROR_MM,
+                              MAX_STEREO_RMS_PX, SEARCH_MAX_RAY_GAP_MM, SEARCH_MAX_RMS_PX)
+    # A launch found by the flight search rests on blurred, unpaired detections: it is accepted with looser
+    # image and ray limits than a paired fit, and the grading below keeps it an estimate.
+    searched = stereo.get("detection") == "anchored-flight-search"
+    max_ray_gap = SEARCH_MAX_RAY_GAP_MM if searched else MAX_RAY_GAP_MM
+    max_rms = SEARCH_MAX_RMS_PX if searched else MAX_STEREO_RMS_PX
     problems = []
     if stereo["maxPairOffsetUs"] > MAX_PAIR_OFFSET_US:
         problems.append(f"Camera pair timing offset {stereo['maxPairOffsetUs']:.0f} µs exceeds {MAX_PAIR_OFFSET_US:.0f} µs.")
-    if stereo["medianRayGapMm"] > MAX_RAY_GAP_MM:
-        problems.append(f"Median stereo ray gap {stereo['medianRayGapMm']:.1f} mm exceeds {MAX_RAY_GAP_MM:.1f} mm.")
+    if stereo["medianRayGapMm"] > max_ray_gap:
+        problems.append(f"Median stereo ray gap {stereo['medianRayGapMm']:.1f} mm exceeds {max_ray_gap:.1f} mm.")
     if abs(stereo["restHeightErrorMm"]) > MAX_REST_HEIGHT_ERROR_MM:
         problems.append(f"Stereo resting-ball height error {stereo['restHeightErrorMm']:.1f} mm exceeds {MAX_REST_HEIGHT_ERROR_MM:.1f} mm.")
     if stereo["startAnchorErrorMm"] > MAX_START_ANCHOR_ERROR_MM:
         problems.append(f"Stereo trajectory misses the resting ball by {stereo['startAnchorErrorMm']:.1f} mm "
                         "for any contact time between the last still and first moving frames.")
-    if stereo["rmsPx"] > MAX_STEREO_RMS_PX:
-        problems.append(f"Stereo trajectory reprojection residual {stereo['rmsPx']:.1f} px exceeds {MAX_STEREO_RMS_PX:.1f} px.")
+    if stereo["rmsPx"] > max_rms:
+        problems.append(f"Stereo trajectory reprojection residual {stereo['rmsPx']:.1f} px exceeds {max_rms:.1f} px.")
     if not 0.1 <= stereo["speedMps"] <= 100:
         problems.append(f"Stereo ball speed {stereo['speedMps']:.1f} m/s is outside the supported 0.1-100 m/s range.")
     if not stereo["track"]:
@@ -1376,13 +1404,19 @@ def measure_launch(frames, bounds, impact_index, timestamp_source="host", exposu
         diagnostics["calibration"] = {"imageSize": [width, height], "cameraMatrix": matrix.tolist(),
                                       "distCoeffs": distortion.tolist(), "groundTagId": ground_id,
                                       "groundTagSizeMm": tag_size * 1000}
-        pose = stored_ground_pose((width, height), ground_id, tag_size, matrix, distortion)
-        if pose is None:
-            pose = find_ground_tag_pose(frames, impact_index, ground_id, tag_size, matrix, distortion)
-        if pose is None:
-            raise ValueError("Capture ground AprilTag calibration first, or keep the tag visible in this burst.")
+        diagnostics["calibration"]["groundMode"] = ground_mode()
+        if ground_mode() == "rig":
+            # Gravity runs down the rig and the target is image-right: no tag is used.
+            pose = level_rig_pose()
+        else:
+            pose = stored_ground_pose((width, height), ground_id, tag_size, matrix, distortion)
+            if pose is None:
+                pose = find_ground_tag_pose(frames, impact_index, ground_id, tag_size, matrix, distortion)
+            if pose is None:
+                raise ValueError("Capture ground AprilTag calibration first, or keep the tag visible in this burst.")
         rotation, translation, pose_error = pose["rotation"], pose["translation"], pose["errorPx"]
         grading["poseErrorPx"] = pose_error
+        grading["groundSource"] = pose.get("source")
         # The camera axis can only supply a target line once its pose is known, so this
         # is resolved here rather than alongside the other calibration inputs above.
         heading, heading_source = resolve_target_heading(rotation)
@@ -1404,7 +1438,11 @@ def measure_launch(frames, bounds, impact_index, timestamp_source="host", exposu
                 f"Ground AprilTag pose reprojection error {pose_error:.2f} px exceeds "
                 f"the {MAX_ESTIMATED_TAG_POSE_ERROR_PX:.1f} px estimation limit."
             )
-        pose_note = (f"Stored ground calibration ({pose.get('capturedAt')}), pose error {pose_error:.2f} px; camera must remain fixed."
+        pose_note = ("Level-rig ground: the stand is assumed level with gravity down the rig and the target to the "
+                     f"right of the camera (pitch {pose['rig']['pitchDeg']:.2f}°, height {pose['rig']['heightMm']:.0f} mm "
+                     "before the resting-ball correction)."
+                     if pose.get("source") == "level-rig" else
+                     f"Stored ground calibration ({pose.get('capturedAt')}), pose error {pose_error:.2f} px; camera must remain fixed."
                      if pose.get("source") == "stored-calibration" else
                      f"Ground-tag pose error {pose_error:.2f} px from frame {pose['frameIndex']}.")
         if pose_error > STRICT_TAG_POSE_ERROR_PX:
@@ -1414,14 +1452,15 @@ def measure_launch(frames, bounds, impact_index, timestamp_source="host", exposu
             )
         # Take the ground under this shot from the resting ball itself (see resting_ball_surface).
         surface_offset = 0.0
-        if secondary_frames and pose.get("source") == "stored-calibration" and bounds is not None:
+        if secondary_frames and pose.get("source") in BALL_GROUNDED_SOURCES and bounds is not None:
             try:
                 size = secondary_frames[0][1].shape[1], secondary_frames[0][1].shape[0]
                 upper_matrix, upper_distortion, upper_pose, _ = secondary_camera(
                     (matrix, distortion, rotation, translation), size, ground_id, tag_size, pose.get("capturedAt"))
                 offset, check = resting_ball_surface(
                     frames, secondary_frames, bounds, impact_index, (matrix, distortion, rotation, translation),
-                    (upper_matrix, upper_distortion, upper_pose["rotation"], upper_pose["translation"]))
+                    (upper_matrix, upper_distortion, upper_pose["rotation"], upper_pose["translation"]),
+                    RIG_MAX_SURFACE_OFFSET_MM if pose.get("source") == "level-rig" else MAX_SURFACE_OFFSET_MM)
             except (OSError, ValueError, KeyError, TypeError) as error:
                 diagnostics["surface"] = {"source": "calibration", "failure": str(error)}
             else:
@@ -1434,6 +1473,11 @@ def measure_launch(frames, bounds, impact_index, timestamp_source="host", exposu
                     "measuredHeightErrorMm": (check or {}).get("heightErrorMm"),
                     "rayGapMm": (check or {}).get("rayGapMm"), "frameIndex": (check or {}).get("frameIndex"),
                 }
+        grading["rigHeightFromBall"] = diagnostics.get("surface", {}).get("source") == "resting-ball"
+        if pose.get("source") == "level-rig" and not grading["rigHeightFromBall"]:
+            result["warnings"].append(
+                "Level-rig camera height is the stand constant; the two cameras could not confirm it from the resting ball "
+                f"({diagnostics.get('surface', {}).get('failure') or 'ball not matched in both views'}).")
         fit = None
         two_point = None
         rest_px = time_bounds = observations = None
@@ -1444,12 +1488,17 @@ def measure_launch(frames, bounds, impact_index, timestamp_source="host", exposu
                 fit = fit_trajectory(frames, rest_px, time_bounds, observations, matrix, distortion, rotation, translation)
             except (ValueError, np.linalg.LinAlgError, cv2.error) as error:
                 diagnostics["trajectoryFit"] = {"failure": str(error)}
-        if secondary_frames and pose.get("source") == "stored-calibration":
+        if secondary_frames and pose.get("source") in BALL_GROUNDED_SOURCES:
+            mono_is_static = fit is not None and float(np.linalg.norm(fit["velocity"])) < MIN_PLAUSIBLE_MONO_SPEED_MPS
+            if mono_is_static:
+                diagnostics["trajectoryFit"] = {**diagnostics.get("trajectoryFit", {}), "discarded":
+                                                "Fit is slower than 0.3 m/s: the tracker followed a static object, so the two cameras search without it."}
             try:
-                stereo_rest_px = rest_px if rest_px is not None else np.array(
+                stereo_rest_px = rest_px if (rest_px is not None and not mono_is_static) else np.array(
                     [bounds[0] + bounds[2] / 2, bounds[1] + bounds[3] / 2], dtype=float)
-                stereo = stereo_measurement(frames, secondary_frames, stereo_rest_px, fit, observations,
-                                            time_bounds[0] if time_bounds else None,
+                stereo = stereo_measurement(frames, secondary_frames, stereo_rest_px, None if mono_is_static else fit,
+                                            observations,
+                                            None if mono_is_static else (time_bounds[0] if time_bounds else None),
                                             (matrix, distortion, rotation, translation), ground_id, tag_size,
                                             pose.get("capturedAt"), pose_error, surface_offset)
             except (OSError, ValueError, KeyError, TypeError, np.linalg.LinAlgError, cv2.error) as error:
@@ -1483,6 +1532,10 @@ def measure_launch(frames, bounds, impact_index, timestamp_source="host", exposu
                     diagnostics["monoTrajectoryFailure"] = diagnostics.get("trajectoryFit", {}).get("failure")
                     diagnostics["trajectoryFit"] = fit_diagnostics
                     result["method"] = "shared-tag-stereo-v2"
+                    if stereo.get("detection") == "anchored-flight-search":
+                        result["warnings"].append(
+                            "The ball was found by a flight search over blurred, unpaired detections in both cameras "
+                            f"({stereo.get('instants')} sightings); treat speed, launch and direction as estimates.")
                     result["ballTrack3d"] = track
                     result["estimatedImpactFrameIndex"] = impact_index
                     basis = (f"Joint stereo trajectory fit over {stereo['frames']} paired frames; "
@@ -1571,20 +1624,26 @@ def measure_launch(frames, bounds, impact_index, timestamp_source="host", exposu
             result["targetLineHeadingDeg"] = round(math.degrees(heading), 3)
             result["targetLineSource"] = heading_source
             put("startDirectionDeg", -math.degrees(math.atan2(aligned[1], aligned[0])),
-                f"{direction_reason} {target_line_note(heading, heading_source)}")
+                f"{direction_reason} {target_line_note(heading, heading_source, pose.get('source'))}")
         measure_spin(frames, outgoing, matrix, distortion, rotation, translation, result, put, target)
         measure_roll(frames, track, result, put)
         club_upper = None
-        if secondary_frames and pose.get("source") == "stored-calibration":
-            try:
-                size = secondary_frames[0][1].shape[1], secondary_frames[0][1].shape[0]
-                upper_matrix, upper_distortion, upper_pose, _ = secondary_camera(
-                    (matrix, distortion, rotation, translation), size, ground_id, tag_size, pose.get("capturedAt"),
-                    surface_offset)
-                club_upper = (secondary_frames, (upper_matrix, upper_distortion,
-                                                 upper_pose["rotation"], upper_pose["translation"]))
-            except (OSError, ValueError, KeyError, TypeError) as error:
-                diagnostics["clubStereo"] = {"used": False, "failure": str(error)}
+        if secondary_frames and pose.get("source") in BALL_GROUNDED_SOURCES:
+            from stereo_check import is_staggered
+            if is_staggered(frames, secondary_frames):
+                # Two-view club triangulation pairs frames as one instant; the club moves too far in half a
+                # frame for that. The lower-camera club track still runs; a staggered club fit comes later.
+                diagnostics["clubStereo"] = {"used": False, "failure": "Staggered capture: club stereo needs simultaneous views."}
+            else:
+                try:
+                    size = secondary_frames[0][1].shape[1], secondary_frames[0][1].shape[0]
+                    upper_matrix, upper_distortion, upper_pose, _ = secondary_camera(
+                        (matrix, distortion, rotation, translation), size, ground_id, tag_size, pose.get("capturedAt"),
+                        surface_offset)
+                    club_upper = (secondary_frames, (upper_matrix, upper_distortion,
+                                                     upper_pose["rotation"], upper_pose["translation"]))
+                except (OSError, ValueError, KeyError, TypeError) as error:
+                    diagnostics["clubStereo"] = {"used": False, "failure": str(error)}
         measure_club(frames, impact_index, matrix, distortion, rotation, translation, track, result, put,
                      ball_background(frames, impact_index), bounds, velocity, heading, club_upper)
     except (OSError, ValueError, KeyError, TypeError, cv2.error, np.linalg.LinAlgError) as error:

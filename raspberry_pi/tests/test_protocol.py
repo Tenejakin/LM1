@@ -4,7 +4,7 @@ import os
 import sys
 import unittest
 from tempfile import NamedTemporaryFile, TemporaryDirectory
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from pathlib import Path
 from typing import Any
 
@@ -440,6 +440,146 @@ class PinpointProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response["data"]["exposureUs"], 180)
         self.assertEqual(response["data"]["exposureControl"], control)
         self.assertTrue(any(message["type"] == "status" for message in self.harness.messages))
+
+    async def test_set_strobe_mode_switches_mode_and_returns_status(self) -> None:
+        diagnostics = {"model": "ov9281", "fps": 242.0, "exposureUs": 3900}
+        control = {"configurable": True, "minUs": 20, "maxUs": 4000, "stepUs": 10, "strobeMode": True}
+        with patch("pinpoint_protocol.uses_csi", return_value=True), patch(
+            "pinpoint_protocol.camera_diagnostics", return_value=diagnostics,
+        ), patch("pinpoint_protocol.exposure_configuration", return_value=control), patch(
+            "pinpoint_protocol.set_strobe_mode", return_value={"exposureUs": 3900, **control},
+        ) as set_mode:
+            await self.harness.command(
+                self.protocol,
+                {"id": "strobe-1", "type": "setStrobeMode", "enabled": True},
+            )
+
+        response = next(message for message in self.harness.messages if message.get("id") == "strobe-1")
+        set_mode.assert_called_once_with(True)
+        self.assertEqual(response["data"]["exposureUs"], 3900)
+        self.assertEqual(response["data"]["exposureControl"], control)
+
+    async def test_set_strobe_mode_is_rejected_while_armed_or_with_a_bad_value(self) -> None:
+        with patch("pinpoint_protocol.uses_csi", return_value=True), patch(
+            "pinpoint_protocol.set_strobe_mode",
+        ) as set_mode:
+            await self.harness.command(
+                self.protocol, {"id": "strobe-bad", "type": "setStrobeMode", "enabled": "yes"},
+            )
+            self.protocol.state = "armed"
+            await self.harness.command(
+                self.protocol, {"id": "strobe-armed", "type": "setStrobeMode", "enabled": True},
+            )
+
+        set_mode.assert_not_called()
+        bad = next(message for message in self.harness.messages if message.get("id") == "strobe-bad")
+        armed = next(message for message in self.harness.messages if message.get("id") == "strobe-armed")
+        self.assertEqual(bad["type"], "error")
+        self.assertIn("on or off", bad["message"])
+        self.assertIn("Disarm", armed["message"])
+
+    async def test_set_light_mode_changes_the_camera_and_the_ring(self) -> None:
+        diagnostics = {"model": "ov9281", "fps": 242.0, "exposureUs": 30}
+        control = {"configurable": True, "minUs": 20, "maxUs": 250, "stepUs": 10, "strobeMode": False,
+                   "lightMode": "daylight", "activeLight": "daylight"}
+        ring = MagicMock()
+        ring.status.return_value = {"connected": True, "mode": "off", "preset": None, "error": None}
+        self.protocol.light = ring
+        with patch("pinpoint_protocol.uses_csi", return_value=True), patch(
+            "pinpoint_protocol.camera_diagnostics", return_value=diagnostics,
+        ), patch("pinpoint_protocol.exposure_configuration", return_value=control), patch(
+            "pinpoint_protocol.set_light_mode", return_value={"exposureUs": 30, **control},
+        ) as set_mode, patch("pinpoint_protocol.active_light", return_value="daylight"), patch(
+            "pinpoint_protocol.light_mode", return_value="daylight",
+        ):
+            await self.harness.command(
+                self.protocol, {"id": "light-1", "type": "setLightMode", "mode": "daylight"},
+            )
+
+        set_mode.assert_called_once_with("daylight")
+        ring.set_mode.assert_called_with("off", None, None)
+        response = next(message for message in self.harness.messages if message.get("id") == "light-1")
+        self.assertEqual(response["data"]["light"]["mode"], "daylight")
+        self.assertEqual(response["data"]["light"]["active"], "daylight")
+        self.assertTrue(response["data"]["light"]["connected"])
+        self.assertEqual(response["data"]["light"]["ring"], "off")
+
+    async def test_strobe_light_uses_the_flash_pattern_for_the_selected_club(self) -> None:
+        ring = MagicMock()
+        ring.status.return_value = {"connected": True}
+        self.protocol.light = ring
+        with patch("pinpoint_protocol.active_light", return_value="strobe"):
+            self.protocol.club_id = "pitching-wedge"
+            self.protocol._sync_ring()
+            mode, group, wedge = ring.set_mode.call_args.args
+            self.assertEqual((mode, group), ("strobe", "chip"))
+            await self.harness.command(self.protocol, {"id": "club-1", "type": "setClub", "clubId": "driver"})
+        mode, group, driver = ring.set_mode.call_args.args
+        self.assertEqual((mode, group), ("strobe", "driver"))
+        # A faster club gets a shorter pulse and tighter gaps than a wedge.
+        self.assertLess(driver["pulseUs"], wedge["pulseUs"])
+        self.assertLess(driver["gapsUs"][0], wedge["gapsUs"][0])
+
+    async def test_set_light_mode_rejects_bad_values_and_busy_states(self) -> None:
+        with patch("pinpoint_protocol.uses_csi", return_value=True), patch(
+            "pinpoint_protocol.set_light_mode",
+        ) as set_mode:
+            await self.harness.command(
+                self.protocol, {"id": "light-bad", "type": "setLightMode", "mode": "disco"},
+            )
+            self.protocol.state = "armed"
+            await self.harness.command(
+                self.protocol, {"id": "light-armed", "type": "setLightMode", "mode": "flat"},
+            )
+
+        set_mode.assert_not_called()
+        bad = next(message for message in self.harness.messages if message.get("id") == "light-bad")
+        armed = next(message for message in self.harness.messages if message.get("id") == "light-armed")
+        self.assertEqual(bad["type"], "error")
+        self.assertIn("auto, daylight, flat or strobe", bad["message"])
+        self.assertIn("Disarm", armed["message"])
+
+    async def test_status_reports_the_light_even_without_a_controller(self) -> None:
+        with patch("pinpoint_protocol.uses_csi", return_value=True):
+            status = self.protocol.status()
+        self.assertFalse(status["light"]["available"])
+        self.assertFalse(status["light"]["connected"])
+        self.assertIn(status["light"]["mode"], ("auto", "daylight", "flat", "strobe"))
+
+    async def test_auto_exposure_limits_the_shutter_for_the_selected_club(self) -> None:
+        with patch("pinpoint_protocol.uses_csi", return_value=True), patch(
+            "pinpoint_protocol.strobe_mode_enabled", return_value=False,
+        ), patch("pinpoint_protocol.set_exposure_cap_hint") as hint:
+            self.protocol.request_exposure_calibration = lambda: True
+            self.protocol.club_id = "driver"
+            await self.harness.command(self.protocol, {"id": "auto-driver", "type": "autoCalibrateExposure"})
+            self.assertEqual(hint.call_args.args[0], 58)           # 42.5 m/s club x 1.46 smash = 62 m/s -> 58 us
+            self.protocol.club_id = "lob-wedge"
+            await self.harness.command(self.protocol, {"id": "auto-lob", "type": "autoCalibrateExposure"})
+            self.assertGreater(hint.call_args.args[0], 100)        # a slower ball can use a longer shutter
+            self.protocol.capture_mode = "putting"
+            await self.harness.command(self.protocol, {"id": "auto-putt", "type": "autoCalibrateExposure"})
+            self.assertIsNone(hint.call_args.args[0])              # putting keeps the full range
+
+    async def test_the_cap_is_dropped_when_the_sweep_cannot_start(self) -> None:
+        with patch("pinpoint_protocol.uses_csi", return_value=True), patch(
+            "pinpoint_protocol.strobe_mode_enabled", return_value=False,
+        ), patch("pinpoint_protocol.set_exposure_cap_hint") as hint:
+            self.protocol.request_exposure_calibration = lambda: False
+            await self.harness.command(self.protocol, {"id": "auto-none", "type": "autoCalibrateExposure"})
+            self.assertIsNone(hint.call_args.args[0])
+        error = next(message for message in self.harness.messages if message.get("id") == "auto-none")
+        self.assertEqual(error["type"], "error")
+
+    async def test_auto_exposure_is_refused_in_strobe_mode(self) -> None:
+        with patch("pinpoint_protocol.uses_csi", return_value=True), patch(
+            "pinpoint_protocol.strobe_mode_enabled", return_value=True,
+        ):
+            await self.harness.command(self.protocol, {"id": "auto-strobe", "type": "autoCalibrateExposure"})
+
+        error = next(message for message in self.harness.messages if message.get("id") == "auto-strobe")
+        self.assertEqual(error["type"], "error")
+        self.assertIn("strobe mode", error["message"])
 
     async def test_set_exposure_is_rejected_while_armed(self) -> None:
         self.protocol.state = "armed"

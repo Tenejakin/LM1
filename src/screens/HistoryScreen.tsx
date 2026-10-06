@@ -16,6 +16,9 @@ import { directionLabel } from '@/utils/direction';
 import { measuredSmash, measuredStrike } from '@/utils/shotValues';
 import { includedShots } from '@/utils/session';
 import { SessionClubs } from '@/components/SessionClubs';
+import { SessionPanel, SessionView } from '@/components/SessionPanel';
+import { SessionReferenceCard } from '@/components/ReferenceComparison';
+import { sessionShots } from '@/utils/sessions';
 
 type Filter = 'session' | 'fastest' | 'centered';
 
@@ -25,10 +28,17 @@ function captureMetric(capture: CaptureAnalysis, key: string): number | null {
 
 export function HistoryScreen({ onOpenShot, onOpenCalculator }: { onOpenShot: (shot: Shot) => void; onOpenCalculator: () => void }) {
   const insets = useSafeAreaInsets();
-  const { state, shots, captures, isDemo } = useLaunchMonitor();
+  const { state, shots: allShots, captures, isDemo, sessions } = useLaunchMonitor();
   const { ready: n8nReady, sendShot, sendCapture } = useN8n();
   const units = useUnits();
   const [filter, setFilter] = useState<Filter>('session');
+  const [view, setView] = useState<SessionView>({ kind: 'all' });
+  // Every statistic below follows the picked session.
+  const shots = useMemo(
+    () => (view.kind === 'all' ? allShots : sessionShots(allShots, view.kind === 'none' ? null : view.id)),
+    [allShots, view],
+  );
+  const viewedSession = view.kind === 'session' ? sessions.find((item) => item.id === view.id) ?? null : null;
   const [n8nStates, setN8nStates] = useState<Record<string, N8nSendState>>({});
   const [n8nErrors, setN8nErrors] = useState<Record<string, string>>({});
 
@@ -109,21 +119,23 @@ export function HistoryScreen({ onOpenShot, onOpenCalculator }: { onOpenShot: (s
     >
       <ScreenHeader
         title="Sessions"
-        subtitle={captures.length ? `${shots.length} shots · ${captures.length} captures today` : `${shots.length} shots today`}
+        subtitle={captures.length ? `${shots.length} shots · ${captures.length} captures today` : `${shots.length} shots`}
         state={state}
         demo={isDemo}
       />
       <CaptureReview history />
 
+      <SessionPanel shots={allShots} view={view} onChangeView={setView} />
+
       <Surface style={styles.summary}>
         <View style={styles.summaryTop}>
           <View>
-            <Eyebrow>Current session</Eyebrow>
-            <Text style={styles.summaryTitle}>Range session</Text>
+            <Eyebrow>{view.kind === 'all' ? 'All shots' : view.kind === 'none' ? 'Not in a session' : viewedSession?.endedAt ? 'Session' : 'Current session'}</Eyebrow>
+            <Text style={styles.summaryTitle} numberOfLines={1}>{viewedSession?.name ?? (view.kind === 'none' ? 'No session' : 'Range session')}</Text>
           </View>
           <View style={styles.datePill}>
             <Ionicons name="calendar-outline" size={13} color={colors.textMuted} />
-            <Text style={styles.dateText}>Today</Text>
+            <Text style={styles.dateText}>{shots.length} {shots.length === 1 ? 'shot' : 'shots'}</Text>
           </View>
         </View>
         <View style={styles.summaryStats}>
@@ -143,6 +155,7 @@ export function HistoryScreen({ onOpenShot, onOpenCalculator }: { onOpenShot: (s
       </Surface>
 
       <SessionClubs shots={shots} />
+      <SessionReferenceCard shots={shots} />
 
       <View style={styles.calculatorSection}>
         <Surface style={styles.calculatorCard}>

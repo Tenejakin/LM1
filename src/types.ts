@@ -79,6 +79,41 @@ export interface BagClub {
   createdAt: string;
 }
 
+/**
+ * Values read off another launch monitor for the same swing, typed in by the player
+ * so LM1 can be compared shot by shot. Stored in SI with the app's sign conventions
+ * (direction and spin axis: positive is right / toward the cameras).
+ */
+export interface ReferenceShotData {
+  /** Product name as the player wrote it, e.g. "GC3". */
+  device: string;
+  enteredAt: string;
+  ballSpeedMps?: number | null;
+  clubSpeedMps?: number | null;
+  launchAngleDeg?: number | null;
+  startDirectionDeg?: number | null;
+  spinRpm?: number | null;
+  spinAxisDeg?: number | null;
+  attackAngleDeg?: number | null;
+  clubPathDeg?: number | null;
+  carryM?: number | null;
+  totalM?: number | null;
+  apexM?: number | null;
+  notes?: string;
+}
+
+/** A practice or test session; shots hit while it is active carry its id. */
+export interface PracticeSession {
+  id: string;
+  name: string;
+  startedAt: string;
+  /** Null while the session is still open. */
+  endedAt?: string | null;
+  /** Default device name offered when entering reference data, e.g. "GC3". */
+  referenceDevice?: string;
+  notes?: string;
+}
+
 /** Club values that are shown only when the camera resolved them. */
 export type ClubValueKey = 'clubSpeedMps' | 'smashFactor' | 'strike' | 'attackAngleDeg' | 'clubPathDeg';
 
@@ -163,6 +198,10 @@ export interface Shot {
   simulated?: boolean;
   /** Left out of session statistics by the player (a mishit or test swing); still kept in history. */
   excluded?: boolean;
+  /** The session this shot belongs to; unset for shots hit outside a session. */
+  sessionId?: string;
+  /** Another launch monitor's numbers for this swing, typed in by the player. */
+  reference?: ReferenceShotData;
   /** Private Bunny Storage image paths, populated by the signed-in user's cloud restore. */
   cloudImagePath?: string;
   cloudSecondaryImagePath?: string;
@@ -447,7 +486,12 @@ export interface CameraDiagnostics {
   primaryCameraIndex?: number;
   secondaryCameraIndex?: number;
   pairedFps?: number;
-  syncMode?: 'software';
+  syncMode?: 'software' | 'stagger';
+  /** Staggered capture (service 0.55.0+): the upper camera runs half a frame behind the lower one. */
+  staggerState?: 'locking' | 'locked' | 'drift-soon' | 'drifted' | 'resyncing' | 'failed';
+  /** Where the upper camera sits behind the lower one, as a fraction of a frame; 0.5 is ideal. */
+  staggerPhase?: number;
+  staggerRelocks?: number;
   syncReady?: boolean;
   syncOffsetUs?: number;
   secondaryFps?: number;
@@ -484,8 +528,25 @@ export interface Readiness {
   checkedAt: string;
 }
 
+/**
+ * Which ground reference the Pi measures against. 'rig': the stand is assumed level with gravity
+ * down the rig and the target to the right of the camera, no tag needed (service 0.54.0+).
+ * 'tag': the saved AprilTag ground calibration.
+ */
+export interface RigStatus {
+  mode: 'rig' | 'tag';
+  pitchDeg?: number;
+  rollDeg?: number;
+  heightMm?: number;
+  /** 'default' until constants are saved for this unit; then 'tag-derived' or 'measured'. */
+  source?: string;
+  createdAt?: string | null;
+  error?: string;
+}
+
 export interface DeviceStatus {
   automaticCapture?: boolean;
+  rig?: RigStatus;
   name: string;
   state: Exclude<DeviceState, 'offline' | 'connecting' | 'error'>;
   firmwareVersion: string;
@@ -505,7 +566,13 @@ export interface DeviceStatus {
     minUs: number;
     maxUs: number;
     stepUs: number;
+    /** Present from service 0.56.0; true while the long-exposure strobe mode is on. */
+    strobeMode?: boolean;
+    lightMode?: LightMode;
+    activeLight?: ActiveLight;
   };
+  /** Present from service 0.57.0. */
+  light?: LightStatus;
   gainControl?: {
     configurable: boolean;
     min: number;
@@ -553,8 +620,28 @@ export interface WifiConnectionStatus {
 }
 
 /** What an automatic exposure sweep settled on, and how the frame looked there. */
+/** What the player chose. Auto lets LM1 pick daylight or flat light when it measures the room. */
+export type LightMode = 'auto' | 'daylight' | 'flat' | 'strobe';
+/** The light actually in use. */
+export type ActiveLight = 'daylight' | 'flat' | 'strobe';
+
+export interface LightStatus {
+  /** A light controller (the ESP32 on the ring) is configured on LM1. */
+  available: boolean;
+  /** It is plugged in and answering. */
+  connected: boolean;
+  mode: LightMode;
+  active: ActiveLight;
+  /** What the ring is doing right now, as the controller last confirmed. */
+  ring?: 'off' | 'flat' | 'strobe' | null;
+  preset?: string | null;
+  error?: string | null;
+}
+
 export interface ExposureCalibrationResult {
   ok: boolean;
+  /** Which light the automatic setup chose (service 0.57.0+). */
+  light?: 'daylight' | 'flat';
   error?: string;
   exposureUs?: number;
   gain?: number;

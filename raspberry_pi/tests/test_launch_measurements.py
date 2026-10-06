@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+os.environ.setdefault("PINPOINT_GROUND_MODE", "tag")  # these scenes are posed from a ground tag
 from launch_measurements import (RADIUS, camera_target_heading_rad, find_ground_tag_pose, fit_velocity, load_setup,
                                  measure_club, measure_launch, measure_roll, resolve_target_heading, rotation_between,
                                  sphere_center, surface_vectors, tag_pose, target_rotation, unavailable)

@@ -1,0 +1,35 @@
+{
+  "version": "1.0.0",
+  "purpose": "Hardware diagnostic, not a golf shot",
+  "camera": {
+    "cameraCount": 2,
+    "syncReady": true,
+    "syncOffsetUs": -38.0,
+    "model": "ov9281",
+    "width": 640,
+    "height": 400,
+    "fps": 242.1,
+    "exposureUs": 66,
+    "gain": 4.0,
+    "autoExposure": false,
+    "autofocus": false,
+    "primaryCameraIndex": 0,
+    "secondaryCameraIndex": 1,
+    "syncMode": "software",
+    "syncToleranceUs": 250.0,
+    "secondaryFps": 242.1,
+    "secondaryExposureUs": 66,
+    "secondaryGain": 4.0
+  },
+  "capturePath": "/home/lm1/dual-camera-0.30.0/evidence-242fps/capture-1790110912199694964",
+  "observedFps": 241.57,
+  "framesPerCamera": 325,
+  "durationMs": 1341.213,
+  "maxAbsOffsetUs": 40.0,
+  "medianAbsOffsetUs": 37.0,
+  "brightness": [
+    0.06457421875,
+    2.03371484375
+  ],
+  "pairedReplayVerified": true
+}

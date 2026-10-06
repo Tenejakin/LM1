@@ -1,6 +1,7 @@
 """Stereo cross-check: two cameras posed from one ground tag, a rendered ball in flight."""
 
 import math
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -10,6 +11,7 @@ import cv2
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+os.environ.setdefault("PINPOINT_GROUND_MODE", "tag")  # these scenes are posed from a ground tag
 
 from launch_measurements import GRAVITY, RADIUS, grade_metrics, unavailable  # noqa: E402
 import launch_measurements as measurements  # noqa: E402

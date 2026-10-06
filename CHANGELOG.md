@@ -1,5 +1,219 @@
 # Changelog
 
+## Night strobe prototype 0.8.0 / full shot review 0.1.1 - 2026-10-02
+
+- Replay all ten brighter-setting shots and recover ball tracks of three to five positions. Export projected launch speed and angle, multi-position fit, horizontal/vertical velocity, observed displacement and duration, apparent radius change, and a stationary-to-moving departure bracket where visible.
+- Calculate provisional club speed, assumed attack angle and smash factor from available consecutive two-point candidates under the user's level-camera and ball-depth assumptions. Keep feature-identity uncertainty explicit; retain shaft reflection orientation separately from face angle or dynamic loft.
+- Flag inconsistent launch fits and substantial apparent size changes. Preserve original raw data and summaries; generate a standalone HTML review and JSON export with track overlays.
+- Add extended review output to new single-flash demo captures and the browser page. Review errors do not interrupt raw capture saving. All 29 prototype checks pass, including timestamp units and upward/downward angle signs.
+
+## Night strobe prototype 0.7.1 / club review 0.2.1 - 2026-10-02
+
+- Review all nine 0.7.0 club captures: 120 Hz trigger delivery is stable, but no consistent pre-departure head-centroid track is recovered. Shaft reflections do not supply club speed or attack angle.
+- Remove thin vertical shaft pixels before testing the broader head component. Saved-shot replay still rejects the nine shots; do not claim recovered measurements.
+- Raise club-mode analogue gain from 1 to 4 while keeping the 250 us flash, 1.5 ms exposure and 3 percent duty unchanged to test head visibility without longer illumination blur.
+- All 26 prototype checks pass, including shaft-only rejection and recovery of a synthetic visible head with an attached shaft.
+
+## Night strobe prototype 0.7.0 / club review 0.2.0 - 2026-10-02
+
+- Add club-specific visibility results and rejection reasons to saved captures and the demo display. Replaying existing multi-flash captures does not recover a verified pre-impact head-centre track, so club speed and attack angle remain unavailable for those shots.
+- Add an optional single-flash club trial: 120 Hz trigger, one 250 us flash delayed 1 ms, 1.5 ms exposure, and a 242 fps sensor limit. Preserve both camera streams and original timestamps; only the externally triggered view enters the single-flash club speed estimator.
+- Fit at least three consecutive, stable-area head candidates to an experimental image-plane speed using ball-depth scale. Reject ambiguous blobs, missing timing, inconsistent paths and post-departure samples. Never call image path direction attack angle.
+- Add versioned visibility/replay utilities and four club validity tests. All 24 prototype checks pass, including accepted-copy saving and negative club cases.
+
+## Night strobe prototype 0.6.3 - 2026-10-02
+
+- Fix a crash when saving an accepted three-copy result: preview rendering now supports both the single-frame copy result and the multiple-frame track result.
+- Reset status LEDs to searching on demo shutdown so the last processing animation does not persist after an exit.
+- All 20 prototype checks pass, including a complete accepted-copy save that creates both the summary and contact preview and returns to searching.
+
+## Night strobe prototype 0.6.2 - 2026-10-02
+
+- After the gentle repeat retained multiple silhouettes and the faster shot had insufficient flight coverage, shorten copy-mode exposure from 19.5 ms to 8 ms and flash gaps from 5/8 ms to 2.5/4 ms. Keep 100 us flashes and 50 Hz bursts at 1.5 percent duty.
+- Set the sensor frame-rate limit to 120 in copy mode to reduce the readout period under external triggering. Verify delivered timestamps before requesting another shot; the two views remain independently timed.
+- All 17 existing timing, detection and rejection checks pass. Earlier rejected captures and raw images are retained.
+
+## Night strobe prototype 0.6.1 - 2026-10-02
+
+- Resolve touching flash silhouettes with circle voting while retaining the existing coded-spacing ambiguity and residual checks. Preserve rejected images and avoid asserting stereo or calibrated 3D measurements.
+- Replay the first dark-room chip: recover three copies in each view, with image-plane estimates of 6.64 m/s at 29.5 degrees and 7.34 m/s at 24.0 degrees. This demonstrates multi-image strobe capture; the trigger pair is still not synchronized.
+- Add touching-copy and empty-frame checks; all 17 prototype tests pass. Add versioned contrast review and saved-shot replay utilities.
+
+## Night strobe prototype 0.6.0 - 2026-10-02
+
+- Add optional external triggering of camera 0 in three-copy mode, with a 1 ms flash delay and restoration to free-running capture on shutdown. Camera 1 stays free-running; the pair is not stereo-synchronized.
+- Drive searching, ready and processing status LEDs from the standalone demo.
+- Add versioned stationary-light diagnostics. Removing camera 0's lens cover restored its IR image; both views locate the ball and the demo arms. Camera 0 delivers roughly 60 ms intervals with 19.5 ms external-trigger exposure while camera 1 delivers 20 ms intervals; this remains a single-view trigger experiment, not a synchronized stereo measurement.
+
+## Status LEDs: ESP32 0.3.0 / Pi service 0.62.0 - 2026-10-01
+
+- Show breathing blue while searching for the ball, steady white when the ball is present, and breathing orange during processing. Processing takes priority over ball presence; status returns to the current ball state afterward.
+- Animate both GPIO 7 pixels locally on the ESP32 over a 2.2-second cycle at low brightness. Pi sends only changed states and resends the current state after USB reconnect.
+- Add checks for state priority, duplicate-command suppression and reconnect restoration.
+
+## ESP32 strobe controller 0.2.0 - 2026-10-01
+
+- Add two blue status pixels on GPIO 7 at low brightness; the user confirms both LEDs are blue. Build for the current USB-to-UART connection so the Pi can communicate on UART0. Back up the previous 4 MB flash before deployment and verify the flashed firmware.
+- Verify camera 0 accepts GPIO 6 external triggers: 48 frames over 2.404 seconds at 20 Hz. Camera 1 produced no frames in external mode during that test. GPIO 5 receives strobe edges, but reported counts and widths require investigation before treating them as a clean exposure window. Restore both cameras to free-running mode afterward.
+
+## Strobe Lab prototype 0.5.3 - 2026-10-01
+
+- Prepare the requested chip experiment at 9 us exposure with the existing three 2 us pulses. Use resting-ball geometry measured in the stationary bench and a low-signal core-brightness departure check, rather than the bright-ball arming threshold intended for longer exposures.
+- Median eight frames for the microburst reference to suppress rare flash overlaps. This captures diagnostic shot windows; reliable pulse overlap and moving-shot measurement remain unverified.
+
+## Strobe Lab prototype 0.5.2 - 2026-10-01
+
+- Deploy the requested microburst: three 2 us pulses starting at 0/3/6 us, ending at 8 us, repeated every 4 ms at 0.15% duty. Both cameras remain at 9 us exposure and gain 4.
+- Preserve the actual burst in metadata and show it in the demo. This is an unsynchronized illumination experiment, not separated ball copies or verified optical pulse timing.
+
+## Strobe Lab prototype 0.5.1 - 2026-10-01
+
+- Make flash width configurable and deploy the requested 2 us controller pulses with 9 us camera exposure, gain 4 and the existing 250 us flash spacing. Commanded duty is 0.8%; optical pulse shape and camera alignment are not verified.
+- Retain actual sensor exposure and controller replies. The 0.5.0 iteration added configurable camera exposure and verified both cameras' minimum actual exposure is 9 us at 640x400.
+
+## Strobe Lab prototype 0.4.0 - 2026-10-01
+
+- Add a three-copy mode: 50 fps, 19.5 ms requested exposure, gain 1, and three 100 us flashes with cyclic start gaps 5/8/7 ms. Electrical duty is 1.5%. Analyze separated copies within each image using all possible flash phases; do not use cross-frame tracking in this mode.
+- At 10 m/s, copies are 50/80/70 mm apart and each flash contributes 1 mm motion. Unequal gap ratios distinguish the unknown phase without camera synchronization; exposure boundaries can still truncate a copy.
+- Preserve a live off/on raw bench at actual 19497 us exposure. Ambient light already clips part of the placement ROI at minimum gain; measured ROI flash contribution is small. This is an experiment awaiting moving shots, not proof of flash-dominated imaging.
+- Use a full-range preview for long exposures. Add a timing test covering all three cyclic phases.
+
+## Strobe Lab prototype 0.3.2 - 2026-10-01
+
+- Log heartbeat failures and the reason for process shutdown. Run the temporary Pi demo with automatic restart after three seconds, addressing repeated unexplained exits that made the browser unavailable.
+- Retain the 0.3.1 capture profile and ball locator. All thirteen focused tests pass.
+
+## Strobe Lab prototype 0.3.1 - 2026-10-01
+
+- Locate the resting ball in both camera views before arming, and use its actual position and diameter for trajectory fitting. This fixes the fixed-circle placement mismatch observed during live validation.
+- Thirteen focused tests pass on the Pi, including displaced-ball placement. The shortened-exposure profile still awaits new wedge shots.
+
+## Strobe Lab prototype 0.3.0 - 2026-10-01
+
+- Halve the requested exposure to 250 us at 242 fps, with gain 4, to reduce the blur observed in the latest wedge shots. Existing ring timing, 8% electrical duty and hardware wiring are unchanged.
+- Detect bright, dark and mixed-contrast ball silhouettes so tracks can continue from the mat onto the bright floor. Prefer the earliest valid interval, reject conflicting overlapping positions, and retain detailed fit rejection reasons.
+- Replay preserved 0.2.0 raw captures at their original 497 us exposure: preserve the third shot's upper-camera 10.08 m/s image-plane estimate, recover lower-camera tracks on shots two and three, and continue rejecting shots one and four for excessive blur. Later and earlier image-plane interval estimates are not interchangeable launch-speed measurements.
+- Add a versioned replay tool and tests for bright-to-dark transitions and stationary dark-object rejection. Twelve focused tests pass on the Pi; live 250 us shot validation remains pending.
+
+## Strobe Lab prototype 0.2.0 - 2026-10-01
+
+- Review and preserve the first three actual wedge shots plus one placing-hand trigger. Both camera windows captured departure, but the 8 ms images did not resolve separate flash copies; no measurement was emitted.
+- Switch the next experiment to 242 fps, 500 us exposure and gain 2, with twenty-microsecond flashes every 250 us (8% electrical duty) on the existing ESP32. IR now illuminates short exposures; motion is timed by sensor timestamps rather than flash-copy separation.
+- Add conservative round-ball trajectory fitting across at least three consecutive frames, size/blur/origin/residual checks and rejection of competing trajectories. Outputs remain image-plane estimates and the old long-exposure captures are not reclassified.
+- Add a hands-clear arming check and normalized shape comparison so illumination changes do not alone fake departure. Enlarge the raw ring to cover the faster capture window and retain post-trigger frames in contact sheets. Ten focused tests pass on the Pi; the revised profile awaits moving-shot validation.
+
+## Strobe Lab prototype 0.1.1 - 2026-10-01
+
+- Add an isolated, deployed Pi/ESP32 demo in `hardware/strobe-demo/`, with a browser page, dual raw capture, independent sensor timestamps, automatic ball-departure retention and contact sheets. Existing hardware wiring, firmware, app and service versions are unchanged.
+- Use gain 1, 120 fps and three 100 us IR flashes spaced 1500 / 2200 us apart for the first wedge experiment. Retain the exact commanded pattern and actual camera metadata with every attempt.
+- Fit all cyclic pulse phases without using assumed club speed to choose a result. Reject ambiguous copy sequences; any resolved speed/angle remains an image-plane estimate. No synchronized stereo, direction, spin or carry claim.
+- Require ball-to-surroundings contrast before arming; retain unsuccessful attempts for iteration. Five focused timing/arming tests pass on the Pi. Live static capture validates frame saving and rejection of a stationary ball, with both streams sustaining approximately 120 fps. Moving-ball validation awaits user shots.
+
+## Pi service 0.61.1 - 2026-10-01
+
+- Auto-set judges the picture by the ball, not the frame average. The ball is under 1 % of the pixels, so on a dark mat the average is tiny even when the ball is bright, and the old search drove the gain to 16 for every club. Measured on the Pi at the driver's 58 μs shutter: gain 4 gives ball 97 on a noise-free black background; gain 16 gives ball 211 on a background at 26 with noise 32 (and at 100 μs gain 16 the ball is 66 % saturated). The sweep now measures the brightest compact region (the 99.5th percentile of the frame) and aims for the target level; for an evenly lit frame this equals the mean, so such scenes are unchanged. When it has to raise the gain it keeps going until the level is near the target (a ball just over the minimum is fragile), later steps over-correct because the picture's brightness grows more slowly than the gain, an overshoot is brought back down, and the result carries `ballLevel` next to `meanBrightness`.
+
+## Pi service 0.61.0 - 2026-10-01
+
+Review of all 99 retained captures (every shot on the Pi), and the changes it justifies.
+
+- What the captures show. 81 shots were taken at 250 μs or less and 31 of them (38 %) were measured; the other 50 failed with "fewer than three usable 3D ball outlines", and the success rate follows the ball's size in the image exactly as the notes say: 28 % with a 15-20 px ball, 42 % at 26-36 px, 69 % at 39-47 px. The other 18 rejections are the hard 250 μs exposure gate, all of them strobe-mode shots (3.9 ms) in a lit room, where the ring's flashes are lost in the room light and every shot is thrown away by design. The camera is now much closer (the ball is 44-54 px wide), which is the good range; the day's shots simply were not taken in a measuring mode.
+- Fix: the saved raw frames missed the impact. A plain "last 100 frames" raw ring had already discarded everything before the hit by the time the departure was confirmed (about 100 frames later), so every raw capture started 20 frames after the impact. The raw ring is now pinned the moment the ball first looks gone: it keeps the frames from just before that and the next 60, then stops adding raw frames, so memory stays bounded (at most 160 raw frames per camera, usually about 90) and the saved window really covers 25 frames before to 45 after the impact. A false alarm releases the pin.
+- Auto-set now respects the blur limit for the selected club. The measurement rejects a ball that smears more than 4 mm in one exposure, so the longest usable shutter is 4 mm divided by the ball's speed (driver 58 μs, 7-iron 85 μs, pitching wedge 102 μs, putting unrestricted); the sweep used to look only at brightness and could settle on a shutter the measurement would then reject. It now stays under that limit and buys brightness with gain, and says so when that is still too dark ("Still dark at the 58 us shutter this club needs...", with `blurLimitUs` in the result).
+- Plain-language rejection reasons (new `rejection_hints.py`). The cryptic messages now lead with the cause and the fix: a strobe-mode shot in a lit room says the flashes are lost in the room light and to switch Light to Auto, Flat or Daylight; a long shutter outside strobe says how much a 10 m/s chip smears in it and to run Auto-set; too few outlines says how wide the ball is and, if it is under 35 px, to move the camera closer. The original text is kept in the message and in `diagnostics.rejection.original`. Nothing changes about which shots are measured.
+- Tried and rejected: a fallback that estimates speed and angle from the presence tracker's own positions. Validated against the 31 strictly measured shots it found a path in only 13 and a reliable one in 4, and gave a reliable estimate for only 3 of the 68 unmeasured shots, because the saved track follows the resting ball and at most one to three moving points. Not shipped.
+
+## Pi service 0.60.0 - 2026-10-01
+
+- The ball detector can run on frames built from the raw 10-bit data (new `raw_frames.py`). Corrected first: raw words are the 10-bit count x 64 (they step by 64), not x 16, and libcamera's black level of 4096 is what the image processor subtracts, not where the data starts (the sensor has already removed its pedestal; the data floor is about 1024 words). `PINPOINT_RAW_BLACK_LEVEL` overrides it.
+- Raw is not simply better, and this is deliberate. Measured on the Pi with a ball far above the 64-count crush, the 8-bit picture had the higher signal-to-noise (ball 79 against a black, noise-free background at 60 μs, SNR 158, versus SNR 11 for a raw-derived frame at 1 count per level) because the processor's black crush works as a free noise gate; raw only wins when the signal is under about 64 counts. So in the default `auto` setting (`PINPOINT_ANALYSIS_SOURCE`) the detector and rolling buffer get raw-derived frames only while the ring is strobing AND the scene is dark enough not to saturate (99.5th percentile under 120 counts to enter, over 200 to leave, 12 steady frames to enter, only the primary camera decides); otherwise they get the 8-bit picture exactly as before, so normal shooting is unchanged. When the source switches the detector restarts its calibration, because an empty-plane reference learned from one kind of frame is wrong for the other. `raw` forces raw, `isp` never uses it; `PINPOINT_RAW_COUNTS_PER_LEVEL` sets the mapping (default 1).
+
+## Pi service 0.59.0 - 2026-10-01
+
+- Raw 10-bit capture (`PINPOINT_CAMERA_RAW=true`). The sensor reads 10 bits, but the image processor squeezes them into an 8-bit picture: it subtracts 64 counts (a black level of 4096 words that the sensor has in fact already removed) and then applies a gamma curve of about 0.45, so anything under 64 counts comes out as exactly 0. At a 20 to 100 μs exposure 99.8 to 100 % of the 8-bit picture was 0 while the raw data held a clear signal. Each frame now also carries its linear raw data: the 10-bit count x 64 in a 16-bit word (words step by 64, full scale 65472), with the data floor at about 1024 words. It is 0.5 MB a frame, less than the 0.77 MB 3-channel 8-bit image, and sustained 242.0 fps with no dropped frames on the Pi in testing.
+- The Pi has 1 GB of RAM, so only the last 100 raw frames per camera are kept (`PINPOINT_RAW_BUFFER_FRAMES`, about 100 MB for both cameras) and only the frames from 25 before to 45 after the impact are written to the capture folder, as 16-bit `raw-NNNN.png` files with a `raw` entry in `capture.json` (scale 64, black level 1024) (`PINPOINT_RAW_SAVE_BEFORE` / `_AFTER`). Off by default; nothing changes without the setting.
+- The strobe copy analysis now works in raw counts when raw frames are present: copies 30 counts above the background (invisible in the 8-bit picture, where they come out as 0) are found, with a lower detection threshold. Without raw frames it falls back to the 8-bit frames as before. The result reports which source it used.
+- The existing ball tracking and launch measurement still use the 8-bit picture.
+
+## Pi service 0.58.0 - 2026-10-01
+
+- Ball speed and launch angle from the flash copies of the ball in one strobed frame (new `strobe_copies.py`). In strobe mode, after a shot the analysis looks at the frames just after the ball leaves, picks out the round, ball-sized bright discs (after removing the empty scene), works out which flash made each one from the known uneven gaps (every possible start in the repeating flash sequence is tried and the straightest fit wins) and turns the slope of position against flash time into speed, scaled by the ball's known diameter. It runs only while the light controller reports strobe, uses the exact pattern and rate the ESP32 was given, and reports `ballSpeedMps` and `launchAngleDeg` only when the fit is reliable (at least four copies in a straight row, or three that also match the club's expected speed; residual under 3 mm; a launch angle between -10 and 80 degrees; not ambiguous between two starting flashes). On the 11 real lit-room captures from 2026-10-01 it adds nothing, as it should; otherwise nothing is added and the shot looks as before. The values are marked as estimates: image-plane, side-on, scale from the resting ball. A failure in this step is logged and never breaks the analysis.
+- Developed and tested against synthetic frames only (17 tests: speed within 3-4 % for every club family, every start flash, noise, background removal, a wrong pattern flagged as unreliable). It still needs real dark-room captures to tune the thresholds. Light status now also carries `rateHz`.
+
+## Pi service 0.57.1 - 2026-10-01
+
+- Strobe flash pattern now follows the selected club, not just its group. Each club's expected ball speed (club speed times smash) sets the gaps between flashes and the pulse width: gaps keep neighbouring ball copies from overlapping even when the ball is 20 % slower than expected (1.1 ball widths apart) and grow 8 % each so every copy can be told apart; the pulse blurs the ball by about 1.2 mm, so fast balls get short pulses (driver 19 μs) and slow balls longer ones with more light (sand wedge 40 μs). Driver: 4 flashes about 0.95 to 1.1 ms apart; 7-iron: 2 flashes 1.4 ms apart; lob wedge: one flash per frame, because two flashes cannot stay clear of each other inside one 4.1 ms frame at that speed. Status `light.pattern` carries `pulseUs`, `gapsUs` and `ballSpeedMps`; `light.preset` still names the club group, so existing apps are unaffected.
+
+## App 3.44.0 / Pi service 0.57.0 / protocol 2.40.0 - 2026-10-01
+
+- Light modes for indoors, outdoors and dark rooms. The Device screen's Strobe switch becomes a Light selector: Auto, Daylight, Flat and Strobe. Daylight turns the IR ring off and lets the sun light the ball with a short shutter (30 μs by default); Flat keeps the ring steady, as before; Strobe flashes the ring for a dark room. Each light remembers its own shutter and brightness boost, so moving between a sunny garden and a room never costs the settings tuned for the other.
+- Auto-set for this room now also picks the light. With the ring off it runs the usual exposure sweep; a usable picture at 100 μs or less means daylight and the ring stays off (it also saves the battery), otherwise the ring goes steady and the sweep repeats. The result says which light was chosen.
+- New `light_controller.py` talks to the ESP32 on the ring over USB (`PINPOINT_LIGHT_CONTROL=esp32`). Nothing changes unless that is set. It keeps a heartbeat, reconnects after the cable is replugged and re-applies the wanted mode. In strobe the flash pattern follows the selected club: driver and woods, irons, or wedges and chips.
+- ESP32 firmware (hardware/strobe-test/strobe_master): modes `off`, `flat` and `strobe`, a `chip` preset, and a watchdog that returns the ring to steady light if the service stops talking to it for 3 s. It boots in flat light.
+- Strobe captures are still saved for review only; launch measurement needs an exposure of 250 μs or less.
+
+## App 3.43.0 / Pi service 0.56.0 / protocol 2.39.0 - 2026-10-01
+
+- Add a strobe test mode for the flashing IR ring (hardware/strobe-test). The Device screen has a Strobe mode switch above Shutter speed. Turning it on remembers the normal shutter speed and sets a 3900 μs exposure, just under one 242 fps frame, so the ESP32's flash bursts land inside the exposure and one picture holds several copies of a moving ball. The shutter limit rises from 250 to 4000 μs only while the mode is on, and turning it off restores the remembered shutter speed.
+- New BLE command `setStrobeMode`; `exposureControl` gains `strobeMode`, and the app hides the switch when a service does not report it. Automatic exposure is refused in strobe mode.
+- Strobe-mode captures are saved for review only: launch measurement still needs an exposure of 250 μs or less, so they carry a warning and no measurements. Shoot or roll a ball in a dark room with the ESP32 strobe running, then look at the saved frames in History.
+- The exposure field now takes four digits.
+
+## Pi service 0.55.3 - 2026-09-29
+
+- Find fast hits that pairing cannot. A ball hit at 17 to 28 m/s is in view for two or three frames, and a blurred or dark one is not found as a clean circle in every frame of either camera, so matching a circle in the lower camera to a circle in the upper one frame by frame found nothing. When that fails the Pi now runs a flight search: it takes everything ball-sized that appears after the hit, in either camera at any frame (a circle where there is one, otherwise a patch that differs from the scene just before the hit, whether the ball is bright on the mat or dark against the window), tries about 100,000 launches from the known resting ball (3 to 80 m/s, launch angle, direction, contact time), keeps the best, centres each sighting and refines. It rejects the answer if a different launch still fits about as well after refinement, if one camera supplies all the sightings, or if the residual stays over 3.5 px.
+- Results from the search are accepted with looser image and ray limits (3.5 px, 6 mm) and always stay estimates with a warning saying the ball was found by the search. On the 38 newest saved captures it recovered 5 real hits at 17 to 28 m/s that were discarded, lost none, changed no measured shot, and every hand, foot, nudge and dark false trigger stayed rejected. Against shots measured another way it agrees within about 3 percent in speed, 1 degree in launch and 3 degrees in direction.
+- Not recovered: a 31 m/s hit whose sightings disagreed by 10 mm in the ray check.
+
+## Pi service 0.55.2 - 2026-09-29
+
+- Recover real hits the ball tracker loses. When the single-camera tracker fails, the two cameras search for the ball on their own, but that search looked for the resting ball only in the first half of the burst. These bursts hold a long address (the hit falls around frame 100 of 182), so the search never reached the hit and reported no candidates at all. It now scans the whole burst. Replayed over the 32 newest saved captures, 29 were unchanged, 2 were recovered and none changed or was lost; one recovered shot is from 09-26 whose live result was 9.46 m/s at 34.8 degrees and now reads 9.5 at 34.7.
+- A single-camera track slower than 0.3 m/s no longer vetoes that search. After a fast hit the tracker sometimes follows a static object (a shadow, the shaft, a foot) for dozens of frames at about 0 m/s, and the two-camera search deferred to it. It now starts fresh from the resting ball instead.
+- Still lost: balls so large (65 px across) that they leave the view in about a frame and a half, and balls under 40 px.
+
+## Pi service 0.55.1 - 2026-09-29
+
+- Ball size is now a red "Fix before you hit" with the distance to move. Across every saved capture since 2026-09-25 the ball's size in the lower image decides most outcomes: 40 to 56 px across was measured 44 times in 53, under 40 px once in 14 and over 56 px 3 times in 10. Twelve shots this morning lost four real hits to it (balls 31, 61, 60 and 65 px across); a big ball crosses the view in about three frames, then the tracker either finds nothing or follows a static object. The placement check was an orange warning without a distance; it is now a failure that says how far to move from the ball's size and the lens ("about 12 cm further from the cameras"), and the lower limit rose from 32 to 40 px.
+- Not fixed: an address with the club touching the ball can still read as the ball leaving, and a ball hit dark against the bright window on the right is lost. Both are lower-camera tracking limits that staggering does not touch.
+
+## App 3.42.0 / Pi service 0.55.0 / protocol 2.38.0 - 2026-09-29 (branch staggered-cameras, experimental)
+
+Staggered cameras: the upper camera runs half a frame behind the lower one, so together they sample the ball every 2.07 ms instead of every 4.13 ms. Off by default; set `PINPOINT_CAMERA_STAGGER=true` in `/etc/default/pinpoint` to try it.
+
+- Capture. With the flag on, the two sensors free-run with no libcamera sync. At start the upper camera is restarted until its phase behind the lower one is within 0.35 to 0.65 of a frame (about 3 to 7 tries), then held; measured on the Pi it stayed within 20 microseconds over a minute and drifted under 1 microsecond per second. Each pair is an A frame with the B frame half a frame later, and every pair's phase is watched. If the lock cannot be made the cameras fall back to the in-step pair and the app says so.
+- Drift handling. Phase within 0.3 to 0.7 is locked. Between 0.2 and 0.3 (or 0.7 and 0.8) the Pi re-locks at the next moment the mat is empty. Beyond that, ball detection is paused and the app shows "Cameras out of step" until the mat is clear and the re-lock finishes, a few seconds. A failed re-lock is retried every 30 seconds while the mat is clear. The upper camera is only ever restarted with no ball present.
+- Analysis. `stereo_check` recognises a staggered burst from the frame times, finds the ball in each upper frame from the lower camera's track interpolated to that frame's own instant, and fits with every detection at its own timestamp. Two staggered pairs are four sample instants and are now enough for a full fit (in step they give only a speed estimate). On noisy synthetic frames at 54 to 66 m/s the in-step mode found nothing and the staggered mode fitted 6 to 7 of 12 shots with about 1 percent speed, 0.2 degree launch and 0.5 degree direction error; at 48 m/s it went from 6 to 12 of 12. Where the ball stays in view for many frames it is no better than in step. Club stereo and stereo calibration need simultaneous views, so club stereo is skipped on staggered bursts and calibration refuses to run in staggered mode.
+- Saved bursts record `dualCamera.mode: "stagger"` with the nominal offset. Nothing changes with the flag off.
+- Not yet tested on the device with a real swing; see scripts/test-stagger-phase.py and scripts/simulate-stagger.py.
+
+## Pi service 0.54.1 - 2026-09-29
+
+- Reword the resting-ball error from the top camera. It told you to recalibrate with the AprilTag, which is no longer used. The usual cause is a ball touching a foot or hand: the lower camera outlines the two as one blob and the top camera cannot find the ball where that box puts it. It now says so, and still mentions a moved camera or stand. Seen on 2026-09-29 with a ball beside a bare toe (ball box 39 x 73 px).
+
+## App 3.41.0 / Pi service 0.54.0 / protocol 2.37.0 - 2026-09-28
+
+Works wherever the stand is put down: no AprilTag needed.
+
+- Take the ground from the stand instead of a tag. The stand is assumed level on the surface the ball is hit from: gravity runs down the rig at the lower camera's pitch, the target is to the right of where the bottom camera points, and the camera height is a stand constant. Each shot corrects that height from the resting ball (up to 40 mm; it was 25 mm from the tag), and shots whose height the two cameras cannot confirm are flagged. Nothing looks for the tag any more; `PINPOINT_GROUND_MODE=tag` restores the old behaviour.
+- Add `rig.json`: the stand's pitch, sideways lean and height, written once. `install.sh` derives it from the saved tag calibrations of both cameras, fusing the two tag views through the stereo pair so a noisy single-tag tilt is averaged with a second view and held consistent with the checkerboard geometry. `python rig_pose.py --from-tags|--set PITCH HEIGHT|--show` manages it. A lean inside the tag noise floor (1 degree) is taken as level.
+- Replayed on the Pi's 28 newest real shots with identical frames and stereo pair, the rig agrees with the tag pose: ball speed within 0.006 m/s, launch angle within 0.26 degrees and start direction within 0.23 degrees, with two-camera tracking accepted in the same 25 shots. Attack angle moves 0.26 degrees because the tag's 0.26 degree sideways lean is now taken as level. Tilted by half a degree, launch moves about 0.4 degrees per half degree of sideways lean and start direction about 0.2 degrees per half degree of pitch, as the geometry predicts.
+- The single-camera fallback (used when the two-camera fit fails) is much more sensitive: on two saved shots half a degree of pitch turned a 32 degree launch into a ground roll. Treat those results as estimates.
+- Add a Ground readiness item for the rig ("Level rig, no tag needed" with the constants, or a warning when only default constants exist) and status `rig`. The Calibration screen shows the rig constants instead of asking for the tag. Shot coverage uses the rig pose.
+- Add `scripts/compare-ground-modes.py`, which replays saved captures with the tag pose and the rig and reports the differences and the height correction the ball asked for.
+- Keep in mind: the level assumption cannot be checked per shot. A stand on a sloped mat or with one foot propped is read as level; a lean along the target line shifts launch angle about one for one, and pitch error shifts direction by about its size times the tangent of the launch angle.
+
+## App 3.40.0 - 2026-09-28
+
+Side-by-side testing against another launch monitor (first target: a Foresight GC3), and sessions to keep the tests organised.
+
+- Add sessions. Start one from the Sessions tab (or the banner on the Monitor screen) and every shot is filed under it until you end it; a session can be resumed, renamed, given notes and a reference-monitor name, and deleted (its shots stay in history). Sessions are kept on the device and in the signed-in account. The Sessions screen has a session picker, and every average, club table and chart follows the picked session. A shot can be moved between sessions from its detail screen.
+- Add reference data entry. Each shot's detail screen has a Reference launch monitor card: type in what the other monitor showed for the same swing (ball speed, club speed, launch angle and direction, backspin, spin axis, attack angle, club path, carry, total, apex) in your display units, with Left/Right toggles instead of signs. Everything is optional; entries are validated (ranges, ball speed against club speed, total against carry) and stored with the shot in SI units.
+- Add comparison. The shot card shows LM1, the reference and the difference per metric. The session view shows bias, scatter (standard deviation of the difference) and mean absolute error per metric, overall and per named club, so a club with a consistent offset stands out. Excluded shots are left out. LM1 values that are model estimates (carry, total, apex, spin) are labelled, and LM1 club speed, smash, attack angle and club path count only when the camera resolved them.
+- Add CSV export of the picked session (Share sheet on the phone, clipboard on web): one row per shot with LM1 and reference columns side by side in display units, LM1 spin source and capture id.
+- The comparison ignores the spin axis of 0 the app stores when the camera saw none, and flips the Pi's axis (positive = draw) to the reference convention (positive = fade).
+- A capture re-sent for a shot already held no longer discards its session, reference data or excluded flag, and keeps its shot number.
+- No measurement changed and the Pi is untouched: service 0.53.0 / protocol 2.36.0.
+
 ## Pi service 0.53.0 / protocol 2.36.0 - 2026-09-25
 
 - Take the ground under each shot from the resting ball: both cameras triangulate the 42.67 mm ball on still frames before the swing (the cleanest of three), and the world is shifted so the surface under it is the ground for every fit. Offsets up to 25 mm are corrected; larger ones mean the views matched different things. The stereo resting-height gate is now that 25 mm gross check. On nine chips rejected or estimated at +9..12 mm, the ball measured -2.5..+2.2 mm and three more received two-camera ball values; the +9..12 mm came largely from the stereo fit's own rest-point method, not the surface.

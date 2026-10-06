@@ -2,6 +2,16 @@
 
 Pinpoint supports OpenGolfSim Desktop and the experimental OpenGolfSim Web simulator from the native Pinpoint development build.
 
+## LM1 bridge (iPad or Desktop, no computer needed)
+
+The LM1 Pi runs the bridge as the `pinpoint-ogs-bridge` service (`raspberry_pi/ogs_bridge.py`, standard library only). It listens on port `3112` and finds OpenGolfSim by scanning the Pi's local network for port `3111`, so it keeps working after the iPad gets a new address.
+
+1. Open OpenGolfSim on the iPad (or Desktop) on the same Wi-Fi as LM1.
+2. In Pinpoint, open **Device → Simulator connection → Desktop**.
+3. Enter the LM1 address with port `3112`, for example `192.168.0.140:3112`, and connect.
+
+To pin a host instead of scanning, set `PINPOINT_OGS_HOST=192.168.0.192` in `/etc/default/pinpoint` and run `sudo systemctl restart pinpoint-ogs-bridge`. Opening `http://<LM1 address>:3112` in a browser shows which OpenGolfSim host the bridge is using. Logs: `journalctl -u pinpoint-ogs-bridge -f`.
+
 ## Desktop
 
 OpenGolfSim Desktop accepts newline-delimited JSON over TCP port `3111`. React Native cannot create raw TCP sockets without another native module, so the included bridge exposes a local WebSocket on port `3112` and forwards messages to the official API.

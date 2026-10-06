@@ -32,8 +32,15 @@ import { useOpenGolfSim } from '@/context/OpenGolfSimContext';
 import { useUnits } from '@/context/UnitsContext';
 import { getClub } from '@/data/clubs';
 import { colors, radii, spacing } from '@/theme';
-import { WifiConnectionStatus, WifiNetwork } from '@/types';
+import { LightMode, WifiConnectionStatus, WifiNetwork } from '@/types';
 import appConfig from '../../app.json';
+
+const LIGHT_CHOICES: { mode: LightMode; label: string }[] = [
+  { mode: 'auto', label: 'Auto' },
+  { mode: 'daylight', label: 'Daylight' },
+  { mode: 'flat', label: 'Flat' },
+  { mode: 'strobe', label: 'Strobe' },
+];
 
 export function DeviceScreen() {
   const insets = useSafeAreaInsets();
@@ -55,6 +62,7 @@ export function DeviceScreen() {
     trigger,
     setExposure,
     setGain,
+    setLightMode,
     autoCalibrateExposure,
     exposureCalibration,
     clearExposureCalibration,
@@ -79,6 +87,7 @@ export function DeviceScreen() {
   const [exposureMessage, setExposureMessage] = useState<string | null>(null);
   const [exposureFailed, setExposureFailed] = useState(false);
   const [autoExposureBusy, setAutoExposureBusy] = useState(false);
+  const [lightBusy, setLightBusy] = useState(false);
   const [gainInput, setGainInput] = useState('');
   const [gainBusy, setGainBusy] = useState(false);
   const [gainMessage, setGainMessage] = useState<string | null>(null);
@@ -112,6 +121,21 @@ export function DeviceScreen() {
   const isExposurePresetActive = (value: number) => Boolean(
     status && exposureControl && Math.abs(status.exposureUs - value) <= exposureControl.stepUs,
   );
+  const light = status?.light;
+  const strobeMode = light?.active === 'strobe' || exposureControl?.strobeMode === true;
+  const lightReady = Boolean(
+    light && exposureControl?.configurable && status?.cameraConnected && !isDemo &&
+    state === 'ready' && !lightBusy && !exposureBusy && !autoExposureBusy,
+  );
+  const ringText = !light ? '' :
+    light.ring === 'strobe' ? `strobing (${light.preset ?? 'driver'} pattern)` :
+    light.ring === 'flat' ? 'steady' : light.ring === 'off' ? 'off' : 'unknown';
+  const lightSummary = !light ? '' :
+    `In use: ${light.active}${light.mode === 'auto' ? ' (chosen by auto)' : ''}. ` +
+    (light.available
+      ? (light.connected ? `Ring ${ringText}.` : 'Ring controller not found - plug in the ESP32.')
+      : 'No ring controller set up, so a light choice only changes the shutter.');
+  const exposurePresets = strobeMode ? [1000, 2000, 3000, 3900] : [20, 50, 75, 100, 150, 250];
   const gainReady = Boolean(
     gainControl?.configurable && status?.cameraConnected && !status.camera?.autoExposure &&
     !isDemo && state === 'ready' && !gainBusy,
@@ -138,6 +162,28 @@ export function DeviceScreen() {
   useEffect(() => {
     if (exposureCalibration) setAutoExposureBusy(false);
   }, [exposureCalibration]);
+
+  const handleLightChoice = async (mode: LightMode) => {
+    setLightBusy(true);
+    setExposureFailed(false);
+    setExposureMessage(null);
+    try {
+      const nextStatus = await setLightMode(mode);
+      setExposureInput(String(nextStatus.exposureUs));
+      if (mode === 'auto') {
+        // Auto means "look at the room": the same measurement as Auto-set also picks the light.
+        setLightBusy(false);
+        await handleAutoExposure();
+      } else {
+        setExposureMessage(`Light: ${mode}. Shutter ${nextStatus.exposureUs} μs - each light remembers its own shutter and boost.`);
+      }
+    } catch (caught) {
+      setExposureFailed(true);
+      setExposureMessage(caught instanceof Error ? caught.message : 'Could not change the light.');
+    } finally {
+      setLightBusy(false);
+    }
+  };
 
   const handleAutoExposure = async () => {
     setAutoExposureBusy(true);
@@ -746,7 +792,7 @@ export function DeviceScreen() {
                       <View style={styles.autoExposureResultCopy}>
                         <Text style={styles.autoExposureResultTitle}>
                           {exposureCalibration.ok
-                            ? `Set to ${exposureCalibration.exposureUs} μs at ${exposureCalibration.gain?.toFixed(2).replace(/\.00$/, '')}×`
+                            ? `Set to ${exposureCalibration.exposureUs} μs at ${exposureCalibration.gain?.toFixed(2).replace(/\.00$/, '')}×${exposureCalibration.light ? ` - ${exposureCalibration.light === 'daylight' ? 'daylight, ring off' : 'steady ring'}` : ''}`
                             : 'Automatic exposure did not finish'}
                         </Text>
                         <Text style={styles.autoExposureResultBody}>
@@ -763,6 +809,49 @@ export function DeviceScreen() {
                   </Text>
                 </View>
 
+                {light ? (
+                  <View style={styles.exposureControl}>
+                    <View style={styles.exposureHeading}>
+                      <View style={styles.strobeText}>
+                        <Text style={styles.exposureTitle}>Light</Text>
+                        <Text style={styles.exposureHelp}>
+                          Auto picks the light for the room. Daylight turns the ring off and uses the sun
+                          (outdoors). Flat keeps the ring steady (indoors). Strobe flashes the ring for a
+                          dark room and is a test mode: captures are saved but not measured.
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.exposurePresets}>
+                      {LIGHT_CHOICES.map((choice) => {
+                        const selected = light.mode === choice.mode;
+                        return (
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={`Light: ${choice.label}`}
+                            accessibilityState={{ selected }}
+                            disabled={!lightReady}
+                            key={choice.mode}
+                            onPress={() => void handleLightChoice(choice.mode)}
+                            style={({ pressed }) => [
+                              styles.exposurePreset,
+                              selected && styles.exposurePresetActive,
+                              !lightReady && styles.exposurePresetDisabled,
+                              pressed && styles.wifiNetworkPressed,
+                            ]}
+                          >
+                            <Text style={[styles.exposurePresetText, selected && styles.exposurePresetTextActive]}>
+                              {choice.label}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                    <Text style={styles.exposureHelp}>{lightSummary}</Text>
+                    {state !== 'ready' && exposureControl?.configurable ? (
+                      <Text style={styles.exposureHelp}>Stop tracking before changing the light.</Text>
+                    ) : null}
+                  </View>
+                ) : null}
                 {exposureControl ? (
                   <View style={styles.exposureControl}>
                     <View style={styles.exposureHeading}>
@@ -780,7 +869,7 @@ export function DeviceScreen() {
                         accessibilityLabel="Camera exposure in microseconds"
                         editable={exposureReady}
                         keyboardType="number-pad"
-                        maxLength={3}
+                        maxLength={4}
                         onChangeText={(value) => {
                           setExposureInput(value.replace(/[^0-9]/g, ''));
                           setExposureMessage(null);
@@ -805,7 +894,7 @@ export function DeviceScreen() {
                       </View>
                     </View>
                     <View style={styles.exposurePresets}>
-                      {[20, 50, 75, 100, 150, 250].map((value) => (
+                      {exposurePresets.map((value) => (
                         <Pressable
                           accessibilityRole="button"
                           accessibilityLabel={`Set exposure to ${value} microseconds`}
@@ -1086,6 +1175,7 @@ const styles = StyleSheet.create({
   autoExposureResultBody: { color: colors.textMuted, fontSize: 12, lineHeight: 16, marginTop: 2 },
   exposureControl: { borderBottomColor: colors.line, borderBottomWidth: 1, gap: spacing.sm, paddingVertical: spacing.md },
   exposureHeading: { flexDirection: 'row', justifyContent: 'space-between' },
+  strobeText: { flex: 1, paddingRight: spacing.md },
   exposureTitle: { color: colors.text, fontSize: 14, fontWeight: '800' },
   exposureHelp: { color: colors.textMuted, fontSize: 12, lineHeight: 16, marginTop: 3 },
   exposureInputRow: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm },

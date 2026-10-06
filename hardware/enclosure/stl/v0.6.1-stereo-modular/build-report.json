@@ -1,0 +1,75 @@
+{
+  "version": "0.6.1",
+  "units": "mm",
+  "max_print_bed_mm": [
+    180,
+    180
+  ],
+  "camera_count": 2,
+  "camera_pitch_deg": 20.0,
+  "camera_height_mm": 200.0,
+  "camera_baseline_mm": 90.0,
+  "nominal_ground_intersection_mm": 549.5,
+  "parts": [
+    {
+      "file": "lm1_stereo_tray_v0.6.1.stl",
+      "watertight": true,
+      "positive_volume": true,
+      "connected_solids": 1,
+      "size_mm": [
+        176.0,
+        150.0,
+        13.0
+      ],
+      "fits_180mm_bed": true
+    },
+    {
+      "file": "lm1_mast_lower_v0.6.1.stl",
+      "watertight": true,
+      "positive_volume": true,
+      "connected_solids": 1,
+      "size_mm": [
+        174.0,
+        114.5,
+        36.0
+      ],
+      "fits_180mm_bed": true
+    },
+    {
+      "file": "lm1_mast_upper_v0.6.1.stl",
+      "watertight": true,
+      "positive_volume": true,
+      "connected_solids": 1,
+      "size_mm": [
+        174.0,
+        115.0,
+        6.0
+      ],
+      "fits_180mm_bed": true
+    },
+    {
+      "file": "lm1_dual_camera_bracket_20deg_v0.6.1.stl",
+      "watertight": true,
+      "positive_volume": true,
+      "connected_solids": 1,
+      "size_mm": [
+        170.0,
+        58.0,
+        24.54
+      ],
+      "fits_180mm_bed": true
+    },
+    {
+      "file": "lm1_mast_splice_plate_v0.6.1.stl",
+      "watertight": true,
+      "positive_volume": true,
+      "connected_solids": 1,
+      "size_mm": [
+        30.0,
+        4.0,
+        50.0
+      ],
+      "fits_180mm_bed": true
+    }
+  ]
+}

@@ -130,9 +130,24 @@ class PlacementTests(unittest.TestCase):
         self.assertEqual(item["status"], "warn")
         self.assertIn("back", item["detail"])
 
-    def test_ball_size_limits(self):
-        self.assertIn("closer to the cameras", self.check(150, 27)["detail"])
-        self.assertIn("further away", self.check(150, 61)["detail"])
+    def test_ball_size_limits_are_a_failure_with_a_distance_to_move(self):
+        for diameter, direction in ((27, "closer to the cameras"), (36, "closer to the cameras"),
+                                    (57, "further from the cameras"), (61, "further from the cameras")):
+            item = self.check(150, diameter)
+            self.assertEqual(item["status"], "fail", diameter)
+            self.assertIn(direction, item["detail"])
+        for diameter in (40, 47, 56):
+            self.assertNotEqual(self.check(150, diameter)["status"], "fail", diameter)
+
+    def test_the_move_is_given_in_centimetres_from_the_lens(self):
+        # f = 572 px: a 61 px ball is 400 mm away; 47 px is 519 mm, so about 12 cm further.
+        geometry = readiness.placement_geometry((400, 640), (150, 240, 61, 61), focal_px=572)
+        self.assertAlmostEqual(geometry["depthMm"], 400.2, delta=0.5)
+        item = readiness.placement_check(geometry, self.CHIP, "full-shot")
+        self.assertIn("about 12 cm further from the cameras", item["detail"])
+        geometry = readiness.placement_geometry((400, 640), (150, 240, 31, 31), focal_px=572)
+        item = readiness.placement_check(geometry, self.CHIP, "full-shot")
+        self.assertIn("about 27 cm closer to the cameras", item["detail"])
 
     def test_speeds_come_from_recent_shots(self):
         speeds = readiness.expected_speeds("sand-wedge", [{"ballSpeedMps": 12, "launchDeg": 28, "clubSpeedMps": 9}] * 3)

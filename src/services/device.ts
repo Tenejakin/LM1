@@ -16,6 +16,7 @@ import {
   DeviceShot,
   DeviceStatus,
   LensCalibrationResult,
+  LightMode,
   StereoCalibrationAction,
   StereoCalibrationOptions,
   StereoCalibrationStatus,
@@ -108,6 +109,10 @@ export class DeviceClient {
 
   async setExposure(exposureUs: number): Promise<DeviceStatus> {
     return this.request<DeviceStatus>({ type: 'setExposure', exposureUs });
+  }
+
+  async setLightMode(mode: LightMode): Promise<DeviceStatus> {
+    return this.request<DeviceStatus>({ type: 'setLightMode', mode });
   }
 
   async setGain(gain: number): Promise<DeviceStatus> {

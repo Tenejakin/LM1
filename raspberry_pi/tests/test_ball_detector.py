@@ -273,6 +273,129 @@ class RollingFrameBufferTests(unittest.TestCase):
             self.assertEqual(preview["firstMovingFrameIndex"], 1)
             self.assertTrue(preview["base64"])
 
+    @staticmethod
+    def _raw_metadata(index: int, value: int) -> dict:
+        return {"SensorTimestamp": 1_000_000_000 + index * 4_131_000, "ExposureTime": 100, "FrameDuration": 4131,
+                "AnalogueGain": 1.0, "SensorBlackLevels": (4096, 4096, 4096, 4096),
+                "RawFrame": np.full((12, 16), value, dtype=np.uint16)}
+
+    def test_raw_frames_are_kept_in_a_short_ring_and_never_leak_into_the_manifest_metadata(self) -> None:
+        with patch("ball_detector.RAW_RING_FRAMES", 4):
+            buffer = RollingFrameBuffer(max_frames=10)
+            for index in range(8):
+                buffer.append(np.full((12, 16), index, dtype=np.uint8), metadata=self._raw_metadata(index, 1000 + index))
+        self.assertEqual(len(buffer.frames), 8)
+        self.assertEqual(len(buffer.raw), 4)
+        self.assertEqual(buffer.raw_black, 1024)
+        self.assertEqual(sorted(buffer.raw_by_index()), [4, 5, 6, 7])
+        self.assertTrue(all("RawFrame" not in entry for entry in buffer.metadata))
+
+    def test_trimming_the_buffer_also_trims_the_raw_frames(self) -> None:
+        buffer = RollingFrameBuffer(max_frames=10)
+        for index in range(8):
+            buffer.append(np.full((12, 16), index, dtype=np.uint8), metadata=self._raw_metadata(index, 1000 + index))
+        buffer.trim_after(5)
+        self.assertEqual(len(buffer.frames), 6)
+        self.assertEqual(sorted(buffer.raw_by_index()), [0, 1, 2, 3, 4, 5])
+
+    def test_raw_frames_near_the_impact_are_saved_as_16_bit_pngs_with_a_manifest_entry(self) -> None:
+        from tempfile import TemporaryDirectory
+        with patch("ball_detector.RAW_SAVE_BEFORE", 1), patch("ball_detector.RAW_SAVE_AFTER", 2):
+            buffer = RollingFrameBuffer(max_frames=10)
+            for index in range(8):
+                buffer.append(np.full((12, 16), index, dtype=np.uint8), metadata=self._raw_metadata(index, 1000 + index * 100))
+            with TemporaryDirectory() as directory:
+                destination = Path(directory) / "capture"
+                buffer.save(destination, fps=242, impact_frame_index=4)
+                names = sorted(path.name for path in destination.glob("raw-*.png"))
+                self.assertEqual(names, ["raw-0003.png", "raw-0004.png", "raw-0005.png", "raw-0006.png"])
+                saved = cv2.imread(str(destination / "raw-0004.png"), cv2.IMREAD_UNCHANGED)
+                self.assertEqual(saved.dtype, np.uint16)
+                self.assertTrue((saved == 1400).all())
+                manifest = json.loads((destination / "capture.json").read_text())
+                self.assertEqual(manifest["raw"]["frames"], [3, 4, 5, 6])
+                self.assertEqual(manifest["raw"]["blackLevel"], 1024)
+                self.assertEqual(manifest["raw"]["scale"], 64)
+                self.assertEqual(len(list(destination.glob("frame-*.jpg"))), 8)
+
+    def test_a_plain_ring_loses_the_frames_before_the_impact_and_pinning_keeps_them(self) -> None:
+        # Reproduces the captures of 2026-10-01: the buffer reached 250 frames, the hit was at 141 and was only
+        # confirmed ~100 frames later, by which time a "last 100 frames" ring had dropped everything before 150.
+        plain = RollingFrameBuffer(max_frames=325)
+        pinned = RollingFrameBuffer(max_frames=325)
+        for index in range(250):
+            for buffer in (plain, pinned):
+                buffer.append(np.full((12, 16), 0, dtype=np.uint8), metadata=self._raw_metadata(index, 1000 + index))
+            if index == 143:                      # the ball first looks gone, two frames after the hit
+                pinned.pin_raw()
+        self.assertEqual(min(plain.raw_by_index()), 150)          # the old behaviour: the impact is gone
+        kept = pinned.raw_by_index()
+        self.assertLessEqual(min(kept), 141 - 25)                 # covers 25 frames before the hit
+        self.assertGreaterEqual(max(kept), 141 + 45)              # and 45 after it
+        self.assertLessEqual(len(pinned.raw), 160)                # memory stays bounded
+        pinned.trim_after(205)                                    # the service trims to impact + 64 before saving
+        self.assertLessEqual(min(pinned.raw_by_index()), 141 - 25)
+        self.assertGreaterEqual(max(pinned.raw_by_index()), 141 + 45)
+
+    def test_pinning_stops_adding_raw_frames_after_the_window_and_covers_the_second_camera(self) -> None:
+        buffer = RollingFrameBuffer(max_frames=325)
+        for index in range(60):
+            buffer.append(np.zeros((12, 16), np.uint8), metadata=self._raw_metadata(index, 1000 + index),
+                          secondary_frame=np.zeros((12, 16), np.uint8), secondary_metadata=self._raw_metadata(index, 2000 + index))
+        buffer.pin_raw(10)
+        for index in range(60, 200):
+            buffer.append(np.zeros((12, 16), np.uint8), metadata=self._raw_metadata(index, 1000 + index),
+                          secondary_frame=np.zeros((12, 16), np.uint8), secondary_metadata=self._raw_metadata(index, 2000 + index))
+        for cam in (buffer, buffer.secondary):
+            kept = sorted(cam.raw_by_index())
+            self.assertLessEqual(kept[0], 49)                      # at least the 10 frames before the pin point (frame 59)
+            self.assertEqual(kept[-1], 59 + 60)                    # then 60 more (RAW_AFTER_PIN), then it stops
+        self.assertEqual(len(buffer.raw), len(buffer.secondary.raw))
+
+    def test_a_false_alarm_unpins_and_the_ring_rolls_again(self) -> None:
+        buffer = RollingFrameBuffer(max_frames=325)
+        for index in range(30):
+            buffer.append(np.zeros((12, 16), np.uint8), metadata=self._raw_metadata(index, 1000 + index))
+        buffer.pin_raw(5)
+        for index in range(30, 80):
+            buffer.append(np.zeros((12, 16), np.uint8), metadata=self._raw_metadata(index, 1000 + index))
+        buffer.unpin_raw()
+        for index in range(80, 400):
+            buffer.append(np.zeros((12, 16), np.uint8), metadata=self._raw_metadata(index, 1000 + index))
+        kept = sorted(buffer.raw_by_index())
+        self.assertEqual(len(kept), 100)                           # a plain rolling window again
+        self.assertEqual(kept[-1], 324)
+        buffer = RollingFrameBuffer(max_frames=325)
+        for index in range(30):
+            buffer.append(np.zeros((12, 16), np.uint8), metadata=self._raw_metadata(index, 1000 + index))
+        buffer.pin_raw(5)
+        buffer.unpin_raw()
+        for index in range(30, 300):
+            buffer.append(np.zeros((12, 16), np.uint8), metadata=self._raw_metadata(index, 1000 + index))
+        self.assertEqual(len(buffer.raw), 100)                     # back to the plain 100-frame window
+        self.assertEqual(min(buffer.raw_by_index()), 200)
+
+    def test_clearing_the_buffer_also_clears_the_pin(self) -> None:
+        buffer = RollingFrameBuffer(max_frames=325)
+        for index in range(40):
+            buffer.append(np.zeros((12, 16), np.uint8), metadata=self._raw_metadata(index, 1000 + index))
+        buffer.pin_raw()
+        buffer.clear()
+        for index in range(200):
+            buffer.append(np.zeros((12, 16), np.uint8), metadata=self._raw_metadata(index + 40, 1000 + index))
+        self.assertEqual(len(buffer.raw), 100)
+
+    def test_no_raw_entry_when_the_camera_supplies_no_raw_frames(self) -> None:
+        from tempfile import TemporaryDirectory
+        buffer = RollingFrameBuffer(max_frames=3)
+        for index in range(3):
+            buffer.append(np.full((12, 16), index, dtype=np.uint8), captured_at=index * 0.02)
+        with TemporaryDirectory() as directory:
+            destination = Path(directory) / "capture"
+            buffer.save(destination, fps=50)
+            self.assertNotIn("raw", json.loads((destination / "capture.json").read_text()))
+            self.assertEqual(list(destination.glob("raw-*.png")), [])
+
     def test_capture_replay_rejects_path_traversal(self) -> None:
         with self.assertRaises(ValueError):
             capture_frame_preview("../capture-123", 0)

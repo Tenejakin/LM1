@@ -1,0 +1,113 @@
+{
+  "version": "0.7.0",
+  "status": "development-fit prototype",
+  "units": "mm",
+  "max_print_bed_mm": [
+    180,
+    180
+  ],
+  "camera_layout": "vertical parallel stereo",
+  "camera_pitch_deg": 18.0,
+  "camera_baseline_mm": 85.0,
+  "camera_heights_mm": [
+    162.5,
+    247.5
+  ],
+  "power_pack_envelope_mm": [
+    65.0,
+    150.0,
+    30.0
+  ],
+  "provisional_dimensions": {
+    "ir_ring_outer_diameter_mm": 80.0,
+    "ir_ring_clear_diameter_mm": 32.0,
+    "light_lens_diameter_mm": 20.0,
+    "camera_board_max_mm": 54.0
+  },
+  "parts": [
+    {
+      "file": "lm1_vertical_base_v0.7.0.stl",
+      "watertight": true,
+      "positive_volume": true,
+      "connected_solids": 1,
+      "size_mm": [
+        176.0,
+        170.0,
+        16.5
+      ],
+      "fits_180mm_bed": true
+    },
+    {
+      "file": "lm1_vertical_mast_lower_v0.7.0.stl",
+      "watertight": true,
+      "positive_volume": true,
+      "connected_solids": 1,
+      "size_mm": [
+        174.0,
+        124.0,
+        32.0
+      ],
+      "fits_180mm_bed": true
+    },
+    {
+      "file": "lm1_vertical_mast_upper_v0.7.0.stl",
+      "watertight": true,
+      "positive_volume": true,
+      "connected_solids": 1,
+      "size_mm": [
+        174.0,
+        150.0,
+        7.0
+      ],
+      "fits_180mm_bed": true
+    },
+    {
+      "file": "lm1_vertical_camera_light_carrier_v0.7.0.stl",
+      "watertight": true,
+      "positive_volume": true,
+      "connected_solids": 1,
+      "size_mm": [
+        172.0,
+        141.4,
+        47.71
+      ],
+      "fits_180mm_bed": true
+    },
+    {
+      "file": "lm1_mast_splice_plate_v0.7.0.stl",
+      "watertight": true,
+      "positive_volume": true,
+      "connected_solids": 1,
+      "size_mm": [
+        30.0,
+        4.0,
+        50.0
+      ],
+      "fits_180mm_bed": true
+    },
+    {
+      "file": "lm1_ir_ring_retainer_80mm_v0.7.0.stl",
+      "watertight": true,
+      "positive_volume": true,
+      "connected_solids": 1,
+      "size_mm": [
+        114.0,
+        88.0,
+        3.0
+      ],
+      "fits_180mm_bed": true
+    },
+    {
+      "file": "lm1_pi5_head_cradle_v0.7.0.stl",
+      "watertight": true,
+      "positive_volume": true,
+      "connected_solids": 1,
+      "size_mm": [
+        118.0,
+        68.0,
+        11.0
+      ],
+      "fits_180mm_bed": true
+    }
+  ]
+}

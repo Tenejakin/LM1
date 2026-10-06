@@ -1,0 +1,26 @@
+# EAS uses this file instead of .gitignore, so the .gitignore rules are repeated here.
+node_modules/
+.expo/
+dist/
+web-build/
+*.log
+__pycache__/
+*.py[cod]
+.DS_Store
+.env
+.env.*
+!.env.example
+supabase/.temp/
+
+# Not part of the app bundle: Pi service, CAD, captures, analysis output and packaged updates.
+raspberry_pi/
+hardware/
+camera-tests/
+output/
+tmp/
+scripts/
+bridge/
+supabase/
+.agents/
+.claude/
+*.zip

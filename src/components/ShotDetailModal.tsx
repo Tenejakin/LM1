@@ -12,6 +12,8 @@ import { colors, radii, spacing } from '@/theme';
 import { CaptureFramePreview, ClubValueKey, MetricConfidence, Shot, ShotMetricKey } from '@/types';
 import { ContactSheet } from '@/components/ContactSheet';
 import { SwingLoop } from '@/components/SwingLoop';
+import { ReferenceEditor } from '@/components/ReferenceEditor';
+import { ShotReferenceCard } from '@/components/ReferenceComparison';
 import { DIRECTION_SIGN_NOTE, directionLabel } from '@/utils/direction';
 import { measuredAttackAngle, measuredClubPath, measuredClubSpeed, measuredSmash, measuredStrike } from '@/utils/shotValues';
 import { shotEstimates } from '@/utils/carry';
@@ -32,7 +34,7 @@ interface MetricInfo {
 }
 
 function ShotDetail({ shot, onClose }: { shot: Shot; onClose: () => void }) {
-  const { retryShotImage, frameUploadProgress, startShotFrameUpload, setShotExcluded } = useLaunchMonitor();
+  const { retryShotImage, frameUploadProgress, startShotFrameUpload, setShotExcluded, setShotReference, setShotSession, sessions, activeSession, shots } = useLaunchMonitor();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const compact = width < 600;
@@ -43,6 +45,11 @@ function ShotDetail({ shot, onClose }: { shot: Shot; onClose: () => void }) {
   const [uploadedImagePath, setUploadedImagePath] = useState<string | null>(null);
   const [frameUploadError, setFrameUploadError] = useState<string | null>(null);
   const [startingFrames, setStartingFrames] = useState(false);
+  const [editingReference, setEditingReference] = useState(false);
+  const shotSession = shot.sessionId ? sessions.find((item) => item.id === shot.sessionId) ?? null : null;
+  // Offer the device the player used last so a session of GC3 comparisons needs typing once.
+  const defaultReferenceDevice = shotSession?.referenceDevice ?? activeSession?.referenceDevice
+    ?? shots.find((item) => item.reference)?.reference?.device ?? 'GC3';
   useEffect(() => {
     setUploadedImagePath(null);
     setImageUploadError(null);
@@ -200,6 +207,40 @@ function ShotDetail({ shot, onClose }: { shot: Shot; onClose: () => void }) {
                 ? (attack === null ? ' and need a measured attack angle.' : '; launch sits too far above this attack angle for the impact model, so the attack angle is likely off.')
                 : ' with a rolling-contact impact model.'}
             </Text>
+          </Surface>
+        ) : null}
+
+        <ShotReferenceCard shot={shot} onEdit={() => setEditingReference(true)} />
+        <ReferenceEditor
+          shot={shot}
+          defaultDevice={defaultReferenceDevice}
+          visible={editingReference}
+          onClose={() => setEditingReference(false)}
+          onSave={(reference) => { setShotReference(shot.id, reference); setEditingReference(false); }}
+          onClear={() => { setShotReference(shot.id, null); setEditingReference(false); }}
+        />
+
+        {sessions.length ? (
+          <Surface style={styles.sessionCard}>
+            <Eyebrow>Session</Eyebrow>
+            <Text style={styles.sessionCurrent}>{shotSession?.name ?? 'Not in a session'}</Text>
+            <View style={styles.sessionChips}>
+              {sessions.slice(0, 8).map((item) => {
+                const selected = item.id === shot.sessionId;
+                return (
+                  <Pressable
+                    key={item.id}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    onPress={() => setShotSession(shot.id, selected ? null : item.id)}
+                    style={[styles.sessionChip, selected && styles.sessionChipSelected]}
+                  >
+                    <Text numberOfLines={1} style={[styles.sessionChipText, selected && styles.sessionChipTextSelected]}>{item.name}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Text style={styles.replayNote}>Tap a session to move this shot into it, or tap the selected one to take it out.</Text>
           </Surface>
         ) : null}
 
@@ -633,6 +674,13 @@ const styles = StyleSheet.create({
   visualHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
   visualTitle: { color: colors.text, fontSize: 19, fontWeight: '700', marginTop: 3 },
   estimatesCard: { gap: spacing.xs, marginTop: spacing.md, padding: spacing.lg },
+  sessionCard: { gap: spacing.xs, marginTop: spacing.sm, padding: spacing.lg },
+  sessionCurrent: { color: colors.text, fontSize: 16, fontWeight: '700' },
+  sessionChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginVertical: spacing.xs },
+  sessionChip: { backgroundColor: colors.surfaceRaised, borderColor: colors.line, borderRadius: radii.pill, borderWidth: 1, maxWidth: 200, paddingHorizontal: 12, paddingVertical: 7 },
+  sessionChipSelected: { backgroundColor: colors.accent, borderColor: colors.accent },
+  sessionChipText: { color: colors.textMuted, fontSize: 11, fontWeight: '700' },
+  sessionChipTextSelected: { color: colors.accentInk },
   excludeButton: { alignItems: 'center', alignSelf: 'flex-start', flexDirection: 'row', gap: spacing.xs, marginTop: spacing.md, paddingVertical: spacing.xs },
   excludeText: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
   frameCounter: { color: colors.accent, fontSize: 12, fontWeight: '800' },

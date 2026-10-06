@@ -30,9 +30,12 @@ import {
   DeviceEvent,
   DeviceState,
   DeviceStatus,
+  LightMode,
   FrameUploadProgress,
   ExposureCalibrationResult,
   LensCalibrationResult,
+  PracticeSession,
+  ReferenceShotData,
   StereoCalibrationAction,
   StereoCalibrationOptions,
   StereoCalibrationStatus,
@@ -46,6 +49,7 @@ import {
 import { estimateShotFromCapture, normalizeShot } from '@/utils/carry';
 import { bagClubCommand, parseBagClubs } from '@/utils/bagClubs';
 import { puttFromCapture } from '@/utils/puttCapture';
+import { defaultSessionName, newSessionId, parseSessions } from '@/utils/sessions';
 import { useOpenGolfSim } from '@/context/OpenGolfSimContext';
 import { useCloudSync } from '@/context/CloudSyncContext';
 
@@ -56,6 +60,10 @@ const BAG_CLUBS_KEY = '@pinpoint/bag-clubs';
 const SELECTED_BAG_CLUB_KEY = '@pinpoint/selected-bag-club';
 /** Cloud preference key; the list follows the signed-in account. */
 const BAG_CLUBS_PREFERENCE = 'bagClubs';
+const SESSIONS_KEY = '@pinpoint/sessions';
+const ACTIVE_SESSION_KEY = '@pinpoint/active-session';
+/** Cloud preference key; sessions follow the signed-in account like the club list. */
+const SESSIONS_PREFERENCE = 'sessions';
 const RECONNECT_DELAY_MS = 3_000;
 
 interface LaunchMonitorContextValue {
@@ -91,6 +99,7 @@ interface LaunchMonitorContextValue {
   trigger: () => Promise<void>;
   setExposure: (exposureUs: number) => Promise<DeviceStatus>;
   setGain: (gain: number) => Promise<DeviceStatus>;
+  setLightMode: (mode: LightMode) => Promise<DeviceStatus>;
   autoCalibrateExposure: () => Promise<void>;
   /** The most recent automatic exposure result, or null before one has run. */
   exposureCalibration: ExposureCalibrationResult | null;
@@ -113,6 +122,20 @@ interface LaunchMonitorContextValue {
   retryShotImage: (shot: Shot) => Promise<string>;
   /** Leave a shot out of session averages, dispersion and gapping (kept in history). */
   setShotExcluded: (shotId: string, excluded: boolean) => void;
+  /** Every session on this device and account. */
+  sessions: PracticeSession[];
+  /** The open session new shots are filed under, or null. */
+  activeSession: PracticeSession | null;
+  startSession: (draft: { name?: string; referenceDevice?: string; notes?: string }) => PracticeSession;
+  endSession: () => void;
+  /** Reopen a closed session so new shots join it; closes any other open session. */
+  resumeSession: (sessionId: string) => void;
+  updateSession: (session: PracticeSession) => void;
+  /** Removes the session; its shots stay in history without a session. */
+  deleteSession: (sessionId: string) => void;
+  setShotSession: (shotId: string, sessionId: string | null) => void;
+  /** Numbers typed in from another launch monitor for this swing; null clears them. */
+  setShotReference: (shotId: string, reference: ReferenceShotData | null) => void;
   frameUploadProgress: Record<string, FrameUploadProgress>;
   startShotFrameUpload: (shot: Shot) => Promise<FrameUploadProgress>;
   getWifiStatus: () => Promise<WifiConnectionStatus>;
@@ -175,6 +198,10 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
   const [selectedClub, setSelectedClub] = useState<ClubId>('driver');
   const [bagClubs, setBagClubs] = useState<BagClub[]>([]);
   const [selectedBagClub, setSelectedBagClub] = useState<BagClub | null>(null);
+  const [sessions, setSessions] = useState<PracticeSession[]>([]);
+  const sessionsRef = useRef<PracticeSession[]>([]);
+  const [activeSession, setActiveSession] = useState<PracticeSession | null>(null);
+  const activeSessionRef = useRef<PracticeSession | null>(null);
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [isDemo, setIsDemo] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -213,6 +240,18 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
           selectedClubRef.current,
           (shotsRef.current[0]?.number ?? 0) + 1,
         );
+        if (estimatedShot) {
+          // A capture re-sent for a shot already held must not wipe what the player added to it.
+          const existing = shotsRef.current.find((shot) => shot.id === estimatedShot.id);
+          if (existing) {
+            estimatedShot.number = existing.number;
+            if (existing.sessionId) estimatedShot.sessionId = existing.sessionId;
+            if (existing.reference) estimatedShot.reference = existing.reference;
+            if (existing.excluded) estimatedShot.excluded = true;
+          } else if (activeSessionRef.current) {
+            estimatedShot.sessionId = activeSessionRef.current.id;
+          }
+        }
         if (estimatedShot) {
           const nextShots = [estimatedShot, ...shotsRef.current.filter((shot) => shot.id !== estimatedShot.id)];
           shotsRef.current = nextShots;
@@ -270,6 +309,7 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
         // The legacy shot event must not replace it with an ungraded summary.
         const displayedShot = shotsRef.current.find((shot) => shot.id === completedShot.id && shot.metricConfidence)
           ?? completedShot;
+        if (!displayedShot.sessionId && activeSessionRef.current) displayedShot.sessionId = activeSessionRef.current.id;
         const nextShots = [displayedShot, ...shotsRef.current.filter((shot) => shot.id !== displayedShot.id)];
         shotsRef.current = nextShots;
         setShots(nextShots);
@@ -358,6 +398,101 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
     const changed = nextShots.find((item) => item.id === shotId);
     if (changed && !isDemo) void syncShots([changed]).catch(() => {});
   }, [isDemo, syncShots]);
+
+  /** Applies a change to one shot everywhere it is held, then syncs that shot. */
+  const patchShot = useCallback((shotId: string, patch: Partial<Shot>) => {
+    const update = (item: Shot) => (item.id === shotId ? { ...item, ...patch } : item);
+    const nextShots = shotsRef.current.map(update);
+    shotsRef.current = nextShots;
+    setShots(nextShots);
+    setActiveShot((current) => (current ? update(current) : current));
+    setLiveShot((current) => (current ? update(current) : current));
+    const changed = nextShots.find((item) => item.id === shotId);
+    if (changed && !isDemo) void syncShots([changed]).catch(() => {});
+  }, [isDemo, syncShots]);
+
+  const setShotSession = useCallback((shotId: string, sessionId: string | null) => {
+    patchShot(shotId, { sessionId: sessionId ?? undefined });
+  }, [patchShot]);
+
+  const setShotReference = useCallback((shotId: string, reference: ReferenceShotData | null) => {
+    patchShot(shotId, { reference: reference ?? undefined });
+  }, [patchShot]);
+
+  const storeSessions = useCallback((next: PracticeSession[], active: PracticeSession | null, sync = true) => {
+    sessionsRef.current = next;
+    setSessions(next);
+    activeSessionRef.current = active;
+    setActiveSession(active);
+    void AsyncStorage.setItem(SESSIONS_KEY, JSON.stringify(next));
+    void (active ? AsyncStorage.setItem(ACTIVE_SESSION_KEY, active.id) : AsyncStorage.removeItem(ACTIVE_SESSION_KEY));
+    if (sync && session?.user) void savePreference(SESSIONS_PREFERENCE, JSON.stringify(next)).catch(() => {});
+  }, [session?.user, savePreference]);
+
+  const startSession = useCallback((draft: { name?: string; referenceDevice?: string; notes?: string }) => {
+    const now = new Date();
+    const created: PracticeSession = {
+      id: newSessionId(),
+      name: draft.name?.trim() || defaultSessionName(now),
+      startedAt: now.toISOString(),
+      endedAt: null,
+      ...(draft.referenceDevice?.trim() ? { referenceDevice: draft.referenceDevice.trim() } : {}),
+      ...(draft.notes?.trim() ? { notes: draft.notes.trim() } : {}),
+    };
+    // One open session at a time: close the previous one where it stands.
+    const closed = sessionsRef.current.map((item) => (item.endedAt ? item : { ...item, endedAt: created.startedAt }));
+    storeSessions([created, ...closed], created);
+    return created;
+  }, [storeSessions]);
+
+  const endSession = useCallback(() => {
+    const active = activeSessionRef.current;
+    if (!active) return;
+    const endedAt = new Date().toISOString();
+    storeSessions(sessionsRef.current.map((item) => (item.id === active.id ? { ...item, endedAt } : item)), null);
+  }, [storeSessions]);
+
+  const resumeSession = useCallback((sessionId: string) => {
+    const target = sessionsRef.current.find((item) => item.id === sessionId);
+    if (!target) return;
+    const now = new Date().toISOString();
+    const reopened = { ...target, endedAt: null };
+    storeSessions(sessionsRef.current.map((item) => (item.id === sessionId ? reopened : item.endedAt ? item : { ...item, endedAt: now })), reopened);
+  }, [storeSessions]);
+
+  const updateSession = useCallback((updated: PracticeSession) => {
+    const next = sessionsRef.current.map((item) => (item.id === updated.id ? updated : item));
+    const active = activeSessionRef.current?.id === updated.id ? updated : activeSessionRef.current;
+    storeSessions(next, active);
+  }, [storeSessions]);
+
+  const deleteSession = useCallback((sessionId: string) => {
+    storeSessions(sessionsRef.current.filter((item) => item.id !== sessionId),
+      activeSessionRef.current?.id === sessionId ? null : activeSessionRef.current);
+    const orphaned = shotsRef.current.filter((shot) => shot.sessionId === sessionId);
+    if (!orphaned.length) return;
+    const nextShots = shotsRef.current.map((shot) => (shot.sessionId === sessionId ? { ...shot, sessionId: undefined } : shot));
+    shotsRef.current = nextShots;
+    setShots(nextShots);
+    setActiveShot((current) => (current?.sessionId === sessionId ? { ...current, sessionId: undefined } : current));
+    setLiveShot((current) => (current?.sessionId === sessionId ? { ...current, sessionId: undefined } : current));
+    if (!isDemo) void syncShots(nextShots.filter((shot) => orphaned.some((item) => item.id === shot.id))).catch(() => {});
+  }, [isDemo, storeSessions, syncShots]);
+
+  // Sessions on the account are merged with this device's; a session that is open
+  // here stays the active one.
+  useEffect(() => {
+    if (!session?.user) return;
+    let cancelled = false;
+    void restorePreferences().then((preferences) => {
+      if (cancelled) return;
+      const cloud = parseSessions(preferences[SESSIONS_PREFERENCE]);
+      const local = sessionsRef.current;
+      const merged = [...cloud.filter((item) => !local.some((existing) => existing.id === item.id)), ...local];
+      if (merged.length !== local.length || cloud.length !== merged.length) storeSessions(merged, activeSessionRef.current);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [session?.user, restorePreferences, storeSessions]);
 
   const retryShotImage = useCallback(async (shot: Shot) => {
     if (!session?.user) throw new Error('Sign in to upload shot images.');
@@ -655,15 +790,23 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
     mounted.current = true;
     const currentClient = client.current;
     void (async () => {
-      const [savedDeviceId, savedDemo, savedClub, savedBagClubs, savedBagClubId] = await Promise.all([
+      const [savedDeviceId, savedDemo, savedClub, savedBagClubs, savedBagClubId, savedSessions, savedActiveSession] = await Promise.all([
         AsyncStorage.getItem(DEVICE_ID_KEY),
         AsyncStorage.getItem(DEMO_KEY),
         AsyncStorage.getItem(CLUB_KEY),
         AsyncStorage.getItem(BAG_CLUBS_KEY),
         AsyncStorage.getItem(SELECTED_BAG_CLUB_KEY),
+        AsyncStorage.getItem(SESSIONS_KEY),
+        AsyncStorage.getItem(ACTIVE_SESSION_KEY),
       ]);
       if (!mounted.current) return;
       if (savedDeviceId) setDeviceId(savedDeviceId);
+      const restoredSessions = parseSessions(savedSessions);
+      sessionsRef.current = restoredSessions;
+      setSessions(restoredSessions);
+      const restoredActive = restoredSessions.find((item) => item.id === savedActiveSession && !item.endedAt) ?? null;
+      activeSessionRef.current = restoredActive;
+      setActiveSession(restoredActive);
       const restoredBag = parseBagClubs(savedBagClubs);
       bagClubsRef.current = restoredBag;
       setBagClubs(restoredBag);
@@ -871,6 +1014,20 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
     }
   }, [isDemo]);
 
+  const setLightMode = useCallback(async (mode: LightMode) => {
+    setError(null);
+    if (isDemo) throw new Error('Connect to LM1 to change the light.');
+    try {
+      const nextStatus = await client.current.setLightMode(mode);
+      setStatus(nextStatus);
+      setState(nextStatus.state);
+      return nextStatus;
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not change the light.');
+      throw caught;
+    }
+  }, [isDemo]);
+
   const autoCalibrateExposure = useCallback(async () => {
     setError(null);
     if (isDemo) throw new Error('Connect to LM1 to set the exposure automatically.');
@@ -1053,6 +1210,7 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
       trigger,
       setExposure,
       setGain,
+      setLightMode,
       autoCalibrateExposure,
       exposureCalibration,
       clearExposureCalibration,
@@ -1073,6 +1231,15 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
       saveRecoveredPutt,
       retryShotImage,
       setShotExcluded,
+      sessions,
+      activeSession,
+      startSession,
+      endSession,
+      resumeSession,
+      updateSession,
+      deleteSession,
+      setShotSession,
+      setShotReference,
       frameUploadProgress,
       startShotFrameUpload,
       getWifiStatus,
@@ -1116,6 +1283,7 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
       trigger,
       setExposure,
       setGain,
+      setLightMode,
       autoCalibrateExposure,
       exposureCalibration,
       clearExposureCalibration,
@@ -1136,6 +1304,15 @@ export function LaunchMonitorProvider({ children }: PropsWithChildren) {
       saveRecoveredPutt,
       retryShotImage,
       setShotExcluded,
+      sessions,
+      activeSession,
+      startSession,
+      endSession,
+      resumeSession,
+      updateSession,
+      deleteSession,
+      setShotSession,
+      setShotReference,
       frameUploadProgress,
       startShotFrameUpload,
       getWifiStatus,

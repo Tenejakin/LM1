@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from rig_pose import ground_mode, level_rig_pose, load_rig, rig_summary
 from apriltag_calibration import calibration_version, capture_latest_apriltag_calibration, clear_apriltag_calibration, load_apriltag_calibration
 from camera_source import (
     camera_diagnostics,
@@ -25,9 +26,17 @@ from camera_source import (
     exposure_configuration,
     gain_configuration,
     set_camera_gain,
+    active_light,
+    light_mode,
     set_camera_exposure,
+    blur_safe_exposure_us,
+    set_exposure_cap_hint,
+    set_light_mode,
+    set_strobe_mode,
+    strobe_mode_enabled,
     uses_csi,
 )
+from light_controller import get_light_controller, preset_for_club, strobe_pattern, indicator_state
 from ball_detector import (
     DEFAULT_BALL_ROI,
     DEFAULT_ROLLING_CAPTURE_PATH,
@@ -56,8 +65,8 @@ from wifi_manager import (
 )
 
 
-SERVICE_VERSION = "0.53.0"
-PROTOCOL_VERSION = "2.36.0"
+SERVICE_VERSION = "0.62.0"
+PROTOCOL_VERSION = "2.40.0"
 MAX_HISTORY = 10
 MAX_COMMAND_BYTES = 4096
 BLE_CHUNK_BYTES = 20
@@ -304,6 +313,10 @@ class PinpointProtocol:
             raise ValueError("PINPOINT_CAPTURE_BACKEND must be 'simulator' or 'camera'")
         self.state = "ready"
         self.club_id = "driver"
+        self.light = get_light_controller()
+        if self.light:
+            self.light.set_status_provider(lambda: indicator_state(self.state, getattr(self, "ball_present", False)))
+        self._sync_ring()
         # A named club from the player's bag: {"id", "name"} plus optional face size.
         # club_id stays the club type the flight and spin models use.
         self.bag_club: dict[str, Any] | None = None
@@ -369,6 +382,14 @@ class PinpointProtocol:
         if verdict is not None:
             await self.send_message({"type": "readiness", "data": verdict})
 
+    @staticmethod
+    def _rig_status() -> dict[str, Any]:
+        """Which ground reference is in use and, for the level rig, its constants."""
+        try:
+            return rig_summary(load_rig())
+        except ValueError as error:
+            return {"mode": ground_mode(), "error": str(error)}
+
     def status(self) -> dict[str, Any]:
         camera_connected = camera_is_available(self.capture_backend)
         saved_ground = load_apriltag_calibration()
@@ -405,6 +426,7 @@ class PinpointProtocol:
             "calibrationCapture": calibration_capture_status(),
             "lensCalibration": lens_calibration_status(),
             "targetLine": load_target_line(),
+            "rig": self._rig_status(),
             "groundCalibration": saved_ground if saved_ground and saved_ground.get("groundPose") else None,
             "secondaryGroundCalibration": saved_secondary_ground if saved_secondary_ground and saved_secondary_ground.get("groundPose") else None,
             "readiness": self.readiness_status(),
@@ -413,6 +435,7 @@ class PinpointProtocol:
         if uses_csi():
             diagnostics = camera_diagnostics()
             status["exposureControl"] = exposure_configuration()
+            status["light"] = self.light_status()
             status["gainControl"] = gain_configuration()
             status["camera"] = diagnostics
             status["fps"] = diagnostics.get("fps", 0)
@@ -489,6 +512,12 @@ class PinpointProtocol:
             return
         if command_type == "setGain":
             await self._set_gain(request_id, command)
+            return
+        if command_type == "setStrobeMode":
+            await self._set_strobe_mode(request_id, command)
+            return
+        if command_type == "setLightMode":
+            await self._set_light_mode(request_id, command)
             return
         if command_type == "autoCalibrateExposure":
             await self._auto_calibrate_exposure(request_id)
@@ -587,12 +616,85 @@ class PinpointProtocol:
         await self._respond(request_id, status)
         await self.send_message({"type": "status", "data": status})
 
+    def _ring_state(self) -> tuple[str, str | None, dict[str, Any] | None]:
+        """What the ring should do for the light mode in use: mode, club group, flash pattern."""
+        active = active_light()
+        if active == "daylight":
+            return "off", None, None
+        if active == "strobe":
+            club_speed, smash, _ = CLUB_PROFILES.get(self.club_id, (28.0, 1.30, 20.0))
+            period_us = int(1e6 / float(os.getenv("PINPOINT_CAMERA_FPS", "242")))
+            return "strobe", preset_for_club(self.club_id), strobe_pattern(club_speed * smash, period_us)
+        return "flat", None, None
+
+    def _sync_ring(self) -> None:
+        if self.light is None:
+            return
+        try:
+            self.light.set_mode(*self._ring_state())
+        except ValueError as error:
+            LOGGER.warning("Could not set the ring: %s", error)
+
+    def light_status(self) -> dict[str, Any]:
+        ring = self.light.status() if self.light is not None else {}
+        return {
+            "available": self.light is not None,
+            "connected": bool(ring.get("connected")),
+            "mode": light_mode(),
+            "active": active_light(),
+            "ring": ring.get("mode"),
+            "preset": ring.get("preset"),
+            "pattern": ring.get("pattern"),
+            "error": ring.get("error"),
+        }
+
+    async def _set_light_mode(self, request_id: str, command: dict[str, Any]) -> None:
+        mode = command.get("mode")
+        if mode not in ("auto", "daylight", "flat", "strobe"):
+            raise CommandError("Light mode must be auto, daylight, flat or strobe.")
+        if self.state != "ready":
+            raise CommandError("Disarm LM1 and wait for processing to finish before changing the light.")
+        if not uses_csi():
+            raise CommandError("Light modes require the CSI camera.")
+        try:
+            await asyncio.to_thread(set_light_mode, mode)
+        except (OSError, RuntimeError, ValueError) as error:
+            raise CommandError(str(error)) from error
+        self._sync_ring()
+        status = self.status()
+        await self._respond(request_id, status)
+        await self.send_message({"type": "status", "data": status})
+
+    async def _set_strobe_mode(self, request_id: str, command: dict[str, Any]) -> None:
+        enabled = command.get("enabled")
+        if not isinstance(enabled, bool):
+            raise CommandError("Strobe mode must be on or off.")
+        if self.state != "ready":
+            raise CommandError("Disarm LM1 and wait for processing to finish before changing strobe mode.")
+        if not uses_csi():
+            raise CommandError("Strobe mode requires the CSI camera.")
+        try:
+            await asyncio.to_thread(set_strobe_mode, enabled)
+        except (OSError, RuntimeError, ValueError) as error:
+            raise CommandError(str(error)) from error
+        self._sync_ring()
+        status = self.status()
+        await self._respond(request_id, status)
+        await self.send_message({"type": "status", "data": status})
+
     async def _auto_calibrate_exposure(self, request_id: str) -> None:
         if self.state != "ready":
             raise CommandError("Stop tracking and wait for the current shot to finish first.")
         if not uses_csi():
             raise CommandError("Automatic exposure needs the CSI camera.")
+        if strobe_mode_enabled():
+            raise CommandError("Automatic exposure is for normal shooting. Turn strobe mode off first.")
+        # The club sets how fast the ball is, hence the longest shutter the measurement will accept.
+        # (Putting is slow, so it keeps the full range.)
+        club_speed, smash, _ = CLUB_PROFILES.get(self.club_id, (28.0, 1.30, 20.0))
+        set_exposure_cap_hint(None if self.capture_mode == "putting" else blur_safe_exposure_us(club_speed * smash))
         if self.request_exposure_calibration is None or not self.request_exposure_calibration():
+            set_exposure_cap_hint(None)
             raise CommandError("Automatic exposure is unavailable. Connect a camera-enabled LM1 first.")
         # The sweep runs in the detection loop and reports back over the
         # exposureCalibration event, so only the hand-off is acknowledged here.
@@ -728,11 +830,22 @@ class PinpointProtocol:
         await self.send_message({"type": "status", "data": self.status()})
 
     async def _shot_coverage(self, request_id: str) -> None:
-        saved = load_apriltag_calibration()
-        pose = saved.get("groundPose") if saved else None
-        if not pose:
-            raise CommandError("Save the lens calibration and the AprilTag ground calibration first.")
         diagnostics = camera_diagnostics()
+        if ground_mode() == "rig":
+            try:
+                from launch_measurements import load_setup
+                size = [int(diagnostics["width"]), int(diagnostics["height"])]
+                matrix, distortion = load_setup(size)
+                level = level_rig_pose()
+            except (KeyError, TypeError, ValueError, OSError) as error:
+                raise CommandError(f"Shot coverage needs the lens calibration and the rig constants: {error}") from error
+            pose = {"imageSize": size, "cameraMatrix": matrix.tolist(), "distCoeffs": distortion.tolist(),
+                    "rotation": level["rotation"].tolist(), "translationM": level["translation"].tolist()}
+        else:
+            saved = load_apriltag_calibration()
+            pose = saved.get("groundPose") if saved else None
+            if not pose:
+                raise CommandError("Save the lens calibration and the AprilTag ground calibration first.")
         fps = diagnostics.get("pairedFps") or diagnostics.get("fps") or float(os.getenv("PINPOINT_CAMERA_FPS", "0"))
         detection = diagnostics.get("ballDetection") or {}
         bounds = detection.get("bounds")
@@ -938,6 +1051,8 @@ class PinpointProtocol:
         self.club_id = club_id
         self._apply_bag_club(bag_club)
         self.capture_mode = "full-shot"
+        if active_light() == "strobe":
+            self._sync_ring()  # a different club needs a different flash pattern
         status = self.status()
         await self._respond(request_id, status)
         await self.send_message({"type": "status", "data": status})

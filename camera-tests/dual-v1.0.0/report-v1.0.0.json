@@ -1,0 +1,78 @@
+{
+  "version": "1.0.0",
+  "pairedFrames": 4832,
+  "observedFps": 241.56119636145135,
+  "maxOffsetUs": 54.0,
+  "maxGapMs": 4.189,
+  "pairedPreviews": [
+    [
+      569,
+      688
+    ],
+    [
+      571,
+      698
+    ],
+    [
+      569,
+      689
+    ],
+    [
+      554,
+      673
+    ],
+    [
+      533,
+      637
+    ],
+    [
+      537,
+      641
+    ],
+    [
+      544,
+      652
+    ],
+    [
+      552,
+      665
+    ],
+    [
+      556,
+      674
+    ]
+  ],
+  "events": [],
+  "lastDiagnostics": {
+    "cameraCount": 2,
+    "syncReady": true,
+    "syncOffsetUs": -43.0,
+    "model": "ov9281",
+    "width": 640,
+    "height": 400,
+    "fps": 242.1,
+    "exposureUs": 66,
+    "gain": 4.0,
+    "autoExposure": false,
+    "autofocus": false,
+    "primaryCameraIndex": 0,
+    "pairedFps": 241.6,
+    "secondaryCameraIndex": 1,
+    "syncMode": "software",
+    "syncToleranceUs": 250.0,
+    "secondaryFps": 242.1,
+    "secondaryExposureUs": 66,
+    "secondaryGain": 4.0,
+    "ballDetection": {
+      "state": "waiting",
+      "bounds": null
+    },
+    "aprilTag": {
+      "detected": false,
+      "available": true,
+      "family": "tag36h11",
+      "tagId": 0
+    },
+    "focusScore": 10.3
+  }
+}

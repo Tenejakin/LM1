@@ -8,6 +8,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from exposure_calibration import (
     MAX_CLIPPED_FRACTION,
+    MAX_ACCEPTABLE_MEAN,
+    MIN_ACCEPTABLE_MEAN,
     TARGET_MEAN,
     FrameStats,
     Sample,
@@ -186,6 +188,7 @@ class CalibrateExposureTests(unittest.TestCase):
                 "exposureUs",
                 "gain",
                 "meanBrightness",
+                "ballLevel",
                 "clippedFraction",
                 "usable",
                 "samplesTaken",
@@ -193,6 +196,133 @@ class CalibrateExposureTests(unittest.TestCase):
             },
         )
         self.assertGreater(payload["samplesTaken"], 1)
+
+
+def ball_on_dark_mat(level: float, shape=(400, 640), diameter=50) -> np.ndarray:
+    """A black frame with one ball-sized disc: the mean is tiny, the ball is the only bright thing."""
+    frame = np.zeros(shape, dtype=np.uint8)
+    import cv2
+    cv2.circle(frame, (shape[1] // 2, shape[0] // 2), diameter // 2, int(level), -1)
+    return frame
+
+
+class BrightestRegionTests(unittest.TestCase):
+    """The ball is under 1 % of the pixels, so the frame average says almost nothing about it."""
+
+    def test_the_level_follows_the_ball_not_the_average(self):
+        stats = measure_frame(ball_on_dark_mat(120))
+        self.assertLess(stats.mean, 3.0)
+        self.assertGreater(stats.level, 110.0)
+        self.assertEqual(stats.bright, stats.level)
+
+    def test_a_dark_mat_with_a_well_exposed_ball_is_usable_although_the_mean_is_tiny(self):
+        self.assertTrue(measure_frame(ball_on_dark_mat(120)).usable)
+        self.assertFalse(measure_frame(ball_on_dark_mat(30)).usable)    # a dim ball is still too dark
+        self.assertFalse(measure_frame(ball_on_dark_mat(250)).usable)   # a blown-out one is too bright
+
+    def test_without_a_level_the_mean_is_used_as_before(self):
+        self.assertEqual(FrameStats(mean=100, clipped_fraction=0.0).bright, 100)
+        self.assertTrue(FrameStats(mean=100, clipped_fraction=0.0).usable)
+        self.assertFalse(FrameStats(mean=30, clipped_fraction=0.0).usable)
+
+    def test_an_evenly_lit_frame_gives_the_same_answer_by_level_or_mean(self):
+        stats = measure_frame(frame_of(100))
+        self.assertAlmostEqual(stats.level, stats.mean, delta=1.0)
+
+
+class CurvedSensorTests(unittest.TestCase):
+    """A real sensor's brightness grows more slowly than gain (the processor's curve) and the ball is a small bright disc."""
+
+    def _camera(self, k, *, power=0.5):
+        state = {"exposure_us": 0, "gain": 1.0}
+        applied = []
+
+        def apply_settings(exposure_us, gain):
+            state["exposure_us"], state["gain"] = exposure_us, gain
+            applied.append((exposure_us, gain))
+
+        def grab_frame():
+            signal = state["exposure_us"] * state["gain"]
+            level = min(255.0, 255.0 * (signal / k) ** power)
+            return ball_on_dark_mat(level)
+
+        return apply_settings, grab_frame, applied
+
+    def test_a_driver_shutter_in_a_dim_room_settles_on_a_moderate_gain_not_the_maximum(self):
+        # k chosen so a 58 us shutter needs about gain 4 for a ball level of ~105 (as measured: ball 97 at 58 us x4)
+        apply_settings, grab_frame, applied = self._camera(k=58 * 4 / (105 / 255) ** 2)
+        limits = {**LIMITS, "max_us": 58}
+        result = calibrate_exposure(apply_settings, grab_frame, **limits)
+        self.assertTrue(result.usable)
+        self.assertEqual(result.exposure_us, 58)
+        self.assertLessEqual(result.gain, 6.0)
+        self.assertGreaterEqual(result.gain, 3.0)
+        self.assertGreater(result.level, MIN_ACCEPTABLE_MEAN)
+        self.assertLess(result.level, MAX_ACCEPTABLE_MEAN)
+
+    def test_later_gain_steps_make_up_for_a_curve_that_a_straight_line_underestimates(self):
+        # Needs gain ~12; one straight-line step from a very dark first frame would fall short.
+        apply_settings, grab_frame, applied = self._camera(k=58 * 12 / (105 / 255) ** 2)
+        result = calibrate_exposure(apply_settings, grab_frame, **{**LIMITS, "max_us": 58})
+        self.assertTrue(result.usable)
+        self.assertAlmostEqual(result.gain, 12.0, delta=3.0)
+        self.assertGreater(len([a for a in applied if a[1] > 1.0]), 1)     # more than one gain step was needed
+
+    def test_when_gain_is_needed_the_longest_allowed_shutter_is_used_not_an_arbitrary_one(self):
+        # The real sensor: at gain 1 every frame under ~230 units of shutter x gain is black (the processor's crush),
+        # so all the sweep's samples tie at level 0 and "the best one" would be the first, the 20 us frame.
+        state = {"exposure_us": 0, "gain": 1.0}
+        applied = []
+
+        def apply_settings(exposure_us, gain):
+            state["exposure_us"], state["gain"] = exposure_us, gain
+            applied.append((exposure_us, gain))
+
+        def grab_frame():
+            signal = state["exposure_us"] * state["gain"]
+            level = 0.0 if signal < 150 else min(255.0, 255.0 * ((signal - 150) / 900.0) ** 0.5)
+            return ball_on_dark_mat(level)
+
+        result = calibrate_exposure(apply_settings, grab_frame, **{**LIMITS, "max_us": 58})
+        self.assertEqual(result.exposure_us, 58)
+        self.assertEqual(applied[-1][0], 58)
+        self.assertLess(result.gain, 8.0)
+        self.assertTrue(result.usable)
+
+    def test_a_stale_black_frame_after_raising_the_gain_is_measured_again(self):
+        state = {"exposure_us": 0, "gain": 1.0, "grabs_since_change": 99}
+        applied = []
+
+        def apply_settings(exposure_us, gain):
+            state["exposure_us"], state["gain"], state["grabs_since_change"] = exposure_us, gain, 0
+            applied.append((exposure_us, gain))
+
+        def grab_frame():
+            state["grabs_since_change"] += 1
+            signal = state["exposure_us"] * state["gain"]
+            level = 0.0 if signal < 150 else min(255.0, 255.0 * ((signal - 150) / 900.0) ** 0.5)
+            # The first gain change is slow to take effect: its frames stay black for a few reads.
+            if state["gain"] > 1.0 and len([a for a in applied if a[1] > 1.0]) == 1 and state["grabs_since_change"] <= 3:
+                level = 0.0
+            return ball_on_dark_mat(level)
+
+        result = calibrate_exposure(apply_settings, grab_frame, **{**LIMITS, "max_us": 58}, settle_frames=1)
+        self.assertTrue(result.usable)
+        self.assertLess(result.gain, 16.0)
+
+    def test_it_says_so_when_even_the_maximum_gain_is_not_enough(self):
+        apply_settings, grab_frame, _ = self._camera(k=58 * 200 / (105 / 255) ** 2)
+        result = calibrate_exposure(apply_settings, grab_frame, **{**LIMITS, "max_us": 58})
+        self.assertFalse(result.usable)
+        self.assertEqual(result.gain, 16.0)
+        self.assertIn("Still dark", result.note)
+
+    def test_an_overshoot_is_brought_back_down(self):
+        # An extremely steep sensor: the first straight-line step lands far too bright.
+        apply_settings, grab_frame, applied = self._camera(k=58 * 3 / (105 / 255) ** 4, power=0.25)
+        result = calibrate_exposure(apply_settings, grab_frame, **{**LIMITS, "max_us": 58})
+        self.assertLessEqual(result.level, MAX_ACCEPTABLE_MEAN + 40)
+        self.assertLess(result.gain, 16.0)
 
 
 if __name__ == "__main__":

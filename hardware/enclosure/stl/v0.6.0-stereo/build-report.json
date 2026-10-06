@@ -1,0 +1,55 @@
+{
+  "version": "0.6.0",
+  "units": "mm",
+  "camera_count": 2,
+  "camera_pitch_deg": 20.0,
+  "camera_baseline_mm": 120.0,
+  "camera_centres_x_mm": [
+    -60.0,
+    60.0
+  ],
+  "parts": [
+    {
+      "file": "lm1_test_pi_tray_v0.6.0.stl",
+      "watertight": true,
+      "positive_volume": true,
+      "connected_solids": 1,
+      "size_mm": [
+        220.0,
+        150.0,
+        13.0
+      ]
+    },
+    {
+      "file": "lm1_test_camera_mast_v0.6.0.stl",
+      "watertight": true,
+      "positive_volume": true,
+      "connected_solids": 1,
+      "size_mm": [
+        210.0,
+        230.0,
+        36.0
+      ]
+    },
+    {
+      "file": "lm1_test_dual_camera_bracket_20deg_v0.6.0.stl",
+      "watertight": true,
+      "positive_volume": true,
+      "connected_solids": 1,
+      "size_mm": [
+        200.0,
+        58.0,
+        24.54
+      ]
+    }
+  ],
+  "design": "performance_stereo",
+  "camera_height_mm": 200.0,
+  "nominal_ground_intersection_mm": 549.5,
+  "tray_footprint_mm": [
+    220.0,
+    150.0
+  ],
+  "requires_new_mast_and_tray": true,
+  "camera_requirement": "matched externally synchronized global-shutter pair"
+}

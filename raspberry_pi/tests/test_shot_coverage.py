@@ -11,6 +11,7 @@ from unittest.mock import patch
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+os.environ.setdefault("PINPOINT_GROUND_MODE", "tag")  # the coverage command reads a saved tag pose here
 
 import shot_coverage  # noqa: E402
 from pinpoint_protocol import PinpointProtocol  # noqa: E402

@@ -22,6 +22,13 @@ try:  # pragma: no cover - numpy is present on the Pi and in CI
 except ImportError:  # pragma: no cover - keeps the module importable for tests
     np = None  # type: ignore[assignment]
 
+# What is judged is the brightest compact region of the frame (its 99.5th percentile), not the average: the ball is
+# under 1 % of the pixels, so on a dark mat the frame mean is tiny (0.7 to 39 at the shutters a driver needs) even when
+# the ball is bright, and a mean-based search drove the gain to 16, where the background noise is 32 grey levels and a
+# ball at 100 us is 66 % saturated. Measured on the Pi at 58 us: gain 4 already gives ball 97 on a noise-free black
+# background; gain 16 gives 211 on a background at 26 with noise 32. For a plain, evenly lit frame the level and the mean
+# agree, so nothing changes there. (The names below keep "mean" for compatibility; read them as "level".)
+BRIGHT_PERCENTILE = 99.5
 # Mid-grey on an 8-bit sensor. Bright enough for a white ball to separate from a
 # mat, dark enough that highlights keep their shape.
 TARGET_MEAN = 105.0
@@ -32,6 +39,9 @@ MAX_ACCEPTABLE_MEAN = 165.0
 # A few specular highlights are fine; a blown-out frame is not.
 MAX_CLIPPED_FRACTION = 0.02
 CLIPPING_LEVEL = 250
+MAX_GAIN_STEPS = 5         # step the gain at most this many times, re-measuring after each
+GAIN_OVERCORRECTION = 1.8  # later steps over-correct: brightness grows more slowly than gain
+TARGET_TOLERANCE = 25.0    # stop raising gain once the level is this close to the target
 
 
 @dataclass(frozen=True)
@@ -40,11 +50,16 @@ class FrameStats:
 
     mean: float
     clipped_fraction: float
+    level: float | None = None   # the brightest compact region; absent means judge by the mean
+
+    @property
+    def bright(self) -> float:
+        return self.mean if self.level is None else self.level
 
     @property
     def usable(self) -> bool:
         return (
-            MIN_ACCEPTABLE_MEAN <= self.mean <= MAX_ACCEPTABLE_MEAN
+            MIN_ACCEPTABLE_MEAN <= self.bright <= MAX_ACCEPTABLE_MEAN
             and self.clipped_fraction <= MAX_CLIPPED_FRACTION
         )
 
@@ -72,6 +87,7 @@ def measure_frame(frame: Any) -> FrameStats:
     return FrameStats(
         mean=float(pixels.mean()),
         clipped_fraction=float((pixels >= CLIPPING_LEVEL).mean()),
+        level=float(np.percentile(pixels[::2, ::2], BRIGHT_PERCENTILE)),
     )
 
 
@@ -94,7 +110,7 @@ def plan_exposures(min_us: int, max_us: int, step_us: int, steps: int = 7) -> li
 
 def _score(stats: FrameStats) -> float:
     """Lower is better: distance from the target, with clipping punished hard."""
-    return abs(stats.mean - TARGET_MEAN) + stats.clipped_fraction * 1000.0
+    return abs(stats.bright - TARGET_MEAN) + stats.clipped_fraction * 1000.0
 
 
 def choose_sample(samples: Sequence[Sample]) -> Sample:
@@ -109,11 +125,14 @@ def choose_sample(samples: Sequence[Sample]) -> Sample:
 
 
 def suggest_gain(stats: FrameStats, current_gain: float, min_gain: float, max_gain: float,
-                 step: float) -> float:
-    """Scale gain so a too-dark frame reaches the target, without inventing light."""
-    if stats.mean <= 0:
+                 step: float, exponent: float = 1.0) -> float:
+    """Scale gain so a too-dark frame reaches the target, without inventing light.
+
+    `exponent` above 1 over-corrects a straight-line guess: the picture's brightness grows more slowly than the gain
+    (the image processor's curve), so one linear step on a real sensor falls short."""
+    if stats.bright <= 0:
         return max_gain
-    wanted = current_gain * (TARGET_MEAN / stats.mean)
+    wanted = current_gain * (TARGET_MEAN / stats.bright) ** exponent
     if step > 0:
         wanted = round(wanted / step) * step
     return round(min(max_gain, max(min_gain, wanted)), 2)
@@ -128,12 +147,14 @@ class CalibrationResult:
     usable: bool
     samples: int
     note: str
+    level: float | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "exposureUs": self.exposure_us,
             "gain": self.gain,
             "meanBrightness": round(self.mean, 1),
+            "ballLevel": round(self.mean if self.level is None else self.level, 1),
             "clippedFraction": round(self.clipped_fraction, 4),
             "usable": self.usable,
             "samplesTaken": self.samples,
@@ -172,18 +193,41 @@ def calibrate_exposure(
     exposure_us, gain, stats = best.exposure_us, best.gain, best.stats
     note = "Matched the light in the room."
 
-    if not stats.usable and stats.mean < MIN_ACCEPTABLE_MEAN:
-        # Still dark at every exposure we are allowed to use: buy the rest with gain.
-        gain = suggest_gain(stats, base_gain, min_gain, max_gain, gain_step)
-        if gain > base_gain:
+    if not stats.usable and stats.bright < MIN_ACCEPTABLE_MEAN:
+        # Still dark at every exposure we are allowed to use: buy the rest with gain. The first step assumes brightness
+        # follows gain in a straight line; a real sensor's curve makes that fall short, so later steps over-correct.
+        # Use the longest shutter we are allowed: every unlit frame reads about the same at gain 1, so "the best sample" is
+        # arbitrary, and a shorter shutter would only need more gain, which is where the noise comes from.
+        longest = max(samples, key=lambda sample: sample.exposure_us)
+        exposure_us, gain, stats = longest.exposure_us, longest.gain, longest.stats
+        # Step the gain towards the target level. The first step assumes brightness follows gain in a straight line; a
+        # real sensor's curve makes that fall short (or, from a black frame, overshoot), so later steps over-correct and
+        # can come back down. "Usable" is not enough: a ball just over the minimum is fragile.
+        exponent = 1.0
+        raised = False
+        for _ in range(MAX_GAIN_STEPS):
+            if stats.usable and abs(stats.bright - TARGET_MEAN) <= TARGET_TOLERANCE:
+                break
+            stepped = suggest_gain(stats, gain, min_gain, max_gain, gain_step, exponent)
+            if stepped == gain:
+                break
+            raised = raised or stepped > gain
+            gain = stepped
             apply_settings(exposure_us, gain)
             frame = _settled_frame(grab_frame, settle_frames)
             stats = measure_frame(frame)
+            if stats.bright <= 0 and gain > base_gain:
+                # A black frame right after raising the gain is a stale frame, not a measurement (seen once on the Pi,
+                # where it was taken as final and left the gain at the maximum): look once more.
+                frame = _settled_frame(grab_frame, settle_frames)
+                stats = measure_frame(frame)
             samples.append(Sample(exposure_us, gain, stats))
+            exponent = GAIN_OVERCORRECTION
+        if raised:
             note = "The room is dim, so brightness boost was raised as well."
         if not stats.usable:
             note = "Still dark at the brightest safe setting - add light to the hitting area."
-    elif not stats.usable and stats.mean > MAX_ACCEPTABLE_MEAN:
+    elif not stats.usable and stats.bright > MAX_ACCEPTABLE_MEAN:
         note = "Very bright light - the shortest shutter still over-exposes the frame."
     else:
         apply_settings(exposure_us, gain)
@@ -196,6 +240,7 @@ def calibrate_exposure(
         usable=stats.usable,
         samples=len(samples),
         note=note,
+        level=stats.level,
     )
 
 

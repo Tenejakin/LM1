@@ -56,6 +56,22 @@ movement that cannot be a strike (ball speed under 2 m/s, direction more than 60
 off the target line, or a ground roll with no club seen); consumers must not
 promote or send it. Putting captures are never classified this way.
 
+Protocol 2.38.0 adds staggered capture diagnostics to `status.camera`: `syncMode` may be `"stagger"`,
+with `staggerState` (`locking`, `locked`, `drift-soon`, `drifted`, `resyncing`, `failed`), `staggerPhase`
+(the upper camera's offset behind the lower one as a fraction of a frame, 0.5 ideal) and `staggerRelocks`.
+While the state is `drifted`, `resyncing` or `failed` the Pi does not arm on a ball. Saved bursts carry
+`dualCamera.mode: "stagger"` and `dualCamera.staggerOffsetUs`; `pairOffsetsUs` is then about half a frame,
+not zero, and `stereo.staggered` and `stereo.instants` appear in the analysis diagnostics.
+
+Protocol 2.37.0 adds `status.rig`: `{mode: "rig"|"tag", pitchDeg, rollDeg, heightMm, source: "default"|"tag-derived"|"measured", createdAt, error?}`.
+In `rig` mode (the default, `PINPOINT_GROUND_MODE=tag` restores the old behaviour) the Pi takes its ground
+from the stand: gravity runs down the rig at the stored camera pitch, the target is to the right of the
+bottom camera, and the camera height is a stand constant corrected on every shot from the resting ball
+(up to 40 mm; `diagnostics.surface`). No AprilTag is looked for; `groundCalibration` may be null and the
+readiness `ground` item reports the rig constants. `diagnostics.groundPose.source` is `level-rig`,
+and `diagnostics.calibration.groundMode` records the mode used. Constants live in `rig.json`
+(`PINPOINT_RIG_PATH`); `python rig_pose.py --from-tags|--set PITCH HEIGHT|--show` manages them.
+
 Protocol 2.36.0 adds a `placement` readiness item (`status`, `detail` with the move to make,
 `clubFrames`, `ballFrames`, `ballDiameterPx`, `speedBasis`) and `diagnostics.surface` on each
 analysis (`source: resting-ball|calibration`, `offsetMm`, `rayGapMm`, `frameIndex`).
@@ -215,6 +231,8 @@ Supported commands:
 - `{"id":"16","type":"setExposure","exposureUs":180}` applies a live manual CSI exposure from 20–250 μs, persists it across restarts, returns updated status, and emits a status event. LM1 must be ready (not armed or processing).
 
 - `{"id":"17","type":"setGain","gain":2.5}` applies live OV9281 analogue gain from 1×–16×, persists it across restarts, returns updated status, and emits a status event. Manual exposure must be active and LM1 must be ready.
+- `{"id":"19","type":"setStrobeMode","enabled":true}` (service 0.56.0, protocol 2.39.0) switches the long-exposure strobe test mode on or off, persists it, returns updated status and emits a status event. Turning it on remembers the current normal exposure and sets 3900 μs; turning it off restores the remembered exposure. While on, `exposureControl.maxUs` is 4000 (normally 250) and `exposureControl.strobeMode` is `true`; `exposureControl.strobeMode` is absent on older services, so clients should hide the control then. `autoCalibrateExposure` is refused in strobe mode. Launch measurement still requires an exposure of 250 μs or less, so strobe-mode captures are saved for review but carry no measurements. Requires a CSI camera and a ready (not armed or processing) device.
+- `{"id":"20","type":"setLightMode","mode":"daylight"}` (service 0.57.0, protocol 2.40.0) chooses how the scene is lit: `auto`, `daylight` (ring off, sun as the light), `flat` (ring steady) or `strobe` (ring flashes, test mode). It moves the camera to that light's remembered exposure and gain (defaults: daylight 30 μs at 1×, strobe 3900 μs at 1×, flat the current normal setting), switches the ring through the ESP32 light controller when one is configured, persists the choice, returns updated status and emits a status event. Requires a CSI camera and a ready device. `setStrobeMode` remains as an alias for `strobe`/`flat`. `autoCalibrateExposure` with a connected light controller first measures with the ring off: a usable picture at 100 μs or less selects `daylight` (ring stays off), otherwise the ring goes steady and the sweep repeats (`flat`). Its result gains `light` (`daylight` or `flat`) and the choice is stored as `auto`. Status gains `light`: `available` (controller configured), `connected`, `mode` (chosen), `active` (in use), `ring` (`off`/`flat`/`strobe`) and `preset` (`driver`/`iron`/`chip`, picked from the selected club), and `exposureControl` gains `lightMode` and `activeLight`. The ESP32 returns the ring to steady light by itself if the service stops talking to it for 3 s while strobing.
 
 - `{"id":"18","type":"autoCalibrateExposure"}` (service 0.28.0) asks LM1 to measure the room and choose exposure and gain itself. It returns `{"accepted":true}` immediately; the sweep runs in the detection loop, which borrows its own frames rather than opening the camera twice. The chosen pair is applied and persisted exactly as `setExposure`/`setGain` would, and the outcome arrives as an `exposureCalibration` event followed by a `status` event. Requires a CSI camera and a ready (not armed or processing) device. Use a 30-second BLE timeout.
 

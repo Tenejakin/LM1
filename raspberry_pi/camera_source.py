@@ -3,17 +3,88 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
+import statistics
 import threading
 import time
 from collections import deque
 from pathlib import Path
 from typing import Any, Callable
 
+LOGGER = logging.getLogger("pinpoint.camera")
+
+# Staggered capture: the second sensor is held half a frame behind the first, so the pair samples two
+# instants and the cameras together see the ball at twice the frame rate. Both sensors run free (no
+# libcamera sync); their phase is stable to microseconds, so it is chosen once by restarting the second
+# camera until it lands near half a frame, then watched on every pair.
+STAGGER_TARGET = 0.5
+STAGGER_LOCK_TOLERANCE = 0.15   # accept a lock within 0.35 to 0.65 of a frame
+STAGGER_LOCKED = 0.20           # phase within 0.3 to 0.7: fully usable
+STAGGER_SOON = 0.30             # within 0.2 to 0.8: usable, re-lock at the next idle moment
+STAGGER_MAX_ATTEMPTS = 30
+STAGGER_MEASURE_SECONDS = 0.45
+
+
+def stagger_enabled() -> bool:
+    return os.getenv("PINPOINT_CAMERA_STAGGER", "false").strip().lower() in {"1", "true", "yes"}
+
+
+def stagger_distance(phase: float) -> float:
+    """How far a phase (fraction of a frame) is from the half-frame target, 0 to 0.5."""
+    return abs(((phase - STAGGER_TARGET + 0.5) % 1.0) - 0.5)
+
+
+def stagger_state(phases: "list[float] | tuple[float, ...]") -> str:
+    """'locked', 'drift-soon' or 'drifted' from the recent pair phases (median, so one late frame is ignored)."""
+    if not phases:
+        return "locking"
+    distance = stagger_distance(statistics.median(phases))
+    return "locked" if distance <= STAGGER_LOCKED else "drift-soon" if distance <= STAGGER_SOON else "drifted"
+
+
+def phase_of(a_stamps: "list[int]", b_stamp: int, period_ns: float) -> "float | None":
+    """Phase of one B frame after the latest A frame at or before it, as a fraction of a frame."""
+    import bisect
+    i = bisect.bisect_right(a_stamps, b_stamp) - 1
+    if i < 0 or period_ns <= 0:
+        return None
+    return ((b_stamp - a_stamps[i]) % period_ns) / period_ns
+
+
+# Raw 10-bit capture. The sensor reads 10 bits, but the image processor squeezes them to an 8-bit
+# picture with its own curve that turns the darkest ~3 % of the range (about 30 of 1023 levels) into
+# black, which is exactly where a faint flash lives. With PINPOINT_CAMERA_RAW=true each frame also
+# carries its raw data: linear, 10 bits stored left-aligned in a 16-bit word (value = 10-bit count x 64,
+# so words step by 64 and full scale is 65472). Measured on the Pi: the sensor has already removed its own
+# pedestal, so the data floor is only ~16 counts (word ~1024). libcamera reports SensorBlackLevels = 4096
+# (64 counts), but that is what the image processor subtracts: it throws away 64 counts of real signal
+# before its gamma curve, which is why faint flashes come out as exactly 0 in the 8-bit picture.
+RAW_SCALE = 64
+DEFAULT_RAW_BLACK_LEVEL = 1024  # the measured floor of the data, in raw words
+
 MIN_EXPOSURE_US = 20
 MAX_EXPOSURE_US = 250
+# A ball that moves further than this during one exposure is rejected by the measurement (launch_measurements
+# MAX_MOTION_BLUR_M), so the longest usable shutter is this distance divided by the ball's speed.
+BLUR_LIMIT_M = 0.004
+BLUR_SAFETY = 0.9
 EXPOSURE_STEP_US = 10
+# Strobe mode: a long exposure (just under one 242 fps frame) with the IR ring flashing
+# a burst inside it, so one frame holds several sharp copies of the ball. The normal
+# measurement limit above still applies whenever strobe mode is off.
+STROBE_MAX_EXPOSURE_US = 4000
+STROBE_DEFAULT_EXPOSURE_US = 3900
+DEFAULT_NORMAL_EXPOSURE_US = 100
+# Light modes: what the IR ring does and which exposure suits it. Each mode remembers
+# its own exposure and gain, so moving between a sunny garden and a dim room (or the
+# strobe) never costs you the settings you tuned for the other.
+LIGHT_MODES = ("auto", "daylight", "flat", "strobe")
+DAYLIGHT_DEFAULT = (30, 1.0)
+STROBE_DEFAULT = (STROBE_DEFAULT_EXPOSURE_US, 1.0)
+# Auto picks daylight only when the ring-off sweep is usable at or below this exposure.
+DAYLIGHT_MAX_EXPOSURE_US = 100
 MIN_CAMERA_GAIN = 1.0
 MAX_CAMERA_GAIN = 16.0
 CAMERA_GAIN_STEP = 0.25
@@ -23,6 +94,45 @@ _lock = threading.Lock()
 _live: dict[str, Any] = {}
 _updated = 0.0
 _active_capture: CsiCapture | DualCsiCapture | None = None
+
+
+def blur_safe_exposure_us(ball_speed_mps: float) -> int:
+    """Longest exposure that keeps a ball at this speed within the blur limit, inside the allowed range."""
+    if not ball_speed_mps or ball_speed_mps <= 0:
+        return MAX_EXPOSURE_US
+    return int(max(MIN_EXPOSURE_US, min(MAX_EXPOSURE_US, BLUR_SAFETY * BLUR_LIMIT_M / ball_speed_mps * 1e6)))
+
+
+# The club chosen in the app sets how fast the ball will be, hence how short the shutter must be. The protocol leaves
+# that limit here for the next automatic exposure sweep, which runs in the detection loop and takes it once.
+_exposure_cap_hint: int | None = None
+
+
+def set_exposure_cap_hint(exposure_us: int | None) -> None:
+    global _exposure_cap_hint
+    _exposure_cap_hint = exposure_us
+
+
+def take_exposure_cap_hint() -> int | None:
+    global _exposure_cap_hint
+    hint, _exposure_cap_hint = _exposure_cap_hint, None
+    return hint
+
+
+def raw_capture_enabled() -> bool:
+    """Raw frames are wanted and possible (10-bit sensor mode)."""
+    wanted = os.getenv("PINPOINT_CAMERA_RAW", "false").lower() in {"1", "true", "yes"}
+    return wanted and int(os.getenv("PINPOINT_CAMERA_BIT_DEPTH", "10")) == 10
+
+
+def raw_black_level(metadata: dict[str, Any] | None = None) -> int:
+    """Floor of the raw data in raw words (see RAW_SCALE). libcamera's SensorBlackLevels (4096) is what the image
+    processor subtracts, not where this data starts, so it is deliberately not used; PINPOINT_RAW_BLACK_LEVEL
+    overrides the measured default."""
+    try:
+        return max(0, int(os.getenv("PINPOINT_RAW_BLACK_LEVEL", DEFAULT_RAW_BLACK_LEVEL)))
+    except ValueError:
+        return DEFAULT_RAW_BLACK_LEVEL
 
 
 def uses_csi() -> bool:
@@ -77,12 +187,41 @@ def configured_camera_gain() -> float:
     return float(os.getenv("PINPOINT_CAMERA_GAIN", "1"))
 
 
+def strobe_mode_enabled() -> bool:
+    return _load_camera_settings().get("strobeMode") is True
+
+
+def max_exposure_us() -> int:
+    return STROBE_MAX_EXPOSURE_US if strobe_mode_enabled() else MAX_EXPOSURE_US
+
+
+def light_mode() -> str:
+    """The mode the player chose: auto, daylight, flat or strobe."""
+    settings = _load_camera_settings()
+    saved = settings.get("lightMode")
+    if saved in LIGHT_MODES:
+        return saved
+    return "strobe" if settings.get("strobeMode") is True else "flat"
+
+
+def active_light() -> str:
+    """The light actually in use: daylight, flat or strobe (auto resolves to one of the first two)."""
+    settings = _load_camera_settings()
+    mode = light_mode()
+    if mode != "auto":
+        return mode
+    return settings.get("activeLight") if settings.get("activeLight") in ("daylight", "flat") else "flat"
+
+
 def exposure_configuration() -> dict[str, Any]:
     return {
         "configurable": uses_csi(),
         "minUs": MIN_EXPOSURE_US,
-        "maxUs": MAX_EXPOSURE_US,
+        "maxUs": max_exposure_us(),
         "stepUs": EXPOSURE_STEP_US,
+        "strobeMode": strobe_mode_enabled(),
+        "lightMode": light_mode(),
+        "activeLight": active_light(),
     }
 
 
@@ -95,12 +234,16 @@ def gain_configuration() -> dict[str, Any]:
     }
 
 
-def _save_camera_setting(key: str, value: int | float) -> None:
+def _save_camera_setting(key: str, value: int | float | bool) -> None:
+    _save_camera_settings({key: value})
+
+
+def _save_camera_settings(updates: dict[str, Any]) -> None:
     path = _settings_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     settings = _load_camera_settings()
-    settings[key] = value
+    settings.update(updates)
     temporary.write_text(
         json.dumps(settings, separators=(",", ":"), sort_keys=True) + "\n",
         encoding="utf-8",
@@ -112,8 +255,9 @@ def set_camera_exposure(exposure_us: int) -> dict[str, Any]:
     """Apply and persist a measurement-safe manual exposure on the active CSI camera."""
     if isinstance(exposure_us, bool) or not isinstance(exposure_us, int):
         raise ValueError("Exposure must be a whole number of microseconds.")
-    if not MIN_EXPOSURE_US <= exposure_us <= MAX_EXPOSURE_US:
-        raise ValueError(f"Exposure must be between {MIN_EXPOSURE_US} and {MAX_EXPOSURE_US} μs.")
+    maximum = max_exposure_us()
+    if not MIN_EXPOSURE_US <= exposure_us <= maximum:
+        raise ValueError(f"Exposure must be between {MIN_EXPOSURE_US} and {maximum} μs.")
     with _lock:
         capture = _active_capture
     if capture is None or not capture.isOpened():
@@ -127,6 +271,75 @@ def set_camera_exposure(exposure_us: int) -> dict[str, Any]:
         capture.set_exposure(previous)
         raise
     return {"exposureUs": exposure_us, **exposure_configuration()}
+
+
+def _profile(settings: dict[str, Any], profiles: dict[str, Any], mode: str,
+             current: tuple[int, float]) -> tuple[int, float]:
+    """The exposure and gain a light mode starts from the next time it is chosen."""
+    saved = profiles.get(mode)
+    if isinstance(saved, dict):
+        exposure, gain = saved.get("exposureUs"), saved.get("gain")
+        if (isinstance(exposure, int) and not isinstance(exposure, bool) and isinstance(gain, (int, float))
+                and not isinstance(gain, bool) and MIN_CAMERA_GAIN <= float(gain) <= MAX_CAMERA_GAIN):
+            limit = STROBE_MAX_EXPOSURE_US if mode == "strobe" else MAX_EXPOSURE_US
+            if MIN_EXPOSURE_US <= exposure <= limit:
+                return exposure, float(gain)
+    if mode == "daylight":
+        return DAYLIGHT_DEFAULT
+    if mode == "strobe":
+        return STROBE_DEFAULT
+    exposure, gain = current
+    if MIN_EXPOSURE_US <= exposure <= MAX_EXPOSURE_US:
+        return exposure, gain
+    return DEFAULT_NORMAL_EXPOSURE_US, configured_camera_gain()
+
+
+def set_light_mode(mode: str) -> dict[str, Any]:
+    """Choose how the scene is lit and move the camera to that mode's exposure and gain.
+
+    The ring itself is switched by the caller (the light controller); this only keeps
+    the camera in step and persists the choice. Leaving a mode stores its exposure and
+    gain, so turning strobe off puts the normal shutter speed back and a forgotten
+    strobe mode can never leave measurements running on a 4 ms shutter.
+    """
+    if mode not in LIGHT_MODES:
+        raise ValueError("Light mode must be auto, daylight, flat or strobe.")
+    with _lock:
+        capture = _active_capture
+    if capture is None or not capture.isOpened():
+        raise RuntimeError("The CSI camera is not ready for light changes.")
+
+    settings = _load_camera_settings()
+    profiles = dict(settings.get("lightProfiles") or {})
+    leaving = active_light()
+    target = "flat" if mode == "auto" else mode
+    if mode == "auto" and settings.get("activeLight") in ("daylight", "flat"):
+        target = settings["activeLight"]
+
+    previous = (capture.exposure_us, capture.gain)
+    if capture.exposure_us > 0:
+        profiles[leaving] = {"exposureUs": int(capture.exposure_us), "gain": float(capture.gain)}
+    exposure, gain = _profile(settings, profiles, target, previous)
+
+    capture.set_gain(gain)
+    capture.set_exposure(exposure)
+    try:
+        _save_camera_settings({
+            "lightMode": mode, "activeLight": target, "strobeMode": target == "strobe",
+            "exposureUs": exposure, "gain": gain, "lightProfiles": profiles,
+        })
+    except OSError:
+        capture.set_gain(previous[1])
+        capture.set_exposure(previous[0])
+        raise
+    return {"exposureUs": exposure, "gain": gain, **exposure_configuration()}
+
+
+def set_strobe_mode(enabled: bool) -> dict[str, Any]:
+    """Compatibility wrapper for services and apps that only know the strobe switch."""
+    if not isinstance(enabled, bool):
+        raise ValueError("Strobe mode must be on or off.")
+    return set_light_mode("strobe" if enabled else "flat")
 
 
 def set_camera_gain(gain: float) -> dict[str, Any]:
@@ -153,8 +366,12 @@ def set_camera_gain(gain: float) -> dict[str, Any]:
     return {"gain": gain, **gain_configuration()}
 
 
-def auto_calibrate_camera(grab_frame: "Callable[[], Any]") -> dict[str, Any]:
+def auto_calibrate_camera(grab_frame: "Callable[[], Any]", max_exposure_us: int | None = None) -> dict[str, Any]:
     """Find and store exposure/gain that suit the light the camera is looking at.
+
+    `max_exposure_us` is the blur-safe limit for the club (see blur_safe_exposure_us): a faster ball needs a shorter
+    shutter, so the sweep stays under it and buys brightness with gain instead; when even that is too dark the
+    result says so rather than quietly choosing a shutter the measurement would reject.
 
     ``grab_frame`` comes from whoever owns the stream (the detection loop), so the
     sweep never opens a second handle on the camera. Only the winning pair is
@@ -169,6 +386,7 @@ def auto_calibrate_camera(grab_frame: "Callable[[], Any]") -> dict[str, Any]:
 
     previous_exposure = capture.exposure_us
     previous_gain = capture.gain
+    cap = MAX_EXPOSURE_US if not max_exposure_us else max(MIN_EXPOSURE_US, min(MAX_EXPOSURE_US, int(max_exposure_us)))
 
     def apply_settings(exposure_us: int, gain: float) -> None:
         capture.set_exposure(exposure_us)
@@ -179,7 +397,7 @@ def auto_calibrate_camera(grab_frame: "Callable[[], Any]") -> dict[str, Any]:
             apply_settings,
             grab_frame,
             min_us=MIN_EXPOSURE_US,
-            max_us=MAX_EXPOSURE_US,
+            max_us=cap,
             step_us=EXPOSURE_STEP_US,
             min_gain=MIN_CAMERA_GAIN,
             max_gain=MAX_CAMERA_GAIN,
@@ -200,7 +418,48 @@ def auto_calibrate_camera(grab_frame: "Callable[[], Any]") -> dict[str, Any]:
         capture.set_gain(previous_gain)
         raise
 
-    return {**result.as_dict(), **exposure_configuration()}
+    summary = result.as_dict()
+    if cap < MAX_EXPOSURE_US:
+        summary["blurLimitUs"] = cap
+        if not result.usable:
+            summary["note"] = (f"Still dark at the {cap} us shutter this club needs (a fast ball smears at anything longer). "
+                               "Add light, or pick a slower club's setting for shorter shots.")
+    return {**summary, **exposure_configuration()}
+
+
+def auto_calibrate_light(grab_frame: "Callable[[], Any]", light: Any = None,
+                         max_exposure_us: int | None = None) -> dict[str, Any]:
+    """Choose daylight or flat light for the scene, then size the exposure for it.
+
+    With the ring off, the normal exposure sweep says whether the ambient light alone
+    is enough: a usable picture at a short exposure means daylight, and the ring stays
+    off. Otherwise the ring goes steady and the sweep runs again. Without a connected
+    light controller the ring cannot be switched, so this is the plain exposure sweep.
+    """
+    if light is None or not light.status().get("connected"):
+        return {**auto_calibrate_camera(grab_frame, max_exposure_us), "light": active_light()}
+
+    chosen = "flat"
+    try:
+        light.set_mode("off")
+        time.sleep(0.2)  # let the ring go dark before the first probe
+        result = auto_calibrate_camera(grab_frame, max_exposure_us)
+        if result.get("usable") and result["exposureUs"] <= DAYLIGHT_MAX_EXPOSURE_US:
+            chosen = "daylight"
+        else:
+            light.set_mode("flat")
+            time.sleep(0.2)
+            result = auto_calibrate_camera(grab_frame, max_exposure_us)
+    except Exception:
+        light.set_mode("flat")  # never strand the ring off after a failed sweep
+        raise
+
+    settings = _load_camera_settings()
+    profiles = dict(settings.get("lightProfiles") or {})
+    profiles[chosen] = {"exposureUs": int(result["exposureUs"]), "gain": float(result["gain"])}
+    _save_camera_settings({"lightMode": "auto", "activeLight": chosen, "strobeMode": False,
+                           "lightProfiles": profiles})
+    return {**result, **exposure_configuration(), "light": chosen}
 
 
 class CsiCapture:
@@ -213,6 +472,7 @@ class CsiCapture:
         self.camera = None
         self.publish = publish
         self.metadata: dict[str, Any] = {}
+        self.raw_enabled = raw_capture_enabled()
         width, height = map(int, os.getenv("PINPOINT_CAMERA_RESOLUTION", "1280x800").split("x"))
         fps = float(os.getenv("PINPOINT_CAMERA_FPS", "30"))
         if width <= 0 or height <= 0 or fps <= 0:
@@ -228,9 +488,13 @@ class CsiCapture:
             if exposure > 0:
                 controls.update(AeEnable=False, ExposureTime=exposure,
                                 AnalogueGain=gain)
+            streams: dict[str, Any] = {}
+            if self.raw_enabled:
+                streams["raw"] = {"size": (width, height), "format": "R10"}
             config = camera.create_video_configuration(
                 main={"size": (width, height), "format": "RGB888"},
                 sensor={"output_size": (width, height), "bit_depth": int(os.getenv("PINPOINT_CAMERA_BIT_DEPTH", "10"))},
+                **streams,
                 # Extra queued requests absorb short stalls in the detection loop
                 # instead of dropping 200 fps frames (640x400 RGB is ~0.8 MB each).
                 controls=controls, buffer_count=max(4, int(os.getenv("PINPOINT_CAMERA_BUFFER_COUNT", "8"))),
@@ -292,6 +556,10 @@ class CsiCapture:
         try:
             frame = request.make_array("main")
             self.metadata = request.get_metadata()
+            if self.raw_enabled:
+                # The request's buffer is reused as soon as it is released, so the raw frame is copied out.
+                # The raw array is bytes (h, 2w): view it as 16-bit words, dropping any row padding.
+                self.metadata["RawFrame"] = request.make_array("raw").view("<u2")[:, :frame.shape[1]].copy()
             duration = self.metadata.get("FrameDuration", 0)
             diagnostics = {
                 "model": self.model, "width": frame.shape[1], "height": frame.shape[0],
@@ -343,6 +611,20 @@ class DualCsiCapture:
         self.metadata: dict[str, Any] = {}
         self.secondary_metadata: dict[str, Any] = {}
         self.secondary_frame = None
+        # Staggered capture state (see the module constants). ``idle`` is set by the detection loop:
+        # true when no ball is on the mat, the only time the second camera may be restarted.
+        self.stagger = stagger_enabled()
+        self.stagger_state = "locking" if self.stagger else "off"
+        self.stagger_error: str | None = None
+        self.stagger_attempts = 0
+        self.stagger_relocks = 0
+        self._failed_at = 0.0
+        self._last_stagger_log = 0.0
+        self.idle = True
+        self._phases: deque[float] = deque(maxlen=24)
+        self._a_stamps: deque[int] = deque(maxlen=1024)
+        self._pause_b = threading.Event()
+        self._b_idle = threading.Event()
         self.tolerance_us = float(os.getenv("PINPOINT_CAMERA_SYNC_TOLERANCE_US", "250"))
         fps = float(os.getenv("PINPOINT_CAMERA_FPS", "200"))
         if not 0 < self.tolerance_us < 500_000 / fps:
@@ -352,11 +634,20 @@ class DualCsiCapture:
         if primary == secondary:
             raise ValueError("Dual cameras must have different indexes")
         try:
-            for index, mode in ((primary, controls.rpi.SyncModeEnum.Server),
-                                (secondary, controls.rpi.SyncModeEnum.Client)):
-                self.cameras.append(CsiCapture(index, sync_mode=mode, start=False, publish=False))
-            self.cameras[1].camera.start()
-            self.cameras[0].camera.start()
+            if self.stagger:
+                try:
+                    self._open_staggered(primary, secondary)
+                except Exception as error:
+                    # Never leave the monitor dead: fall back to the in-step pair and say so.
+                    LOGGER.warning("Staggered capture unavailable (%s); running the cameras in step", error)
+                    self.stagger, self.stagger_state, self.stagger_error = False, "failed", str(error)
+                    self._close_cameras()
+            if not self.cameras:
+                for index, mode in ((primary, controls.rpi.SyncModeEnum.Server),
+                                    (secondary, controls.rpi.SyncModeEnum.Client)):
+                    self.cameras.append(CsiCapture(index, sync_mode=mode, start=False, publish=False))
+                self.cameras[1].camera.start()
+                self.cameras[0].camera.start()
             self.exposure_us = self.cameras[0].exposure_us
             self.gain = self.cameras[0].gain
             for index in range(2):
@@ -373,6 +664,121 @@ class DualCsiCapture:
 
     def isOpened(self) -> bool:
         return len(self.cameras) == 2 and all(c.isOpened() for c in self.cameras)
+
+    @property
+    def pairing_ok(self) -> bool:
+        """False while the staggered pair is out of step or being re-locked: detection must not arm."""
+        return not self.stagger or self.stagger_state in ("locked", "drift-soon")
+
+    def _close_cameras(self) -> None:
+        cameras, self.cameras = self.cameras, []
+        for camera in reversed(cameras):
+            try:
+                camera.release()
+            except Exception:
+                pass
+
+    @staticmethod
+    def _drain_stamps(camera: Any, seconds: float, sink: "list[int]") -> None:
+        """Collect sensor timestamps from one camera for a while, discarding the images."""
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            try:
+                job = camera.capture_request(wait=False)
+                request = camera.wait(job, timeout=1)
+            except Exception:
+                return
+            try:
+                stamp = request.get_metadata().get("SensorTimestamp")
+            finally:
+                request.release()
+            if stamp:
+                sink.append(int(stamp))
+
+    def _measure_b_phase(self, a_stamps: "list[int]", drain_a: bool) -> "float | None":
+        """Phase of camera B behind camera A over a short window; None when either stream is too thin."""
+        first, second = (c.camera for c in self.cameras)
+        b_stamps: list[int] = []
+        threads = [threading.Thread(target=self._drain_stamps, args=(second, STAGGER_MEASURE_SECONDS, b_stamps), daemon=True)]
+        if drain_a:
+            threads.append(threading.Thread(target=self._drain_stamps, args=(first, STAGGER_MEASURE_SECONDS, a_stamps), daemon=True))
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(STAGGER_MEASURE_SECONDS + 2)
+        a = sorted(a_stamps if drain_a else list(self._a_stamps))
+        if len(b_stamps) < 40 or len(a) < 40:
+            return None
+        period_ns = (a[-1] - a[-40]) / 39.0
+        settled = b_stamps[len(b_stamps) // 3:]
+        phases = [phase_of(a, stamp, period_ns) for stamp in settled]
+        phases = [p for p in phases if p is not None]
+        if not phases:
+            return None
+        import math as _math
+        s = sum(_math.sin(2 * _math.pi * p) for p in phases) / len(phases)
+        c = sum(_math.cos(2 * _math.pi * p) for p in phases) / len(phases)
+        return (_math.atan2(s, c) % (2 * _math.pi)) / (2 * _math.pi)
+
+    def _lock_second_camera(self, drain_a: bool, attempt_limit: int = STAGGER_MAX_ATTEMPTS) -> int:
+        """Restart camera B until it sits near half a frame behind A. Returns the attempts used."""
+        second = self.cameras[1].camera
+        a_stamps: list[int] = list(self._a_stamps)
+        for attempt in range(1, attempt_limit + 1):
+            second.start()
+            phase = self._measure_b_phase(a_stamps, drain_a)
+            if phase is not None and stagger_distance(phase) <= STAGGER_LOCK_TOLERANCE:
+                self._phases.clear()
+                self._phases.append(phase)
+                return attempt
+            try:
+                second.stop()
+            except Exception:
+                pass
+            time.sleep(0.1)
+        raise RuntimeError(f"The cameras did not settle half a frame apart in {attempt_limit} tries")
+
+    def _open_staggered(self, primary: int, secondary: int) -> None:
+        for index in (primary, secondary):
+            self.cameras.append(CsiCapture(index, sync_mode=None, start=False, publish=False))
+        self.cameras[0].camera.start()
+        # Camera A must be drained while B is measured, or its request queue backs up.
+        a_stamps: list[int] = []
+        drain = threading.Thread(target=self._drain_stamps, args=(self.cameras[0].camera, 1.0, a_stamps), daemon=True)
+        drain.start()
+        drain.join(3)
+        self._a_stamps.extend(a_stamps)
+        self.stagger_attempts = self._lock_second_camera(drain_a=True)
+        self.stagger_state = "locked"
+        LOGGER.info("Staggered capture locked after %d tries at phase %.3f", self.stagger_attempts, self._phases[-1])
+
+    def resync(self) -> bool:
+        """Re-lock the second camera while nothing is on the mat. Blocks for a few seconds."""
+        if not self.stagger or not self.isOpened():
+            return False
+        self.stagger_state = "resyncing"
+        record_camera_diagnostics({"staggerState": "resyncing"})
+        self._pause_b.set()
+        self._b_idle.wait(1.0)
+        try:
+            self.cameras[1].camera.stop()
+            attempts = self._lock_second_camera(drain_a=False)
+            self.stagger_relocks += 1
+            self.stagger_state = "locked"
+            LOGGER.info("Staggered capture re-locked after %d tries at phase %.3f", attempts, self._phases[-1])
+            return True
+        except Exception as error:
+            self.stagger_state = "failed"
+            self.stagger_error = str(error)
+            self._failed_at = time.monotonic()
+            LOGGER.warning("Staggered re-lock failed: %s", error)
+            return False
+        finally:
+            with self._condition:
+                for queue in self._queues:
+                    queue.clear()
+                self._a_stamps.clear()
+            self._pause_b.clear()
 
     def _set_both(self, method: str, value: Any, previous: Any) -> None:
         try:
@@ -400,6 +806,12 @@ class DualCsiCapture:
             camera = self.cameras[index]
             sync_ready = False
             while not self._stop.is_set():
+                if index == 1 and self._pause_b.is_set():
+                    self._b_idle.set()
+                    time.sleep(0.01)
+                    continue
+                if index == 1:
+                    self._b_idle.clear()
                 ok, frame = camera.read()
                 if not ok:
                     raise RuntimeError(f"Camera {camera.index} stopped delivering frames")
@@ -412,6 +824,8 @@ class DualCsiCapture:
                 metadata["SyncReady"] = sync_ready
                 if not metadata.get("SensorTimestamp"):
                     raise RuntimeError("Both cameras must supply sensor timestamps")
+                if index == 0 and self.stagger:
+                    self._a_stamps.append(int(metadata["SensorTimestamp"]))
                 with self._condition:
                     self._queues[index].append((frame, metadata))
                     self._condition.notify_all()
@@ -420,9 +834,74 @@ class DualCsiCapture:
                 self._error = error
                 self._condition.notify_all()
 
+    def _read_staggered(self) -> "tuple[bool, Any]":
+        """Pair each A frame with the B frame that follows it by about half a frame."""
+        if self.idle and (self.stagger_state in ("drift-soon", "drifted")
+                          or (self.stagger_state == "failed" and time.monotonic() - self._failed_at > 30)):
+            self.resync()
+        deadline = time.monotonic() + 5
+        with self._condition:
+            while True:
+                if self._error is not None:
+                    raise RuntimeError(f"Dual camera capture failed: {self._error}") from self._error
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RuntimeError("Dual camera timing did not lock within five seconds")
+                if not all(self._queues):
+                    self._condition.wait(min(remaining, 0.1))
+                    continue
+                frame, metadata = self._queues[0][0]
+                other, other_metadata = self._queues[1][0]
+                a, b = metadata["SensorTimestamp"], other_metadata["SensorTimestamp"]
+                duration_ns = (metadata.get("FrameDuration") or 4132) * 1000.0
+                fraction = (b - a) / duration_ns
+                if 0.1 <= fraction <= 0.9:
+                    self._queues[0].popleft()
+                    self._queues[1].popleft()
+                    break
+                # B earlier than A means B belongs to the previous A: drop it; B a frame late: drop A.
+                self._queues[1 if fraction < 0.1 else 0].popleft()
+        self._phases.append(fraction)
+        if self.stagger_state not in ("resyncing", "failed"):
+            previous = self.stagger_state
+            self.stagger_state = stagger_state(list(self._phases)[-12:])
+            if self.stagger_state != previous:
+                LOGGER.info("Staggered pair %s -> %s at phase %.3f", previous, self.stagger_state, fraction)
+        now = time.monotonic()
+        if now - self._last_stagger_log >= 60:
+            self._last_stagger_log = now
+            recent = list(self._phases)[-48:]
+            LOGGER.info("Staggered pair %s: phase %.3f (recent %.3f to %.3f), %d re-locks",
+                        self.stagger_state, fraction, min(recent), max(recent), self.stagger_relocks)
+        self.metadata, self.secondary_metadata, self.secondary_frame = metadata, other_metadata, other
+        self._pair_times.append(a)
+        elapsed = self._pair_times[-1] - self._pair_times[0]
+        paired_fps = round((len(self._pair_times) - 1) * 1e9 / elapsed, 1) if elapsed > 0 else 0
+        first, second = self.cameras
+        duration = metadata.get("FrameDuration", 0)
+        secondary_duration = other_metadata.get("FrameDuration", 0)
+        record_camera_diagnostics({
+            "model": first.model, "width": frame.shape[1], "height": frame.shape[0],
+            "fps": round(1_000_000 / duration, 1) if duration else 0,
+            "exposureUs": metadata.get("ExposureTime", 0),
+            "gain": round(metadata.get("AnalogueGain", 1), 2),
+            "autoExposure": self.exposure_us <= 0, "autofocus": False,
+            "cameraCount": 2, "primaryCameraIndex": first.index, "pairedFps": paired_fps,
+            "secondaryCameraIndex": second.index, "syncMode": "stagger", "syncReady": self.pairing_ok,
+            "syncOffsetUs": round((b - a) / 1000, 1), "syncToleranceUs": self.tolerance_us,
+            "staggerState": self.stagger_state, "staggerPhase": round(fraction, 3),
+            "staggerRelocks": self.stagger_relocks,
+            "secondaryFps": round(1_000_000 / secondary_duration, 1) if secondary_duration else 0,
+            "secondaryExposureUs": other_metadata.get("ExposureTime", 0),
+            "secondaryGain": round(other_metadata.get("AnalogueGain", 1), 2),
+        })
+        return True, frame
+
     def read(self) -> tuple[bool, Any]:
         if not self.isOpened():
             return False, None
+        if self.stagger:
+            return self._read_staggered()
         first, second = self.cameras
         deadline = time.monotonic() + 5
         with self._condition:

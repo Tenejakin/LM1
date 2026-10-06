@@ -8,6 +8,7 @@ from unittest.mock import patch
 import cv2
 import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+os.environ.setdefault("PINPOINT_GROUND_MODE", "tag")  # these tests cover the saved tag pose
 from apriltag_calibration import capture_latest_apriltag_calibration, clear_apriltag_calibration, load_apriltag_calibration
 from launch_measurements import stored_ground_pose, measure_launch
 

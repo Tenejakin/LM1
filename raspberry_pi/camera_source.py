@@ -201,7 +201,9 @@ def light_mode() -> str:
     saved = settings.get("lightMode")
     if saved in LIGHT_MODES:
         return saved
-    return "strobe" if settings.get("strobeMode") is True else "flat"
+    # A fresh unit starts in auto: the detection loop then watches the view and
+    # picks daylight/flat (and the right exposure) for the room and the club.
+    return "strobe" if settings.get("strobeMode") is True else "auto"
 
 
 def active_light() -> str:

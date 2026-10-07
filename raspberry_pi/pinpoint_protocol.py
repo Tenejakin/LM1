@@ -65,13 +65,15 @@ from wifi_manager import (
 )
 
 
-SERVICE_VERSION = "0.62.3"
+SERVICE_VERSION = "0.62.4"
 PROTOCOL_VERSION = "2.40.0"
 MAX_HISTORY = 10
 MAX_COMMAND_BYTES = 4096
 BLE_CHUNK_BYTES = 20
-# ATT notification payload is MTU - 3; 244 matches the common 247-byte MTU.
-MAX_NOTIFICATION_CHUNK_BYTES = 244
+# ATT notification payload is MTU - 3. 514 matches the 517-byte MTU Android can
+# request; 244 was the old 247-byte MTU. Larger chunks mean fewer notifications and
+# a faster transfer at the same pacing (same drop risk, ~2x throughput).
+MAX_NOTIFICATION_CHUNK_BYTES = 514
 DEFAULT_USB_CAPTURE_PATH = Path("/var/lib/pinpoint/usb-test-latest.jpg")
 
 SendMessage = Callable[[dict[str, Any]], Awaitable[None]]

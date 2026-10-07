@@ -10,8 +10,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from light_controller import strobe_pattern
 from strobe_copies import (
-    analyse_frame, estimate_from_frames, estimate_with_report, fit_flash_track, find_copies, flash_times_us, metrics_from_fit,
-    raw_to_counts, separation_speed_mps,
+    analyse_frame, estimate_from_frames, estimate_with_report, fit_flash_pairs, fit_flash_track, find_copies,
+    flash_times_us, metrics_from_fit, raw_to_counts, separation_speed_mps,
 )
 
 PERIOD_US = 4132
@@ -208,6 +208,104 @@ class WholeCaptureTests(unittest.TestCase):
         self.assertIn("6 flash copies", metrics["ballSpeedMps"]["reason"])
 
 
+class PairFitTests(unittest.TestCase):
+    """A slow ball's pattern has one gap, so a frame holds two flash copies and the fit runs across frames."""
+    GAP = 1970
+    LIGHT = {"mode": "strobe", "rateHz": 242, "pattern": {"pulseUs": 40, "gapsUs": [GAP], "ballSpeedMps": 29.8}}
+    BOUNDS = (174, 274, 52, 52)
+    FRAME_S = 0.004131
+
+    def flash_frames(self, speed, angle=12.0, first_frame=10, count=5, cross_burst=False, start_x=100.0, total=30,
+                     noise_seed=1):
+        """Frames at 242 fps: resting ball, then `count` frames with two flash copies each, then empty."""
+        mm_per_px = 42.67 / BALL_PX
+        vx = math.cos(math.radians(angle)) * speed * 1000.0 / mm_per_px / 1e6
+        vy = -math.sin(math.radians(angle)) * speed * 1000.0 / mm_per_px / 1e6
+        frames = []
+        for index in range(total):
+            rng = np.random.default_rng(noise_seed + index)
+            image = np.full((400, 640), 3.0, np.float32) + rng.normal(0, 1.5, (400, 640)).astype(np.float32)
+            k = index - first_frame
+            if index < first_frame:
+                cv2.circle(image, (start_x.__int__(), 300), int(BALL_PX / 2), 60.0, -1)
+            elif k < count:
+                period = 1_000_000 // 242
+                if cross_burst:
+                    times = (self.GAP + k * period, (k + 1) * period)
+                else:
+                    times = (k * period, k * period + self.GAP)
+                for t in times:
+                    x, y = start_x + vx * t, 300.0 + vy * t
+                    if 20 < x < 620 and 40 < y < 380:
+                        cv2.circle(image, (round(x), round(y)), int(BALL_PX / 2), 60.0, -1)
+            image = np.clip(cv2.GaussianBlur(image, (0, 0), 1.2), 0, 255).astype(np.uint8)
+            frames.append((index * self.FRAME_S, image))
+        return frames
+
+    def test_recovers_a_wedge_speed_and_angle_from_two_copies_per_frame(self):
+        found, report = estimate_with_report(self.flash_frames(30.0), self.BOUNDS, 9, self.LIGHT)
+        self.assertIsNotNone(found, report)
+        fit = found["fit"]
+        self.assertEqual(fit["method"], "pairs")
+        self.assertAlmostEqual(fit["ballSpeedMps"], 30.0, delta=30.0 * 0.05)
+        self.assertAlmostEqual(fit["launchAngleDeg"], 12.0, delta=2.0)
+        self.assertEqual(fit["pairTiming"], "burst")
+        self.assertGreaterEqual(fit["frames"], 3)
+        self.assertEqual(report["pairFrames"], fit["frames"])
+
+    def test_the_other_pairing_of_flashes_is_recognised_and_gives_the_same_speed(self):
+        found, report = estimate_with_report(self.flash_frames(30.0, cross_burst=True), self.BOUNDS, 9, self.LIGHT)
+        self.assertIsNotNone(found, report)
+        self.assertEqual(found["fit"]["pairTiming"], "cross-burst")
+        self.assertAlmostEqual(found["fit"]["ballSpeedMps"], 30.0, delta=30.0 * 0.05)
+
+    def test_speeds_across_the_wedge_to_short_iron_range(self):
+        for speed in (24.0, 30.0, 36.0):
+            with self.subTest(speed=speed):
+                light = {**self.LIGHT, "pattern": {**self.LIGHT["pattern"], "ballSpeedMps": speed}}
+                found, report = estimate_with_report(self.flash_frames(speed, count=4), self.BOUNDS, 9, light)
+                self.assertIsNotNone(found, report)
+                self.assertAlmostEqual(found["fit"]["ballSpeedMps"], speed, delta=speed * 0.06)
+
+    def test_a_speed_far_from_the_clubs_expected_range_is_not_trusted(self):
+        light = {**self.LIGHT, "pattern": {**self.LIGHT["pattern"], "ballSpeedMps": 70.0}}
+        found, report = estimate_with_report(self.flash_frames(30.0), self.BOUNDS, 9, light)
+        self.assertIsNone(found)
+        self.assertEqual(report["reason"], "no-fit")
+
+    def test_one_pair_frame_is_not_enough(self):
+        found, report = estimate_with_report(self.flash_frames(30.0, count=1), self.BOUNDS, 9, self.LIGHT)
+        self.assertIsNone(found)
+        self.assertEqual(report["reason"], "too-few-pairs")
+        self.assertEqual(report["pairFrames"], 1)
+
+    def test_a_ball_that_barely_moves_gives_no_fit(self):
+        found, report = estimate_with_report(self.flash_frames(1.0), self.BOUNDS, 9, self.LIGHT)
+        self.assertIsNone(found)
+        self.assertIn(report["reason"], ("too-few-copies", "too-few-pairs", "no-fit"))
+
+    def test_frames_with_one_or_three_copies_are_ignored_not_guessed(self):
+        frames = self.flash_frames(30.0)
+        stray = frames[12][1].copy()
+        cv2.circle(stray, (500, 100), 26, 60, -1)
+        frames[12] = (frames[12][0], stray)
+        found, report = estimate_with_report(frames, self.BOUNDS, 9, self.LIGHT)
+        self.assertLess(report["pairFrames"], 5)
+
+    def test_dropped_frames_keep_their_place_in_the_timing(self):
+        frames = self.flash_frames(30.0, count=6)
+        frames = [f for i, f in enumerate(frames) if i != 12]   # a lost frame between pair frames
+        found, report = estimate_with_report(frames, self.BOUNDS, 9, self.LIGHT)
+        self.assertIsNotNone(found, report)
+        self.assertAlmostEqual(found["fit"]["ballSpeedMps"], 30.0, delta=30.0 * 0.06)
+
+    def test_the_metrics_say_which_frames_the_estimate_came_from(self):
+        found, _ = estimate_with_report(self.flash_frames(30.0), self.BOUNDS, 9, self.LIGHT)
+        reason = metrics_from_fit(found["fit"])["ballSpeedMps"]["reason"]
+        self.assertIn("two per frame", reason)
+        self.assertIn("frames", reason)
+
+
 class ReportTests(unittest.TestCase):
     LIGHT = WholeCaptureTests.LIGHT
     BOUNDS = (174, 274, 52, 52)
@@ -234,7 +332,7 @@ class ReportTests(unittest.TestCase):
         report = estimate_with_report(frames, self.BOUNDS, 9, {**self.LIGHT, "mode": "flat"})[1]
         self.assertEqual((report["reason"], report["lightMode"]), ("not-strobing", "flat"))
         self.assertEqual(estimate_with_report(frames, self.BOUNDS, 9, {**self.LIGHT, "pattern": None})[1]["reason"], "no-pattern")
-        short = {**self.LIGHT, "pattern": {"gapsUs": [900], "ballSpeedMps": 30.0}}
+        short = {**self.LIGHT, "pattern": {"gapsUs": [], "ballSpeedMps": 30.0}}
         self.assertEqual(estimate_with_report(frames, self.BOUNDS, 9, short)[1]["reason"], "pattern-too-short")
 
     def test_an_empty_dark_scene_reports_no_copies(self):

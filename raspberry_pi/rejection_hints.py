@@ -38,9 +38,9 @@ def _strobe_failure(report: dict[str, Any], exposure_us: float, lit: bool) -> st
         expected = report.get("expectedSpeedMps")
         return (f"Not measured: the ring was flashing, but this club's flash pattern"
                 f"{f' (set for {expected:.0f} m/s)' if expected else ''} fits only {len(gaps) + 1} flash"
-                f"{'' if len(gaps) == 0 else 'es'} in one frame, and the copy search needs at least 3 copies in a frame. "
-                "A slow ball needs wide gaps between flashes so the copies do not overlap, and a frame is only about 4 ms long. "
-                "Strobe measures fast shots (driver or long iron); for this club use Auto, Flat or Daylight.")
+                f"{'' if len(gaps) == 0 else 'es'} in one frame, and the copy search needs at least 2 flashes per frame. "
+                "A very slow ball needs wide gaps between flashes so the copies do not overlap, and a frame is only about 4 ms long. "
+                "For this club use Auto, Flat or Daylight.")
     if reason in ("no-controller", "not-strobing", "no-pattern"):
         seen = report.get("lightMode") or "unknown"
         detail = report.get("controllerError")
@@ -58,12 +58,18 @@ def _strobe_failure(report: dict[str, Any], exposure_us: float, lit: bool) -> st
                 "ball widths of each other: the ball moved too little between flashes, so they merged into one. "
                 + (f"This flash pattern separates the copies above about {speed:.0f} m/s" if speed else "The flashes are too close together for this speed")
                 + (f" (set for {expected:.0f} m/s)" if expected else "") + ". A fast hit is needed. ")
+    if reason == "too-few-pairs":
+        pair_frames = int(report.get("pairFrames") or 0)
+        return (head + f"This club's pattern puts 2 flashes in a frame, and only {pair_frames} frame{'' if pair_frames == 1 else 's'} "
+                "held two separate copies; at least 2 frames are needed to time the ball. The ball may have left the view "
+                "after one frame, or the copies merged or were lost in the room light. " + tail)
     if reason in ("no-copies", "no-usable-frames"):
         cause = ("the room is lit, so the flashes are lost in the room light" if lit
                  else "no bright round copy stood out from the background; check the ring is on and the room is dark")
         return head + f"None was found in {searched} frames: {cause}. " + tail
     if reason == "too-few-copies":
-        return head + f"At most {found} copies were found in {searched} frames and at least 3 are needed. " + tail
+        need = 2 if len(report.get("gapsUs") or []) == 1 else 3
+        return head + f"At most {found} copies were found in {searched} frames and at least {need} are needed. " + tail
     fit = report.get("unreliableFit") or {}
     extra = (f" Best attempt: {fit.get('copies')} copies, {fit.get('fitResidualMm')} mm residual"
              f"{', ambiguous start' if fit.get('ambiguous') else ''}." if fit else "")

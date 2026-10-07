@@ -137,6 +137,8 @@ def _ball_checks(context):
     checks = [_ground_check(context)]
     if context.get("stereoFailure"):
         checks.append(_flag_check(f"Two-camera validation failed: {context['stereoFailure']}", False, 0.65))
+    if context.get("blurExceeded"):
+        checks.append(_flag_check("Motion blur stayed under 4 mm", False, 0.75))
     fit = context.get("ballFit")
     if fit is None:
         checks.append(_flag_check("Anchored trajectory fit (fell back to per-frame outline depth)", False, 0.75))
@@ -1393,8 +1395,10 @@ def measure_launch(frames, bounds, impact_index, timestamp_source="host", exposu
             raise ValueError("Sensor timestamps required; host arrival timing cannot measure launch speed.")
         if len(frames) < 3 or not np.all(np.isfinite([t for t, _ in frames])) or np.any(np.diff([t for t, _ in frames]) <= 0):
             raise ValueError("Capture has missing or non-increasing sensor timestamps.")
-        if exposure_us is None or not 0 < exposure_us <= 250:
-            raise ValueError("Use fixed exposure at or below 250 us and adequate lighting; faster shots may require shorter exposure.")
+        if exposure_us is None:
+            # No exposure metadata at all means the blur check cannot run; that is a
+            # data-integrity failure, not a quality one.
+            raise ValueError("Camera exposure is unknown; set a fixed exposure before measuring.")
         height, width = frames[0][1].shape[:2]
         matrix, distortion = load_setup((width, height))
         ground_id = int(os.getenv("PINPOINT_APRILTAG_ID", "0"))
@@ -1433,11 +1437,6 @@ def measure_launch(frames, bounds, impact_index, timestamp_source="host", exposu
         }
         result["tagPoseFrameIndex"] = pose["frameIndex"]
         result["tagPoseReprojectionErrorPx"] = round(pose_error, 4)
-        if pose_error > MAX_ESTIMATED_TAG_POSE_ERROR_PX:
-            raise ValueError(
-                f"Ground AprilTag pose reprojection error {pose_error:.2f} px exceeds "
-                f"the {MAX_ESTIMATED_TAG_POSE_ERROR_PX:.1f} px estimation limit."
-            )
         pose_note = ("Level-rig ground: the stand is assumed level with gravity down the rig and the target to the "
                      f"right of the camera (pitch {pose['rig']['pitchDeg']:.2f}°, height {pose['rig']['heightMm']:.0f} mm "
                      "before the resting-ball correction)."
@@ -1445,7 +1444,12 @@ def measure_launch(frames, bounds, impact_index, timestamp_source="host", exposu
                      f"Stored ground calibration ({pose.get('capturedAt')}), pose error {pose_error:.2f} px; camera must remain fixed."
                      if pose.get("source") == "stored-calibration" else
                      f"Ground-tag pose error {pose_error:.2f} px from frame {pose['frameIndex']}.")
-        if pose_error > STRICT_TAG_POSE_ERROR_PX:
+        if pose_error > MAX_ESTIMATED_TAG_POSE_ERROR_PX:
+            result["warnings"].append(
+                f"Ground AprilTag pose reprojection error is {pose_error:.2f} px (limit "
+                f"{MAX_ESTIMATED_TAG_POSE_ERROR_PX:.1f} px); values are unreliable estimates."
+            )
+        elif pose_error > STRICT_TAG_POSE_ERROR_PX:
             result["warnings"].append(
                 f"Ground AprilTag pose reprojection error is {pose_error:.2f} px; "
                 "launch values are lower-confidence estimates."
@@ -1549,8 +1553,11 @@ def measure_launch(frames, bounds, impact_index, timestamp_source="host", exposu
                                      f"{basis} Requires reference validation.")
         if fit is None and two_point is not None:
             speed = two_point["speedMps"]
-            if speed * exposure_us / 1e6 > MAX_MOTION_BLUR_M:
-                raise ValueError("Estimated motion blur exceeds 4 mm; shorten exposure for this shot speed.")
+            blurred = speed * exposure_us / 1e6 > MAX_MOTION_BLUR_M
+            if blurred:
+                result["warnings"].append(
+                    f"Ball smeared {(speed * exposure_us / 1e6 * 1000):.1f} mm during the {exposure_us} µs exposure "
+                    f"(limit {MAX_MOTION_BLUR_M * 1000:.0f} mm); speed is a lower-confidence estimate.")
             result["method"] = "shared-tag-stereo-two-point-v1"
             result["ballTrack3d"] = two_point["track"]
             result["estimatedImpactFrameIndex"] = two_point["track"][0]["frameIndex"]
@@ -1558,11 +1565,14 @@ def measure_launch(frames, bounds, impact_index, timestamp_source="host", exposu
                 f"Two stereo ball positions {two_point['spanMs']:.1f} ms apart; interval-average speed only, "
                 f"not a fitted launch trajectory. One-pixel sensitivity ±{two_point['speedUncertaintyPct']:.0f}%. "
                 "Requires reference validation.")
-            metrics["ballSpeedMps"]["confidence"] = 0.5
-            metrics["ballSpeedMps"]["checks"] = [
+            metrics["ballSpeedMps"]["confidence"] = 0.4 if blurred else 0.5
+            checks = [
                 {"label": "Only two stereo ball frames; launch trajectory not resolved", "passed": False},
                 {"label": "Stereo geometry and timing passed two-point checks", "passed": True},
             ]
+            if blurred:
+                checks.append({"label": "Ball motion blur stayed under 4 mm", "passed": False})
+            metrics["ballSpeedMps"]["checks"] = checks
             for key in ("launchAngleDeg", "startDirectionDeg", "estimatedCarryM"):
                 metrics[key]["reason"] = "Two ball positions give interval speed but cannot validate launch angle, direction or carry."
             result["shotEvidence"] = shot_evidence(result)
@@ -1607,7 +1617,12 @@ def measure_launch(frames, bounds, impact_index, timestamp_source="host", exposu
         if not 0.1 <= speed <= 100:
             raise ValueError(f"Ball speed {speed:.1f} m/s is outside the supported 0.1-100 m/s range.")
         if speed * exposure_us / 1e6 > MAX_MOTION_BLUR_M:
-            raise ValueError("Estimated motion blur exceeds 4 mm; shorten exposure for this shot speed.")
+            # A smeared ball still yields a usable (if noisier) speed and launch; mark
+            # them lower-confidence instead of throwing the whole shot away.
+            result["warnings"].append(
+                f"Ball smeared {(speed * exposure_us / 1e6 * 1000):.1f} mm during the {exposure_us} µs exposure "
+                f"(limit {MAX_MOTION_BLUR_M * 1000:.0f} mm); speed and launch are lower-confidence estimates.")
+            grading["blurExceeded"] = True
         put("ballSpeedMps", speed, speed_reason)
         put("launchAngleDeg", launch, launch_reason)
         if launch <= 0:

@@ -52,7 +52,8 @@ class StrobeReportTests(unittest.TestCase):
     def test_the_exposure_is_never_blamed_for_a_strobe_shot(self):
         for report in ({"reason": "no-copies", "maxCopies": 0}, {"reason": "too-few-copies", "maxCopies": 1, "maxCopySpanBalls": 0.3},
                        {"reason": "no-fit", "maxCopies": 5}, {"reason": "not-strobing", "lightMode": "off"},
-                       {"reason": "pattern-too-short", "gapsUs": [1970]}):
+                       {"reason": "pattern-too-short", "gapsUs": []},
+                       {"reason": "too-few-pairs", "maxCopies": 2, "pairFrames": 1, "gapsUs": [1970]}):
             text = self.say(**report)
             self.assertIn("Not measured", text)
             self.assertNotIn("too long", text)
@@ -65,12 +66,17 @@ class StrobeReportTests(unittest.TestCase):
         self.assertIn("no serial port", text)
 
     def test_a_pattern_with_too_few_flashes_is_not_blamed_on_the_ring(self):
-        text = self.say(reason="pattern-too-short", gapsUs=[1970], expectedSpeedMps=29.8)
+        text = self.say(reason="pattern-too-short", gapsUs=[], expectedSpeedMps=9.0)
         self.assertIn("ring was flashing", text)
-        self.assertIn("fits only 2 flashes in one frame", text)
-        self.assertIn("set for 30 m/s", text)
+        self.assertIn("fits only 1 flash in one frame", text)
+        self.assertIn("set for 9 m/s", text)
         self.assertNotIn("not flashing", text)
-        self.assertIn("1 flash", self.say(reason="pattern-too-short", gapsUs=[]))
+
+    def test_two_flashes_in_a_frame_but_too_few_frames_with_a_pair_is_explained(self):
+        text = self.say(reason="too-few-pairs", maxCopies=2, pairFrames=1, gapsUs=[1970])
+        self.assertIn("1 frame", text)
+        self.assertIn("2 flashes", text)
+        self.assertIn("at least 2 frames", text)
 
     def test_a_slow_ball_says_what_speed_would_separate_the_copies(self):
         text = self.say(reason="too-few-copies", maxCopies=1, maxCopySpanBalls=0.2)

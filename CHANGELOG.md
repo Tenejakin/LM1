@@ -1,5 +1,12 @@
 # Changelog
 
+## Pi service 0.62.4 - 2026-10-06
+
+- Strobe now measures slow shots (wedges, short irons). Their flash pattern has one wide gap (1970 us for a 30 m/s ball) so only two flashes fit in a frame, and the copy search needed three in one frame, so it never ran. A new pair fit takes the two copies from each frame and fits all frames together: the same flash repeats every flash period, and the second copy of a frame is either the burst's own flash (one gap later) or the next burst's first (period minus gap later). Both timings are fitted; the straighter line wins, a near tie is ambiguous and not reported.
+- A pair result needs at least two frames with exactly two separate copies on one straight line, a speed within 0.6-1.6 times the club's expected speed, a residual under 3 mm and a plausible launch angle. Patterns with three or more flashes use the existing single-frame fit unchanged. A pattern with a single flash per frame is still not measured.
+- Replaying the real 22:42 wedge capture (8-bit frames, ball smeared by room light) gives no result: only two frames held two separate blobs and one of them was the club. The fit refuses it, so a pair result needs a dark enough room that the copies come out separate; it has only been verified on synthetic frames so far.
+- New messages for a slow pattern: too few frames with a pair (with the count), and the 2-flash case is no longer reported as too short.
+
 ## Pi service 0.62.3 - 2026-10-06
 
 - Cut the CPU cost of strobing in the dark. Profiling the idle service with py-spy showed about 28 % of its time in the raw-10-bit-to-8-bit conversion that runs on every frame of both cameras (a float32 subtract, divide, add, clip and cast). It is now two OpenCV passes (a saturating 16-bit subtract, then a scaled saturating narrow) and takes about 0.06 ms per frame instead of 0.9 ms on a PC, with output identical to the old formula for every 16-bit word; other black levels or scales still use the old arithmetic. The Pi was reaching 83 C and throttling, which dropped frames to 80-120 fps.

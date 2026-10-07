@@ -196,6 +196,7 @@ class PinpointBlePeripheral:
                 self._on_exposure_calibration,
                 calibration_capture_camera=lambda: self._calibration_capture_camera,
                 capture_mode=lambda: self.protocol.capture_mode,
+                current_club=lambda: self.protocol.club_id,
                 emit_readiness=self._on_readiness,
             )
         )

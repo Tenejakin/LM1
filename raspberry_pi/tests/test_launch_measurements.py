@@ -494,7 +494,7 @@ class GeometryTests(unittest.TestCase):
         self.assertIn('2.20 px', result['metrics']['ballSpeedMps']['reason'])
         self.assertEqual(result['tagPoseFrameIndex'], 12)
 
-    def test_ground_tag_above_estimation_limit_is_rejected(self):
+    def test_ground_tag_above_estimation_limit_is_downgraded_not_rejected(self):
         frames = [(i * .005, np.zeros((800, 1280), np.uint8)) for i in range(3)]
         pose = {'rotation': np.eye(3), 'translation': np.array([0., 0., .8]), 'errorPx': 3.01, 'frameIndex': 1}
         with TemporaryDirectory() as directory:
@@ -503,8 +503,9 @@ class GeometryTests(unittest.TestCase):
             with patch.dict(os.environ, {'PINPOINT_INTRINSICS_PATH': str(path)}), patch('launch_measurements.find_ground_tag_pose', return_value=pose):
                 result = measure_launch(frames, (10, 10, 20, 20), 1, 'sensor', 50)
 
-        self.assertIn('3.0 px estimation limit', result['failure'])
-        self.assertTrue(all(metric['value'] is None for metric in result['metrics'].values()))
+        # A bad tag pose no longer discards the whole shot: it warns and keeps any estimate.
+        self.assertNotIn('estimation limit', result.get('failure') or '')
+        self.assertTrue(any('unreliable estimates' in warning for warning in result.get('warnings', [])))
 
     def test_club_pose_speed_and_face_contact_geometry(self):
         frames = [(i * .005, np.zeros((800, 1280), np.uint8)) for i in range(7)]

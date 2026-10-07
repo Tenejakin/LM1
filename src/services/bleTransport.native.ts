@@ -134,7 +134,10 @@ export async function connectBle(
   let device = await connectDevice(activeManager, preferredDeviceId);
   if (Platform.OS === 'android') {
     try {
-      device = await device.requestMTU(247);
+      // A larger MTU lets the Pi send ~514-byte notifications instead of ~244-byte
+      // ones, roughly halving the number of chunks (and the download time) for the
+      // swing loop. Falls back to the negotiated value if the peripheral says no.
+      device = await device.requestMTU(517);
     } catch {
       // The protocol's 20-byte chunks still work with the minimum BLE MTU.
     }
@@ -178,7 +181,7 @@ export async function connectBle(
   }
 
   const mtu = Number.isFinite(device.mtu) && device.mtu >= 23 ? device.mtu : 23;
-  const commandChunkSize = Math.max(COMMAND_CHUNK_SIZE, Math.min(244, mtu - 3));
+  const commandChunkSize = Math.max(COMMAND_CHUNK_SIZE, Math.min(514, mtu - 3));
   return {
     id: device.id,
     name: device.name ?? device.localName ?? 'LM1',

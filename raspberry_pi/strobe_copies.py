@@ -157,6 +157,76 @@ def fit_flash_track(copies: Sequence[dict[str, float]], gaps_us: Sequence[float]
     }
 
 
+def fit_flash_pairs(pairs: Sequence[tuple[int, Sequence[dict[str, float]]]], gap_us: float, period_us: float,
+                    ball_px: float, expected_speed_mps: float | None = None) -> dict[str, Any] | None:
+    """Speed and launch angle from frames that each hold two flash copies (a one-gap pattern, used for slow balls).
+
+    Slow balls need wide gaps between flashes, so a frame only holds two. `pairs` is `(n, copies)` per frame:
+    `n` counts flash periods since the first pair frame and `copies` are the two discs of that frame.
+    Because the camera's exposure is longer than the burst, the two flashes in a frame are either the burst's own
+    pair (`gap_us` apart) or the last flash of one burst and the first of the next (`period_us - gap_us` apart);
+    the same flash repeats every `period_us` from frame to frame. Both timings are fitted, the one whose points
+    lie on the straighter line wins, and a near tie is marked ambiguous.
+    """
+    if len(pairs) < 2 or ball_px <= 0 or gap_us <= 0 or period_us <= gap_us:
+        return None
+    points = np.array([[c["x"], c["y"]] for _, copies in pairs for c in copies], dtype=np.float64)
+    mean = points.mean(axis=0)
+    direction = np.linalg.svd(points - mean, full_matrices=False)[2][0]
+    if direction[0] < 0:
+        direction = -direction
+    scale = BALL_DIAMETER_MM / ball_px
+    across_axis = np.array([-direction[1], direction[0]])
+    along, base_times, slots, across = [], [], [], []
+    for n, copies in pairs:
+        ordered = sorted(copies, key=lambda c: (c["x"] - mean[0]) * direction[0] + (c["y"] - mean[1]) * direction[1])
+        for slot, copy in enumerate(ordered):
+            offset = np.array([copy["x"] - mean[0], copy["y"] - mean[1]])
+            along.append(float(offset @ direction))
+            across.append(float(offset @ across_axis))
+            base_times.append(n * period_us)
+            slots.append(slot)
+    along = np.array(along)
+    if along.max() - along.min() < 0.8 * ball_px:
+        return None  # a stationary ball: nothing to time
+    if np.ptp(across) > 0.9 * ball_px:
+        return None  # not a straight row
+    fits = []
+    for gap, name in ((gap_us, "burst"), (period_us - gap_us, "cross-burst")):
+        times = np.array(base_times, dtype=np.float64) + np.array(slots) * gap
+        slope, intercept = np.polyfit(times, along, 1)
+        if slope <= 0:
+            continue
+        residual = float(np.sqrt(np.mean((along - (slope * times + intercept)) ** 2)))
+        fits.append((residual, float(slope * 1e6 * scale / 1000.0), name, gap))
+    if not fits:
+        return None
+    fits.sort(key=lambda fit: fit[0])
+    best = fits[0]
+    runner_up = fits[1][0] if len(fits) > 1 else float("inf")
+    ambiguous = runner_up < AMBIGUITY_RATIO * max(best[0], 0.1)
+    angle = math.degrees(math.atan2(-direction[1], direction[0]))
+    residual_mm = best[0] * scale
+    speed = best[1]
+    speed_ok = (not expected_speed_mps) or (
+        THREE_COPY_SPEED_RANGE[0] * expected_speed_mps <= speed <= THREE_COPY_SPEED_RANGE[1] * expected_speed_mps)
+    return {
+        "ballSpeedMps": round(speed, 2),
+        "launchAngleDeg": round(angle, 1),
+        "copies": int(len(along)),
+        "frames": int(len(pairs)),
+        "method": "pairs",
+        "pairTiming": best[2],
+        "gapUs": int(best[3]),
+        "startFlash": 0,
+        "fitResidualMm": round(residual_mm, 2),
+        "ambiguous": bool(ambiguous),
+        "reliable": bool(not ambiguous and residual_mm <= MAX_RESIDUAL_MM and MIN_LAUNCH_DEG <= angle <= MAX_LAUNCH_DEG
+                         and speed_ok),
+        "mmPerPx": round(scale, 3),
+    }
+
+
 def analyse_frame(frame: Any, gaps_us: Sequence[float], period_us: float, ball_px: float,
                   background: Any | None = None, expected_speed_mps: float | None = None,
                   min_level: float | None = None) -> dict[str, Any]:
@@ -217,9 +287,12 @@ def estimate_with_report(frames: Sequence[tuple[float, Any]], bounds: Sequence[f
     if not pattern:
         report["reason"] = "no-pattern"
         return None, report
-    if len(gaps) < 2 or len(frames) < start_index + 5:
-        report["reason"] = "pattern-too-short" if len(gaps) < 2 else "too-few-frames"
+    if len(gaps) < 1 or len(frames) < start_index + 5:
+        report["reason"] = "pattern-too-short" if len(gaps) < 1 else "too-few-frames"
         return None, report
+    pair_mode = len(gaps) == 1   # a slow ball's pattern: two flashes per frame, so the fit runs across frames
+    need = 2 if pair_mode else 3
+    pairs: list[tuple[int, float, list[dict[str, float]]]] = []
     period_us = 1_000_000 // int(light.get("rateHz") or 242)
     ball_px = float(max(bounds[2], bounds[3]))
     report["ballPx"] = round(ball_px, 1)
@@ -247,6 +320,8 @@ def estimate_with_report(frames: Sequence[tuple[float, Any]], bounds: Sequence[f
         report["maxCopies"] = max(report["maxCopies"], found)
         report["maxCopySpanBalls"] = round(max(report["maxCopySpanBalls"], _span_in_balls(result["copies"], ball_px)), 2)
         fit = result["fit"]
+        if pair_mode and found == 2:
+            pairs.append((index, frames[index][0], result["copies"]))
         if fit and not fit["reliable"] and (unreliable is None or fit["copies"] > unreliable["copies"]):
             unreliable = fit
         if not fit or not fit["reliable"]:
@@ -255,21 +330,36 @@ def estimate_with_report(frames: Sequence[tuple[float, Any]], bounds: Sequence[f
         if best is None or rank > best["rank"]:
             best = {"rank": rank, "frameIndex": index, "fit": fit, "copiesFound": len(result["copies"]),
                     "source": "raw" if use_raw else "8bit"}
+    if pair_mode:
+        report["pairFrames"] = len(pairs)
+        if len(pairs) >= 2:
+            base = pairs[0][1]
+            fit = fit_flash_pairs([(round((stamp - base) * 1e6 / period_us), copies) for _, stamp, copies in pairs],
+                                  float(gaps[0]), float(period_us), ball_px, pattern.get("ballSpeedMps"))
+            if fit and fit["reliable"]:
+                best = {"frameIndex": pairs[0][0], "fit": fit, "copiesFound": fit["copies"],
+                        "source": "raw" if use_raw else "8bit"}
+            elif fit:
+                unreliable = fit
     if best is None:
         if report["framesSearched"] == 0:
             report["reason"] = "no-usable-frames"
         elif report["maxCopies"] == 0:
             report["reason"] = "no-copies"
-        elif report["maxCopies"] < 3:
+        elif report["maxCopies"] < need:
             report["reason"] = "too-few-copies"
+        elif pair_mode and len(pairs) < 2:
+            report["reason"] = "too-few-pairs"
         elif unreliable is not None:
             report["reason"] = "no-fit"
             report["unreliableFit"] = {key: unreliable[key] for key in ("copies", "fitResidualMm", "ambiguous", "ballSpeedMps")}
         else:
             report["reason"] = "no-fit"
         return None, report
-    best.pop("rank")
+    best.pop("rank", None)
     report["bestCopies"] = best["fit"]["copies"]
+    if best["fit"].get("method") == "pairs":
+        report["pairTiming"] = best["fit"]["pairTiming"]
     return best, report
 
 
@@ -280,8 +370,12 @@ def _gray_frame(image: Any) -> np.ndarray:
 
 def metrics_from_fit(fit: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """Metric entries the app understands, marked as estimates with the reason."""
-    reason = (f"Image-plane estimate from {fit['copies']} flash copies of the ball in one frame, timed by the known "
-              "flash gaps. Depth and aim direction are not measured.")
+    if fit.get("method") == "pairs":
+        reason = (f"Image-plane estimate from {fit['copies']} flash copies in {fit['frames']} frames (two per frame), timed by "
+                  "the known flash gap and period. Depth and aim direction are not measured.")
+    else:
+        reason = (f"Image-plane estimate from {fit['copies']} flash copies of the ball in one frame, timed by the known "
+                  "flash gaps. Depth and aim direction are not measured.")
     return {
         "ballSpeedMps": {"value": fit["ballSpeedMps"], "unit": "m/s", "status": "estimated", "reason": reason},
         "launchAngleDeg": {"value": fit["launchAngleDeg"], "unit": "deg", "status": "estimated", "reason": reason},

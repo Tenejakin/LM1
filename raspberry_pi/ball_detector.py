@@ -20,9 +20,10 @@ from typing import Any
 
 from apriltag_calibration import AprilTagDetector, load_apriltag_calibration
 from camera_source import (
-    CsiCapture, DualCsiCapture, RAW_SCALE, auto_calibrate_light, raw_black_level, record_camera_diagnostics,
-    take_exposure_cap_hint, uses_csi,
+    CsiCapture, DualCsiCapture, RAW_SCALE, auto_calibrate_light, light_mode, raw_black_level,
+    record_camera_diagnostics, set_exposure_cap_hint, take_exposure_cap_hint, uses_csi,
 )
+from adaptive_capture import CHECK_INTERVAL_S, AdaptivePolicy, ViewSample, club_exposure_cap_us
 from light_controller import get_light_controller
 from raw_frames import RawAnalysis
 from rejection_hints import friendly_failure
@@ -360,7 +361,9 @@ class RollingFrameBuffer:
                 if self._raw_after_pin <= RAW_AFTER_PIN:
                     self.raw.append((int(metadata["SensorTimestamp"]), raw_frame))
             self._evict_raw()
-        self.frames.append((time.time() if captured_at is None else captured_at, frame.copy()))
+        # Callers pass a freshly-allocated array (see _append_capture_frame), so no copy
+        # is needed here: duplicating every frame ~doubles peak memory on a 1 GB Pi.
+        self.frames.append((time.time() if captured_at is None else captured_at, frame))
         self.metadata.append(metadata)
 
     @property
@@ -646,8 +649,8 @@ def capture_frame_preview(capture_id: str, frame_index: int) -> dict[str, Any]:
 # Swing-loop clip: a fixed crop around the ball, club and early flight, small enough
 # that a 24-frame loop crosses BLE (~12-16 KB/s) in a few seconds.
 CLIP_MAX_FRAMES_PER_REQUEST = 8
-CLIP_WIDTH_PX = 240
-CLIP_MAX_BYTES = 4200
+CLIP_WIDTH_PX = 192
+CLIP_MAX_BYTES = 2600
 CLIP_BEHIND_RADII = 7.0
 CLIP_AHEAD_RADII = 11.0
 CLIP_ABOVE_RADII = 8.0
@@ -682,7 +685,7 @@ def encode_clip_frame(frame: Any, box: tuple[int, int, int, int]) -> bytes:
     scale = min(1.0, CLIP_WIDTH_PX / max(1, crop.shape[1]))
     if scale < 1.0:
         crop = cv2.resize(crop, (round(crop.shape[1] * scale), round(crop.shape[0] * scale)), interpolation=cv2.INTER_AREA)
-    for quality in (45, 35, 25):
+    for quality in (40, 32, 24):
         ok, encoded = cv2.imencode(".jpg", crop, [cv2.IMWRITE_JPEG_QUALITY, quality])
         if ok and len(encoded) <= CLIP_MAX_BYTES:
             return encoded.tobytes()
@@ -1041,7 +1044,9 @@ def analyze_departure(
                 metrics[key] = entry
         measurements["diagnostics"]["strobe"].update({"frameIndex": strobe["frameIndex"], "copies": strobe["fit"]["copies"],
                                                       "fitResidualMm": strobe["fit"]["fitResidualMm"], "source": strobe["source"]})
-        warnings.append("Ball speed and launch angle come from flash copies in one frame: image-plane estimates.")
+        warnings.append("Ball speed and launch angle come from flash copies across %d frames (two per frame): image-plane estimates."
+                        % strobe["fit"]["frames"] if strobe["fit"].get("method") == "pairs"
+                        else "Ball speed and launch angle come from flash copies in one frame: image-plane estimates.")
     measured_first_moving = measurements.get("estimatedImpactFrameIndex")
     if isinstance(measured_first_moving, int):
         first_moving_index = min(first_moving_index, measured_first_moving) if first_moving_index is not None else measured_first_moving
@@ -1348,6 +1353,15 @@ class BackgroundJob:
                     self._pending = None
 
 
+def _calibration_brightness(result: dict[str, Any]) -> float | None:
+    """The brightness a completed exposure sweep reports, for the adaptive policy."""
+    for key in ("ballLevel", "meanBrightness"):
+        value = result.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return float(value)
+    return None
+
+
 class BallMonitor:
     """Own one CSI/USB stream for detection, BLE previews, and focus snapshots."""
 
@@ -1358,6 +1372,9 @@ class BallMonitor:
         self.fps = int(os.getenv("PINPOINT_CAMERA_FPS", "30"))
         self.frame_stride = max(1, int(os.getenv("PINPOINT_BALL_FRAME_STRIDE", "4" if uses_csi() else "3")))
         self.raw_analysis = RawAnalysis(get_light_controller())
+        # Cached light mode so the raw-frame gate below never re-reads settings per frame.
+        self._light_mode_cache = "auto"
+        self._light_mode_checked_at = 0.0
         self.preview_interval = max(
             1.0,
             float(os.getenv("PINPOINT_BLE_PREVIEW_INTERVAL_SECONDS", "3")),
@@ -1387,10 +1404,13 @@ class BallMonitor:
         emit_exposure_calibration: Callable[[dict[str, Any]], None] | None = None,
         calibration_capture_camera: Callable[[], str] | None = None,
         capture_mode: Callable[[], str] | None = None,
+        current_club: Callable[[], str] | None = None,
         emit_readiness: Callable[[list[dict[str, Any]]], None] | None = None,
     ) -> None:
         if cv2 is None:
             raise RuntimeError("OpenCV is required for automatic ball detection")
+        # Continuous auto light mode: re-sweep when the club or the room changes.
+        adaptive = AdaptivePolicy() if uses_csi() else None
         while not stop_event.is_set():
             try:
                 capture = self._open_camera()
@@ -1435,6 +1455,7 @@ class BallMonitor:
                 self.pre_impact_frames + removal_debounce_frames + self.post_impact_frames
             )
             warmup_until = time.monotonic() + (3 if uses_csi() else 0)
+            adaptive_checked_at = 0.0
             detection_enabled = os.getenv("PINPOINT_AUTO_BALL_DETECTION", "false").lower() in {"1", "true", "yes"}
             LOGGER.info("Ball monitor opened %s", "CSI/Picamera2" if uses_csi() else self.camera_device)
             try:
@@ -1528,6 +1549,11 @@ class BallMonitor:
                         # The sweep borrows this loop's own reads, so it never opens a
                         # second handle on the camera or races the detector for frames.
                         exposure_result = self._run_exposure_calibration(capture, stop_event)
+                        if adaptive is not None:
+                            bright = _calibration_brightness(exposure_result)
+                            if bright is None:
+                                bright = ViewSample.from_frame(frame).bright
+                            adaptive.record(current_club() if current_club else None, bright, time.monotonic())
                         if emit_exposure_calibration is not None:
                             emit_exposure_calibration(exposure_result)
                         # Probe frames are not of the hitting area as it will be, and the
@@ -1537,6 +1563,38 @@ class BallMonitor:
                         calibration_logged = False
                         warmup_until = time.monotonic() + (3 if uses_csi() else 0)
                         continue
+                    # Continuous auto light mode: re-sweep when the club or the room
+                    # changed while the mat is empty. The manual event above shares the
+                    # same sweep, so both paths record into the policy to avoid a repeat.
+                    adaptive_now = time.monotonic()
+                    if adaptive is not None and adaptive_now >= warmup_until and adaptive_now - adaptive_checked_at >= CHECK_INTERVAL_S:
+                        adaptive_checked_at = adaptive_now
+                        if (
+                            not detector.stable_present
+                            and armed_ball_bounds is None
+                            and suspected_departure_at is None
+                            and light_mode() == "auto"
+                        ):
+                            club_id = current_club() if current_club else None
+                            sample = ViewSample.from_frame(frame)
+                            reason = adaptive.should_recalibrate(club_id, sample, adaptive_now)
+                            if reason is not None:
+                                LOGGER.info("Auto light/exposure sweep (%s) for club %s", reason, club_id)
+                                set_exposure_cap_hint(club_exposure_cap_us(
+                                    club_id, bool(capture_mode and capture_mode() == "putting")))
+                                exposure_result = self._run_exposure_calibration(capture, stop_event)
+                                bright = _calibration_brightness(exposure_result)
+                                adaptive.record(club_id, bright if bright is not None else sample.bright, time.monotonic())
+                                if emit_exposure_calibration is not None:
+                                    emit_exposure_calibration(exposure_result)
+                                # The new exposure changes what "empty" looks like.
+                                detector = BallPresenceDetector()
+                                rolling_frames.clear()
+                                calibration_logged = False
+                                armed_ball_bounds = None
+                                suspected_departure_at = None
+                                warmup_until = time.monotonic() + (3 if uses_csi() else 0)
+                                continue
                     from stereo_calibration import capture_paused
                     if capture_paused():
                         stereo_was_paused = True
@@ -1968,14 +2026,30 @@ class BallMonitor:
                 capture.secondary_frame, getattr(capture, "secondary_metadata", None), follow=True)
         return converted
 
-    @staticmethod
-    def _append_capture_frame(rolling_frames: RollingFrameBuffer, capture: Any, frame: Any) -> None:
+    def _current_light_mode(self) -> str:
+        """light_mode() reads its settings file; refresh it at most once a second."""
+        now = time.monotonic()
+        if now - self._light_mode_checked_at >= 1.0:
+            self._light_mode_checked_at = now
+            self._light_mode_cache = light_mode()
+        return self._light_mode_cache
+
+    def _append_capture_frame(self, rolling_frames: RollingFrameBuffer, capture: Any, frame: Any) -> None:
         extra = {}
+        metadata = getattr(capture, "metadata", None)
+        # The raw 10-bit frame is ~0.5 MB and only the strobe-copy path reads it back
+        # from the replay ring. Drop it outside strobe mode so the ring (100 frames x
+        # two cameras) does not hold ~100 MB the measurement will never use.
+        if metadata is not None and self._current_light_mode() != "strobe":
+            metadata = {key: value for key, value in metadata.items() if key != "RawFrame"}
         if isinstance(capture, DualCsiCapture):
+            secondary_metadata = capture.secondary_metadata
+            if secondary_metadata is not None and self._current_light_mode() != "strobe":
+                secondary_metadata = {key: value for key, value in secondary_metadata.items() if key != "RawFrame"}
             extra = {"secondary_frame": cv2.cvtColor(capture.secondary_frame, cv2.COLOR_BGR2GRAY),
-                     "secondary_metadata": capture.secondary_metadata}
+                     "secondary_metadata": secondary_metadata}
         rolling_frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY),
-                              metadata=getattr(capture, "metadata", None), **extra)
+                              metadata=metadata, **extra)
 
     def _keep_recent_rolling_captures(self) -> None:
         if not self.rolling_capture_path.exists():

@@ -1,5 +1,11 @@
 # Changelog
 
+## App 3.44.1 - 2026-10-08
+
+- Package the latest app changes for TestFlight with the new LM1 app icon and splash artwork.
+- New look: black mission-control theme. Bottom menu is now Play (Swing or Putting, chosen with a switch above the menu), Calibrate, Sessions, Device, Cloud.
+- Bump the app release version; production iOS build numbering is incremented by EAS.
+
 ## Pi service 0.62.4 - 2026-10-06
 
 - Strobe now measures slow shots (wedges, short irons). Their flash pattern has one wide gap (1970 us for a 30 m/s ball) so only two flashes fit in a frame, and the copy search needed three in one frame, so it never ran. A new pair fit takes the two copies from each frame and fits all frames together: the same flash repeats every flash period, and the second copy of a frame is either the burst's own flash (one gap later) or the next burst's first (period minus gap later). Both timings are fitted; the straighter line wins, a near tie is ambiguous and not reported.

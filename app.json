@@ -2,13 +2,13 @@
   "expo": {
     "name": "LM1",
     "slug": "pinpoint-launch-monitor",
-    "version": "3.44.0",
+    "version": "3.44.1",
     "orientation": "portrait",
     "scheme": "pinpoint",
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
-      "buildNumber": "76",
+      "buildNumber": "77",
       "bundleIdentifier": "com.pinpoint.launchmonitor",
       "infoPlist": {
         "CFBundleDisplayName": "LM1",
@@ -17,7 +17,8 @@
           "NSAllowsLocalNetworking": true
         },
         "ITSAppUsesNonExemptEncryption": false
-      }
+      },
+      "icon": "./assets/icon.png"
     },
     "android": {
       "versionCode": 74,
@@ -29,10 +30,15 @@
         "android.permission.BLUETOOTH",
         "android.permission.BLUETOOTH_ADMIN",
         "android.permission.BLUETOOTH_CONNECT"
-      ]
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1E212A"
+      }
     },
     "web": {
-      "bundler": "metro"
+      "bundler": "metro",
+      "favicon": "./assets/favicon.png"
     },
     "plugins": [
       "expo-font",
@@ -56,6 +62,12 @@
       "eas": {
         "projectId": "d6ac2e51-21e7-41d0-b91f-d271ba6c0a31"
       }
+    },
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1E212A"
     }
   }
 }

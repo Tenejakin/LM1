@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/lm1-logo-v1.png" alt="LM1" width="160">
+  <img src="assets/lm1-logo-tagline.jpg" alt="LM1 - AI-powered launch monitor" width="420">
 </p>
 
 <h1 align="center">LM1 — DIY Camera Golf Launch Monitor</h1>

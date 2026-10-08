@@ -131,6 +131,6 @@ const styles = StyleSheet.create({
   indicator: { alignSelf: 'stretch', backgroundColor: 'transparent', height: 2, marginBottom: 6, marginHorizontal: 10 },
   indicatorActive: { backgroundColor: colors.accent },
   pressed: { opacity: 0.6 },
-  label: { color: colors.textDim, fontFamily: fonts.mono, fontSize: 8.5, fontWeight: '600', letterSpacing: 0.9, textTransform: 'uppercase' },
+  label: { color: colors.textDim, fontFamily: fonts.mono, fontSize: 8, fontWeight: '600', letterSpacing: 0.3, textTransform: 'uppercase' },
   labelActive: { color: colors.text },
 });

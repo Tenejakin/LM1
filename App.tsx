@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
 
 import { BottomNav, PlayMode } from '@/components/BottomNav';
@@ -19,8 +20,12 @@ import { HomeScreen } from '@/screens/HomeScreen';
 import { PuttingScreen } from '@/screens/PuttingScreen';
 import { colors } from '@/theme';
 import { AppTab, Shot } from '@/types';
+import { applyAppFont, fontAssets } from '@/typography';
 
 export default function App() {
+  const [fontsLoaded, fontError] = useFonts(fontAssets);
+  if (!fontsLoaded && !fontError) return <View style={styles.authLoading} />;
+  if (fontsLoaded) applyAppFont();
   return (
     <SafeAreaProvider>
       <CloudSyncProvider>

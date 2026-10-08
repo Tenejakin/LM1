@@ -19,6 +19,8 @@
     "test:sessions": "node scripts/test-sessions.cjs"
   },
   "dependencies": {
+    "@expo-google-fonts/space-grotesk": "^0.4.1",
+    "@expo-google-fonts/space-mono": "^0.4.2",
     "@expo/vector-icons": "^15.1.1",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@supabase/supabase-js": "^2.117.1",

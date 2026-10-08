@@ -1,5 +1,3 @@
-import { Platform } from 'react-native';
-
 /**
  * Mission-control look: true-black canvas, hairline borders, flat surfaces, one cool
  * signal colour. Colour is reserved for state; everything else stays grey.
@@ -48,7 +46,7 @@ export const radii = {
 
 /** Monospace for telemetry labels and units. */
 export const fonts = {
-  mono: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'ui-monospace, SFMono-Regular, Menlo, monospace' }),
+  mono: 'SpaceMono_400Regular',
 } as const;
 
 /** Flat design: depth comes from hairlines, not shadows. */

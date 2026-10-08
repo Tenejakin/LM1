@@ -3,6 +3,7 @@
 ## App 3.44.1 - 2026-10-08
 
 - Package the latest app changes for TestFlight with the new LM1 app icon and splash artwork.
+- New font: Space Grotesk for text, Space Mono for telemetry labels.
 - New look: black mission-control theme. Bottom menu is now Play (Swing or Putting, chosen with a switch above the menu), Calibrate, Sessions, Device, Cloud.
 - Bump the app release version; production iOS build numbering is incremented by EAS.
 

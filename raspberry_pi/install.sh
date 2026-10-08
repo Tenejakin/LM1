@@ -69,6 +69,7 @@ install -m 0644 "${SCRIPT_DIR}/light_controller.py" /opt/pinpoint/light_controll
 install -m 0644 "${SCRIPT_DIR}/raw_frames.py" /opt/pinpoint/raw_frames.py
 install -m 0644 "${SCRIPT_DIR}/rejection_hints.py" /opt/pinpoint/rejection_hints.py
 install -m 0644 "${SCRIPT_DIR}/strobe_copies.py" /opt/pinpoint/strobe_copies.py
+install -m 0644 "${SCRIPT_DIR}/adaptive_capture.py" /opt/pinpoint/adaptive_capture.py
 install -m 0644 "${SCRIPT_DIR}/requirements.txt" /opt/pinpoint/requirements.txt
 rm -f /opt/pinpoint/pinpoint_server.py
 

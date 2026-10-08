@@ -73,8 +73,8 @@ export function N8nPanel() {
 const styles = StyleSheet.create({
   card: { padding: spacing.lg },
   headingRow: { alignItems: 'center', flexDirection: 'row', marginBottom: spacing.lg },
-  logo: { alignItems: 'center', backgroundColor: colors.surfaceRaised, borderRadius: 20, height: 52, justifyContent: 'center', marginRight: 13, width: 52 },
-  logoReady: { backgroundColor: '#192219' },
+  logo: { alignItems: 'center', backgroundColor: colors.surfaceRaised, borderRadius: 6, height: 52, justifyContent: 'center', marginRight: 13, width: 52 },
+  logoReady: { backgroundColor: colors.accentWash },
   headingCopy: { flex: 1 },
   title: { color: colors.text, fontSize: 18, fontWeight: '700', marginTop: 3 },
   status: { color: colors.textMuted, fontSize: 11, fontWeight: '600', marginTop: 3 },

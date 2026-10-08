@@ -149,7 +149,7 @@ export function OpenGolfSimPanel() {
           accessibilityRole="switch"
           onValueChange={toggleAutoSend}
           thumbColor={config.autoSend ? colors.accent : colors.textMuted}
-          trackColor={{ false: colors.lineStrong, true: '#506B22' }}
+          trackColor={{ false: colors.lineStrong, true: colors.accentLine }}
           value={config.autoSend}
         />
       </View>
@@ -254,8 +254,8 @@ function formatTime(value: string): string {
 const styles = StyleSheet.create({
   card: { padding: spacing.lg },
   headingRow: { alignItems: 'center', flexDirection: 'row', marginBottom: spacing.lg },
-  logo: { alignItems: 'center', backgroundColor: colors.surfaceRaised, borderRadius: 20, height: 52, justifyContent: 'center', marginRight: 13, width: 52 },
-  logoConnected: { backgroundColor: '#192219' },
+  logo: { alignItems: 'center', backgroundColor: colors.surfaceRaised, borderRadius: 6, height: 52, justifyContent: 'center', marginRight: 13, width: 52 },
+  logoConnected: { backgroundColor: colors.accentWash },
   headingCopy: { flex: 1 },
   title: { color: colors.text, fontSize: 18, fontWeight: '700', marginTop: 3 },
   statusRow: { alignItems: 'center', flexDirection: 'row', gap: 6, marginTop: 4 },
@@ -264,13 +264,13 @@ const styles = StyleSheet.create({
   inputLabel: { color: colors.textMuted, fontSize: 10, fontWeight: '800', letterSpacing: 0.8, marginBottom: 7, textTransform: 'uppercase' },
   modeRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
   modeButton: { alignItems: 'center', backgroundColor: colors.background, borderColor: colors.lineStrong, borderRadius: radii.md, borderWidth: 1, flex: 1, flexDirection: 'row', gap: 8, justifyContent: 'center', minHeight: 48 },
-  modeButtonSelected: { backgroundColor: '#1A2118', borderColor: colors.accent },
+  modeButtonSelected: { backgroundColor: colors.accentWash, borderColor: colors.accent },
   modeText: { color: colors.textMuted, fontSize: 12, fontWeight: '800' },
   modeTextSelected: { color: colors.accent },
   pressed: { opacity: 0.72 },
   inputWrap: { alignItems: 'center', backgroundColor: colors.background, borderColor: colors.lineStrong, borderRadius: radii.md, borderWidth: 1, flexDirection: 'row', gap: 10, marginBottom: spacing.sm, minHeight: 54, paddingHorizontal: spacing.md },
   input: { color: colors.text, flex: 1, fontSize: 14, fontWeight: '600', paddingVertical: 0 },
-  helpBox: { alignItems: 'flex-start', backgroundColor: '#142322', borderRadius: radii.sm, flexDirection: 'row', gap: 9, marginBottom: spacing.md, padding: 11 },
+  helpBox: { alignItems: 'flex-start', backgroundColor: colors.accentWash, borderRadius: radii.sm, flexDirection: 'row', gap: 9, marginBottom: spacing.md, padding: 11 },
   helpText: { color: colors.textMuted, flex: 1, fontSize: 10, lineHeight: 15 },
   code: { color: colors.cyan, fontFamily: 'monospace', fontWeight: '700' },
   webNote: { color: colors.textDim, fontSize: 10, lineHeight: 15, marginBottom: spacing.md },
@@ -278,7 +278,7 @@ const styles = StyleSheet.create({
   toggleCopy: { flex: 1, paddingRight: spacing.md },
   toggleTitle: { color: colors.text, fontSize: 13, fontWeight: '700' },
   toggleBody: { color: colors.textMuted, fontSize: 10, lineHeight: 15, marginTop: 3 },
-  errorBox: { alignItems: 'center', backgroundColor: '#241718', borderRadius: radii.sm, flexDirection: 'row', gap: 8, marginBottom: spacing.md, padding: 11 },
+  errorBox: { alignItems: 'center', backgroundColor: colors.dangerWash, borderRadius: radii.sm, flexDirection: 'row', gap: 8, marginBottom: spacing.md, padding: 11 },
   errorText: { color: '#F0B0AC', flex: 1, fontSize: 11, lineHeight: 16 },
   dismissText: { color: colors.text, fontSize: 10, fontWeight: '800' },
   connectionDetails: { borderBottomColor: colors.line, borderBottomWidth: 1, marginBottom: spacing.sm },

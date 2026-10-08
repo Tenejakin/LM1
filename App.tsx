@@ -117,7 +117,7 @@ const styles = StyleSheet.create({
   authLoadingText: { color: colors.textMuted, fontSize: 14 },
   screen: { flex: 1 },
   ballDetectedBorder: {
-    borderColor: '#35D66B',
+    borderColor: colors.green,
     borderWidth: 5,
     bottom: 0,
     left: 0,

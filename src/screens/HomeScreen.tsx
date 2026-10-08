@@ -20,10 +20,10 @@ import { ClubSelector } from '@/components/ClubSelector';
 import { SessionBanner } from '@/components/SessionBanner';
 import { StaggerNotice } from '@/components/StaggerNotice';
 import { directionLabel, ShotRow, StrikeMap, TrajectoryChart } from '@/components/ShotVisuals';
-import { Eyebrow, HelpText, MetricTile, PrimaryButton, SectionHeader, StepRow, Surface } from '@/components/ui';
+import { Eyebrow, HelpText, HudCorners, MetricTile, PrimaryButton, SectionHeader, StepRow, Surface } from '@/components/ui';
 import { useLaunchMonitor } from '@/context/LaunchMonitorContext';
 import { useUnits } from '@/context/UnitsContext';
-import { colors, radii, spacing } from '@/theme';
+import { colors, fonts, radii, spacing } from '@/theme';
 import { Shot } from '@/types';
 import { shotEstimates } from '@/utils/carry';
 import { shotClubLabel } from '@/utils/bagClubs';
@@ -182,12 +182,13 @@ export function HomeScreen({
       <ClubSelector disabled={state === 'armed' || state === 'processing' || state === 'connecting'} />
 
       <LinearGradient
-        colors={['#1B241C', '#101513', '#0E1214']}
+        colors={['#101316', '#07090A', '#000000']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.hero}
       >
         <View style={styles.heroGlow} />
+        <HudCorners />
         <View style={styles.heroTop}>
           <View style={styles.heroCopy}>
             <Eyebrow>{heroCopy.eyebrow}</Eyebrow>
@@ -373,8 +374,8 @@ export function HomeScreen({
 const styles = StyleSheet.create({
   content: { paddingHorizontal: spacing.md, paddingBottom: 110 },
   errorBanner: {
-    backgroundColor: '#241718',
-    borderColor: '#4C2929',
+    backgroundColor: colors.dangerWash,
+    borderColor: colors.dangerLine,
     borderRadius: radii.md,
     borderWidth: 1,
     gap: spacing.sm,
@@ -386,8 +387,8 @@ const styles = StyleSheet.create({
   errorAction: { alignItems: 'center', flexDirection: 'row', gap: 5, minHeight: 32 },
   errorActionText: { color: colors.accent, fontSize: 13, fontWeight: '700' },
   hero: {
-    borderColor: '#34402F',
-    borderRadius: radii.xl,
+    borderColor: colors.line,
+    borderRadius: radii.lg,
     borderWidth: 1,
     marginBottom: spacing.xl,
     overflow: 'hidden',
@@ -397,7 +398,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accent,
     borderRadius: 110,
     height: 180,
-    opacity: 0.035,
+    opacity: 0.05,
     position: 'absolute',
     right: -50,
     top: -70,
@@ -405,25 +406,25 @@ const styles = StyleSheet.create({
   },
   heroTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.lg },
   heroCopy: { flex: 1, paddingRight: spacing.md },
-  heroTitle: { color: colors.text, fontSize: 27, fontWeight: '700', letterSpacing: -1, marginTop: 7 },
-  heroNote: { color: colors.textMuted, fontSize: 13, fontWeight: '600', marginTop: 5 },
+  heroTitle: { color: colors.text, fontSize: 28, fontWeight: '300', letterSpacing: -0.6, marginTop: 8 },
+  heroNote: { color: colors.textMuted, fontSize: 13, fontWeight: '400', marginTop: 6 },
   heroHint: { color: colors.textMuted, fontSize: 12, lineHeight: 16, marginTop: spacing.sm, textAlign: 'center' },
-  modeLabel: { color: colors.accent, fontSize: 11, fontWeight: '800', letterSpacing: 1.1, marginBottom: spacing.sm, textAlign: 'center' },
+  modeLabel: { color: colors.accent, fontFamily: fonts.mono, fontSize: 10, fontWeight: '600', letterSpacing: 2, marginBottom: spacing.sm, textAlign: 'center' },
   sensorWrap: { alignItems: 'center', height: 64, justifyContent: 'center', width: 64 },
-  sensorPulse: { backgroundColor: colors.accent, borderRadius: 32, height: 64, position: 'absolute', width: 64 },
+  sensorPulse: { backgroundColor: colors.accent, borderRadius: radii.lg, height: 64, position: 'absolute', width: 64 },
   sensor: {
     alignItems: 'center',
     backgroundColor: colors.surfaceRaised,
     borderColor: colors.lineStrong,
-    borderRadius: 25,
+    borderRadius: radii.md,
     borderWidth: 1,
     height: 50,
     justifyContent: 'center',
     width: 50,
   },
-  sensorArmed: { backgroundColor: '#17221B', borderColor: '#45613E' },
+  sensorArmed: { backgroundColor: colors.accentWash, borderColor: colors.accentLine },
   lastShotHeader: { alignItems: 'flex-end', flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.md },
-  shotTitle: { color: colors.text, fontSize: 24, fontWeight: '700', letterSpacing: -0.6, marginTop: 3 },
+  shotTitle: { color: colors.text, fontSize: 26, fontWeight: '300', letterSpacing: -0.5, marginTop: 4 },
   shotClub: { color: colors.textMuted, fontSize: 12, fontWeight: '700', marginTop: 2 },
   reviewButton: { alignItems: 'center', flexDirection: 'row', gap: 5, paddingVertical: 6 },
   reviewText: { color: colors.accent, fontSize: 13, fontWeight: '700' },
@@ -436,13 +437,13 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
   },
   speedRow: { alignItems: 'baseline', flexDirection: 'row', gap: 8, marginTop: 2 },
-  speedValue: { color: colors.text, fontSize: 56, fontWeight: '700', letterSpacing: -3.2 },
+  speedValue: { color: colors.text, fontSize: 60, fontWeight: '200', letterSpacing: -2.5, fontVariant: ['tabular-nums'] },
   speedUnit: { color: colors.textMuted, fontSize: 16, fontWeight: '700' },
   speedSecondary: { color: colors.textDim, fontSize: 12, fontWeight: '600', marginTop: -4 },
   carryColumn: { alignItems: 'flex-end', paddingBottom: 2 },
   carryLabel: { color: colors.textMuted, fontSize: 10, fontWeight: '800', letterSpacing: 0.8, textTransform: 'uppercase' },
   carryValueRow: { alignItems: 'baseline', flexDirection: 'row', gap: 4, marginTop: 2 },
-  carryValue: { color: colors.accent, fontSize: 33, fontWeight: '700', letterSpacing: -1.4 },
+  carryValue: { color: colors.accent, fontSize: 34, fontWeight: '300', letterSpacing: -1, fontVariant: ['tabular-nums'] },
   carryUnit: { color: colors.textMuted, fontSize: 12, fontWeight: '700' },
   carryYards: { color: colors.textDim, fontSize: 11, fontWeight: '600', marginTop: -2 },
   confidencePill: { alignItems: 'center', flexDirection: 'row', gap: 5, marginTop: 7 },
@@ -452,14 +453,14 @@ const styles = StyleSheet.create({
   visualCard: { flex: 1, minHeight: 175, overflow: 'hidden', padding: spacing.md },
   cardTitleRow: { flexDirection: 'row', justifyContent: 'space-between' },
   cardTitle: { color: colors.text, fontSize: 16, fontWeight: '700', marginTop: 3 },
-  smallIcon: { alignItems: 'center', backgroundColor: colors.surfaceRaised, borderRadius: 12, height: 32, justifyContent: 'center', width: 32 },
+  smallIcon: { alignItems: 'center', backgroundColor: colors.surfaceRaised, borderRadius: radii.md, height: 32, justifyContent: 'center', width: 32 },
   section: { marginTop: spacing.xl },
   listGap: { gap: spacing.sm },
   emptyCard: { gap: spacing.lg, padding: spacing.lg },
   emptyHeader: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm },
   emptyHeaderCopy: { flex: 1 },
-  emptyIcon: { alignItems: 'center', backgroundColor: '#1B241A', borderRadius: 24, height: 48, justifyContent: 'center', width: 48 },
-  emptyTitle: { color: colors.text, fontSize: 19, fontWeight: '700' },
+  emptyIcon: { alignItems: 'center', backgroundColor: colors.accentWash, borderRadius: radii.lg, height: 48, justifyContent: 'center', width: 48 },
+  emptyTitle: { color: colors.text, fontSize: 19, fontWeight: '400' },
   steps: { gap: spacing.md },
   emptyActions: { gap: spacing.sm },
   emptyAside: { color: colors.textMuted, fontSize: 12, lineHeight: 16, textAlign: 'center' },

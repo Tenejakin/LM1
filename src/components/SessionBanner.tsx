@@ -30,7 +30,7 @@ export function SessionBanner({ onOpenSessions }: { onOpenSessions: () => void }
 
 const styles = StyleSheet.create({
   banner: {
-    alignItems: 'center', backgroundColor: '#152018', borderColor: '#24382A', borderRadius: radii.md, borderWidth: 1,
+    alignItems: 'center', backgroundColor: colors.accentWash, borderColor: colors.accentLine, borderRadius: radii.md, borderWidth: 1,
     flexDirection: 'row', gap: 8, marginBottom: spacing.sm, paddingHorizontal: spacing.md, paddingVertical: 9,
   },
   bannerIdle: { backgroundColor: colors.surface, borderColor: colors.line },

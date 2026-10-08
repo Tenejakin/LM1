@@ -175,7 +175,7 @@ const styles = StyleSheet.create({
   header: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
   eyebrow: { color: colors.accent, fontSize: 10, fontWeight: '800', letterSpacing: 1.2, textTransform: 'uppercase' },
   title: { color: colors.text, fontSize: 24, fontWeight: '700', marginTop: 3 },
-  close: { alignItems: 'center', backgroundColor: colors.surfaceRaised, borderRadius: 20, height: 40, justifyContent: 'center', width: 40 },
+  close: { alignItems: 'center', backgroundColor: colors.surfaceRaised, borderRadius: 6, height: 40, justifyContent: 'center', width: 40 },
   body: { gap: spacing.xs, paddingBottom: spacing.xl, paddingTop: spacing.md },
   label: { color: colors.text, fontSize: 13, fontWeight: '700', marginTop: spacing.sm },
   hint: { color: colors.textMuted, fontSize: 11, lineHeight: 16 },

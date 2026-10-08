@@ -3,7 +3,7 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { colors, radii } from '@/theme';
+import { colors, fonts } from '@/theme';
 import { AppTab } from '@/types';
 
 const tabs: {
@@ -33,12 +33,13 @@ export function BottomNav({ active, onChange }: { active: AppTab; onChange: (tab
             accessibilityLabel={tab.label}
             accessibilityState={{ selected }}
             onPress={() => onChange(tab.key)}
-            style={({ pressed }) => [styles.tab, selected && styles.tabActive, pressed && styles.pressed]}
+            style={({ pressed }) => [styles.tab, pressed && styles.pressed]}
           >
+            <View style={[styles.indicator, selected && styles.indicatorActive]} />
             <Ionicons
               name={selected ? tab.activeIcon : tab.icon}
-              color={selected ? colors.accent : colors.textDim}
-              size={22}
+              color={selected ? colors.text : colors.textDim}
+              size={21}
             />
             <Text style={[styles.label, selected && styles.labelActive]}>{tab.label}</Text>
           </Pressable>
@@ -51,26 +52,23 @@ export function BottomNav({ active, onChange }: { active: AppTab; onChange: (tab
 const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
-    backgroundColor: '#0C1012F5',
+    backgroundColor: colors.background,
     borderTopColor: colors.line,
     borderTopWidth: 1,
     flexDirection: 'row',
-    gap: 2,
     justifyContent: 'space-around',
-    paddingHorizontal: 6,
-    paddingTop: 9,
   },
   tab: {
     alignItems: 'center',
-    borderRadius: radii.md,
     flex: 1,
-    gap: 3,
+    gap: 4,
     justifyContent: 'center',
-    minHeight: 56,
-    paddingVertical: 4,
+    minHeight: 58,
+    paddingBottom: 4,
   },
-  tabActive: { backgroundColor: '#1A2118' },
-  pressed: { opacity: 0.7 },
-  label: { color: colors.textDim, fontSize: 11, fontWeight: '700' },
-  labelActive: { color: colors.accent },
+  indicator: { alignSelf: 'stretch', backgroundColor: 'transparent', height: 2, marginBottom: 6, marginHorizontal: 10 },
+  indicatorActive: { backgroundColor: colors.accent },
+  pressed: { opacity: 0.6 },
+  label: { color: colors.textDim, fontFamily: fonts.mono, fontSize: 8.5, fontWeight: '600', letterSpacing: 0.9, textTransform: 'uppercase' },
+  labelActive: { color: colors.text },
 });

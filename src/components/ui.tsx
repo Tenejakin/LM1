@@ -13,7 +13,7 @@ import {
   ViewStyle,
 } from 'react-native';
 
-import { colors, radii, shadows, spacing } from '@/theme';
+import { colors, fonts, radii, shadows, spacing } from '@/theme';
 import { DeviceState } from '@/types';
 
 export function Surface({
@@ -21,6 +21,19 @@ export function Surface({
   style,
 }: PropsWithChildren<{ style?: StyleProp<ViewStyle> }>) {
   return <View style={[styles.surface, style]}>{children}</View>;
+}
+
+/** Thin corner brackets, like a targeting reticle. Place inside a position-relative card. */
+export function HudCorners({ color = colors.lineStrong }: { color?: string }) {
+  const edge = { borderColor: color } as const;
+  return (
+    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+      <View style={[styles.hudCorner, styles.hudTL, edge]} />
+      <View style={[styles.hudCorner, styles.hudTR, edge]} />
+      <View style={[styles.hudCorner, styles.hudBL, edge]} />
+      <View style={[styles.hudCorner, styles.hudBR, edge]} />
+    </View>
+  );
 }
 
 export function Eyebrow({ children }: PropsWithChildren) {
@@ -233,7 +246,7 @@ export function StepRow({
 const stateMeta: Record<DeviceState, { label: string; color: string }> = {
   offline: { label: 'Offline', color: colors.textDim },
   connecting: { label: 'Connecting', color: colors.orange },
-  ready: { label: 'Ready', color: colors.accent },
+  ready: { label: 'Ready', color: colors.green },
   armed: { label: 'Armed', color: colors.cyan },
   processing: { label: 'Analyzing', color: colors.orange },
   error: { label: 'Needs attention', color: colors.red },
@@ -351,9 +364,10 @@ const styles = StyleSheet.create({
   },
   eyebrow: {
     color: colors.textMuted,
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1.5,
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 2.2,
     textTransform: 'uppercase',
   },
   sectionHeader: {
@@ -364,18 +378,22 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     color: colors.text,
-    fontSize: 20,
-    fontWeight: '700',
-    letterSpacing: -0.4,
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: 2,
+    textTransform: 'uppercase',
   },
   sectionAction: {
     color: colors.accent,
-    fontSize: 13,
-    fontWeight: '700',
+    fontFamily: fonts.mono,
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
   },
   pressed: { opacity: 0.7 },
   button: {
-    minHeight: 54,
+    minHeight: 52,
     borderRadius: radii.md,
     paddingHorizontal: spacing.lg,
     alignItems: 'center',
@@ -383,27 +401,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.sm,
   },
-  button_accent: { backgroundColor: colors.accent },
-  button_dark: { backgroundColor: colors.surfaceSoft },
+  button_accent: { backgroundColor: colors.text },
+  button_dark: { backgroundColor: colors.surfaceSoft, borderWidth: 1, borderColor: colors.line },
   button_outline: { borderWidth: 1, borderColor: colors.lineStrong },
-  button_danger: { backgroundColor: '#2A1718', borderWidth: 1, borderColor: '#583030' },
+  button_danger: { backgroundColor: colors.dangerWash, borderWidth: 1, borderColor: colors.dangerLine },
   buttonDisabled: { opacity: 0.45 },
-  buttonPressed: { transform: [{ scale: 0.98 }], opacity: 0.86 },
-  buttonText: { color: colors.text, fontSize: 15, fontWeight: '800' },
-  buttonTextAccent: { color: colors.accentInk },
+  buttonPressed: { opacity: 0.72 },
+  buttonText: { color: colors.text, fontSize: 13, fontWeight: '700', letterSpacing: 1.4, textTransform: 'uppercase' },
+  buttonTextAccent: { color: colors.black },
   badge: {
     alignItems: 'center',
-    backgroundColor: colors.surfaceRaised,
-    borderColor: colors.line,
-    borderRadius: radii.pill,
+    backgroundColor: 'transparent',
+    borderColor: colors.lineStrong,
+    borderRadius: radii.sm,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 7,
     paddingHorizontal: 11,
     paddingVertical: 7,
   },
-  badgeDot: { width: 7, height: 7, borderRadius: 4 },
-  badgeText: { color: colors.text, fontSize: 12, fontWeight: '700' },
+  badgeDot: { width: 6, height: 6, borderRadius: 3 },
+  badgeText: { color: colors.text, fontFamily: fonts.mono, fontSize: 10, fontWeight: '600', letterSpacing: 1.4, textTransform: 'uppercase' },
   metricTile: {
     flex: 1,
     minWidth: 88,
@@ -419,9 +437,10 @@ const styles = StyleSheet.create({
   measurementConfidence: { color: colors.orange, fontSize: 10, fontWeight: '800' },
   metricLabel: {
     color: colors.textMuted,
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.9,
+    fontFamily: fonts.mono,
+    fontSize: 9,
+    fontWeight: '600',
+    letterSpacing: 1.6,
     textTransform: 'uppercase',
     marginBottom: spacing.xs,
   },
@@ -435,13 +454,13 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
     borderWidth: 1,
   },
-  measuredBadge: { backgroundColor: 'rgba(199, 243, 107, 0.1)', borderColor: 'rgba(199, 243, 107, 0.35)' },
+  measuredBadge: { backgroundColor: colors.accentWash, borderColor: colors.accentLine },
   estimatedBadge: { backgroundColor: 'rgba(255, 184, 106, 0.1)', borderColor: 'rgba(255, 184, 106, 0.35)' },
   measurementText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.3 },
   metricValueRow: { flexDirection: 'row', alignItems: 'baseline', gap: 4 },
-  metricValue: { color: colors.text, fontSize: 25, fontWeight: '700', letterSpacing: -1 },
+  metricValue: { color: colors.text, fontSize: 26, fontWeight: '300', letterSpacing: -0.5, fontVariant: ['tabular-nums'] },
   metricValueAccent: { color: colors.accent },
-  metricUnit: { color: colors.textMuted, fontSize: 11, fontWeight: '700' },
+  metricUnit: { color: colors.textMuted, fontFamily: fonts.mono, fontSize: 10, fontWeight: '600', letterSpacing: 0.6 },
   metricNote: { color: colors.textDim, fontSize: 10, fontWeight: '700', lineHeight: 14, marginTop: 5 },
   collapsible: {
     backgroundColor: colors.surface,
@@ -461,7 +480,7 @@ const styles = StyleSheet.create({
   collapsibleIcon: {
     alignItems: 'center',
     backgroundColor: colors.surfaceRaised,
-    borderRadius: 14,
+    borderRadius: radii.md,
     height: 36,
     justifyContent: 'center',
     width: 36,
@@ -492,22 +511,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minHeight: 42,
   },
-  segmentSelected: { backgroundColor: colors.accent },
-  segmentText: { color: colors.textMuted, fontSize: 13, fontWeight: '800' },
-  segmentTextSelected: { color: colors.accentInk },
+  segmentSelected: { backgroundColor: colors.text },
+  segmentText: { color: colors.textMuted, fontSize: 12, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' },
+  segmentTextSelected: { color: colors.black },
   helpText: { color: colors.textMuted, fontSize: 12, lineHeight: 17 },
   stepRow: { flexDirection: 'row', gap: spacing.sm },
   stepIndex: {
     alignItems: 'center',
     backgroundColor: colors.surfaceSoft,
-    borderRadius: 14,
+    borderRadius: radii.sm,
     height: 28,
     justifyContent: 'center',
     marginTop: 1,
     width: 28,
   },
   stepIndexDone: { backgroundColor: colors.accent },
-  stepIndexText: { color: colors.textMuted, fontSize: 13, fontWeight: '800' },
+  stepIndexText: { color: colors.textMuted, fontFamily: fonts.mono, fontSize: 12, fontWeight: '600' },
   stepCopy: { flex: 1 },
   stepTitle: { color: colors.text, fontSize: 14, fontWeight: '700' },
   stepTitleDone: { color: colors.textMuted, textDecorationLine: 'line-through' },
@@ -516,10 +535,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.surfaceRaised,
     borderColor: colors.line,
-    borderRadius: 20,
+    borderRadius: radii.md,
     borderWidth: 1,
     height: 40,
     justifyContent: 'center',
     width: 40,
   },
+  hudCorner: { position: 'absolute', width: 12, height: 12 },
+  hudTL: { top: 8, left: 8, borderTopWidth: 1, borderLeftWidth: 1 },
+  hudTR: { top: 8, right: 8, borderTopWidth: 1, borderRightWidth: 1 },
+  hudBL: { bottom: 8, left: 8, borderBottomWidth: 1, borderLeftWidth: 1 },
+  hudBR: { bottom: 8, right: 8, borderBottomWidth: 1, borderRightWidth: 1 },
 });

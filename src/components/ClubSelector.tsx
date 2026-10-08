@@ -236,9 +236,9 @@ const styles = StyleSheet.create({
   selectorPressed: { backgroundColor: colors.surfaceRaised, transform: [{ scale: 0.99 }] },
   clubMark: {
     alignItems: 'center',
-    backgroundColor: '#1B241A',
-    borderColor: '#34452F',
-    borderRadius: 14,
+    backgroundColor: colors.accentWash,
+    borderColor: colors.accentLine,
+    borderRadius: 6,
     borderWidth: 1,
     height: 40,
     justifyContent: 'center',
@@ -281,7 +281,7 @@ const styles = StyleSheet.create({
   sheetHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
   sheetEyebrow: { color: colors.accent, fontSize: 10, fontWeight: '800', letterSpacing: 1.2, textTransform: 'uppercase' },
   sheetTitle: { color: colors.text, fontSize: 27, fontWeight: '700', letterSpacing: -0.9, marginTop: 3 },
-  closeButton: { alignItems: 'center', backgroundColor: colors.surfaceRaised, borderRadius: 20, height: 40, justifyContent: 'center', width: 40 },
+  closeButton: { alignItems: 'center', backgroundColor: colors.surfaceRaised, borderRadius: 6, height: 40, justifyContent: 'center', width: 40 },
   sheetNote: { color: colors.textMuted, fontSize: 12, lineHeight: 18, marginTop: spacing.sm, maxWidth: 330 },
   clubList: { paddingBottom: spacing.xl },
   category: { marginTop: spacing.lg },
@@ -303,5 +303,5 @@ const styles = StyleSheet.create({
   clubOptionShort: { color: colors.text, fontSize: 18, fontWeight: '900' },
   clubOptionShortSelected: { color: colors.accentInk },
   clubOptionLabel: { color: colors.textMuted, fontSize: 8, fontWeight: '700', marginTop: 3, maxWidth: '100%' },
-  clubOptionLabelSelected: { color: '#44531D' },
+  clubOptionLabelSelected: { color: colors.accentInk },
 });

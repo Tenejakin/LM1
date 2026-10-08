@@ -1,9 +1,8 @@
-import Ionicons from '@expo/vector-icons/Ionicons';
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { StatusBadge } from '@/components/ui';
-import { colors, spacing } from '@/theme';
+import { colors, fonts, spacing } from '@/theme';
 import { DeviceState } from '@/types';
 
 export function ScreenHeader({
@@ -20,13 +19,9 @@ export function ScreenHeader({
   return (
     <View style={styles.header}>
       <View style={styles.brandRow}>
-        <View style={styles.mark}>
-          <Ionicons name="golf" size={18} color={colors.accentInk} />
-        </View>
-        <View>
-          <Text style={styles.title}>{title}</Text>
-          <Text style={styles.subtitle}>{subtitle}</Text>
-        </View>
+        <Text style={styles.title}>{title}</Text>
+        <View style={styles.divider} />
+        <Text style={styles.subtitle}>{subtitle}</Text>
       </View>
       <StatusBadge state={state} demo={demo} />
     </View>
@@ -36,19 +31,15 @@ export function ScreenHeader({
 const styles = StyleSheet.create({
   header: {
     alignItems: 'center',
+    borderBottomColor: colors.line,
+    borderBottomWidth: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: spacing.xl,
+    marginBottom: spacing.lg,
+    paddingBottom: spacing.md,
   },
   brandRow: { alignItems: 'center', flexDirection: 'row', gap: 11 },
-  mark: {
-    alignItems: 'center',
-    backgroundColor: colors.accent,
-    borderRadius: 13,
-    height: 40,
-    justifyContent: 'center',
-    width: 40,
-  },
-  title: { color: colors.text, fontSize: 18, fontWeight: '800', letterSpacing: -0.4 },
-  subtitle: { color: colors.textMuted, fontSize: 10, fontWeight: '600', marginTop: 1 },
+  title: { color: colors.text, fontSize: 20, fontWeight: '800', letterSpacing: 5 },
+  divider: { backgroundColor: colors.lineStrong, height: 14, width: 1 },
+  subtitle: { color: colors.textMuted, fontFamily: fonts.mono, fontSize: 9, fontWeight: '600', letterSpacing: 1.8, textTransform: 'uppercase' },
 });

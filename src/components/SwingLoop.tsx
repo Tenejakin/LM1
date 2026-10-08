@@ -189,7 +189,7 @@ const styles = StyleSheet.create({
   },
   pausedText: { color: colors.text, fontSize: 11, fontWeight: '700' },
   controls: { alignItems: 'center', flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs },
-  stepButton: { alignItems: 'center', backgroundColor: colors.surfaceRaised, borderRadius: 16, height: 32, justifyContent: 'center', width: 32 },
+  stepButton: { alignItems: 'center', backgroundColor: colors.surfaceRaised, borderRadius: 6, height: 32, justifyContent: 'center', width: 32 },
   middle: { flex: 1, gap: 6 },
   frameLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '600', textAlign: 'center' },
   frameLabelImpact: { color: colors.accent },

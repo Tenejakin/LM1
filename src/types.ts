@@ -566,6 +566,8 @@ export interface DeviceStatus {
     minUs: number;
     maxUs: number;
     stepUs: number;
+    /** Present from service 0.63.0: above this the launch measurement rejects frames (motion blur). */
+    measurementMaxUs?: number;
     /** Present from service 0.56.0; true while the long-exposure strobe mode is on. */
     strobeMode?: boolean;
     lightMode?: LightMode;

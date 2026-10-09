@@ -119,10 +119,10 @@ export function DeviceScreen() {
     exposureControl?.configurable && status?.cameraConnected && !isDemo && state === 'ready' && !exposureBusy,
   );
   const isExposurePresetActive = (value: number) => Boolean(
-    status && exposureControl && Math.abs(status.exposureUs - value) <= exposureControl.stepUs,
+    // The sensor rounds to whole lines (3900 runs as 3891), so allow a little slack.
+    status && exposureControl && Math.abs(status.exposureUs - value) <= Math.max(exposureControl.stepUs, 10, value * 0.02),
   );
   const light = status?.light;
-  const strobeMode = light?.active === 'strobe' || exposureControl?.strobeMode === true;
   const lightReady = Boolean(
     light && exposureControl?.configurable && status?.cameraConnected && !isDemo &&
     state === 'ready' && !lightBusy && !exposureBusy && !autoExposureBusy,
@@ -135,7 +135,9 @@ export function DeviceScreen() {
     (light.available
       ? (light.connected ? `Ring ${ringText}.` : 'Ring controller not found - plug in the ESP32.')
       : 'No ring controller set up, so a light choice only changes the shutter.');
-  const exposurePresets = strobeMode ? [1000, 2000, 3000, 3900] : [20, 50, 75, 100, 150, 250];
+  const measurementMaxUs = exposureControl?.measurementMaxUs ?? 250;
+  const exposurePresets = [10, 20, 50, 100, 250, 1000, 2000, 4000]
+    .filter((value) => !exposureControl || (value >= exposureControl.minUs && value <= exposureControl.maxUs));
   const gainReady = Boolean(
     gainControl?.configurable && status?.cameraConnected && !status.camera?.autoExposure &&
     !isDemo && state === 'ready' && !gainBusy,
@@ -200,8 +202,8 @@ export function DeviceScreen() {
 
   const handleExposureChange = async (requested?: number) => {
     const exposureUs = requested ?? Number(exposureInput);
-    const minUs = exposureControl?.minUs ?? 50;
-    const maxUs = exposureControl?.maxUs ?? 250;
+    const minUs = exposureControl?.minUs ?? 1;
+    const maxUs = exposureControl?.maxUs ?? 4132;
     if (!Number.isInteger(exposureUs) || exposureUs < minUs || exposureUs > maxUs) {
       setExposureFailed(true);
       setExposureMessage(`Enter a whole number from ${minUs} to ${maxUs} μs.`);
@@ -212,9 +214,20 @@ export function DeviceScreen() {
     setExposureFailed(false);
     setExposureMessage(null);
     try {
+      const wasAuto = status?.exposureControl?.lightMode === 'auto';
       const nextStatus = await setExposure(exposureUs);
       setExposureInput(String(nextStatus.exposureUs));
-      setExposureMessage(`Requested ${exposureUs} μs and saved on LM1; the camera may round to its nearest supported timing.`);
+      const applied = nextStatus.camera?.exposureUs;
+      const notes = [
+        applied && applied !== exposureUs ? `Saved ${exposureUs} μs; the sensor runs it as ${applied} μs.` : `Saved ${exposureUs} μs.`,
+      ];
+      if (exposureUs > measurementMaxUs) {
+        notes.push(`Above ${measurementMaxUs} μs the ball smears, so shots are recorded but not measured.`);
+      }
+      if (wasAuto && nextStatus.exposureControl?.lightMode !== 'auto') {
+        notes.push(`Light switched from Auto to ${nextStatus.exposureControl?.lightMode ?? 'manual'} so Auto cannot overwrite your shutter.`);
+      }
+      setExposureMessage(notes.join(' '));
     } catch (caught) {
       setExposureFailed(true);
       setExposureMessage(caught instanceof Error ? caught.message : 'Could not change exposure.');
@@ -858,9 +871,9 @@ export function DeviceScreen() {
                       <View>
                         <Text style={styles.exposureTitle}>Shutter speed</Text>
                         <Text style={styles.exposureHelp}>
-                          {exposureControl.minUs}–{exposureControl.maxUs} μs. Lower freezes the ball more
-                          sharply; higher gives a brighter picture. The sensor may round to its nearest
-                          setting.
+                          {exposureControl.minUs}–{exposureControl.maxUs} μs, the sensor&apos;s full range at this
+                          frame rate. Lower freezes the ball more sharply; higher gives a brighter picture.
+                          Shots are measured up to {measurementMaxUs} μs.
                         </Text>
                       </View>
                     </View>
@@ -869,7 +882,7 @@ export function DeviceScreen() {
                         accessibilityLabel="Camera exposure in microseconds"
                         editable={exposureReady}
                         keyboardType="number-pad"
-                        maxLength={4}
+                        maxLength={6}
                         onChangeText={(value) => {
                           setExposureInput(value.replace(/[^0-9]/g, ''));
                           setExposureMessage(null);

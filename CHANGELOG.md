@@ -1,5 +1,13 @@
 # Changelog
 
+## App 3.45.0 / Pi service 0.63.0 - 2026-10-09
+
+- Shutter speed is limited only by the camera. The Pi reads the sensor's exposure range from libcamera when the cameras open, capped at one frame period (about 4132 us at 242 fps), and accepts any whole microsecond in it in every light mode. The old software caps (20-250 us normally, 4000 us in strobe) are gone from the manual setting.
+- The automatic sweep (Auto light and Auto-set) still chooses only measurement-safe shutters, and the launch measurement still rejects frames above 250 us (motion blur). The app says so when a longer shutter is set.
+- A shutter set by hand while the light is on Auto switches the light to the mode in use (Flat or Daylight), so the next automatic sweep cannot overwrite it.
+- The app shows the shutter the sensor actually runs (it rounds to whole lines, e.g. 3900 -> 3891 us), offers presets from 10 us to 4000 us, and accepts up to six digits.
+- Also in this release (Pi, 2026-10-08): `install.sh` installs `adaptive_capture.py`; raw 10-bit capture switched off in `/etc/default/pinpoint` (it used about a third of the CPU and is only useful for strobe in a dark room).
+
 ## App 3.44.1 - 2026-10-08
 
 - Package the latest app changes for TestFlight with the new LM1 app icon and splash artwork.

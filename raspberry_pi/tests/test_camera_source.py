@@ -130,7 +130,8 @@ class CsiCameraTests(unittest.TestCase):
             self.assertTrue(result["configurable"])
             self.assertEqual(configured_exposure_us(), 180)
             saved = json.loads((Path(directory) / "camera-settings.json").read_text(encoding="utf-8"))
-            self.assertEqual(saved, {"exposureUs": 180})
+            # A shutter set by hand leaves Auto, so the automatic sweep cannot overwrite it.
+            self.assertEqual(saved, {"exposureUs": 180, "lightMode": "flat"})
             capture.release()
         self.assertTrue(exposure_configuration()["configurable"])
 
@@ -145,21 +146,51 @@ class CsiCameraTests(unittest.TestCase):
             {"picamera2": SimpleNamespace(Picamera2=MagicMock(return_value=camera))},
         ):
             capture = CsiCapture()
-            result = set_camera_exposure(20)
-            self.assertEqual(result["exposureUs"], 20)
-            self.assertEqual(result["minUs"], 20)
+            result = set_camera_exposure(5)
+            self.assertEqual(result["exposureUs"], 5)
+            self.assertEqual(result["minUs"], 1)
             camera.set_controls.assert_called_once_with({
                 "AeEnable": False,
-                "ExposureTime": 20,
+                "ExposureTime": 5,
                 "AnalogueGain": 1.0,
             })
             capture.release()
 
-    def test_live_exposure_rejects_values_outside_measurement_range(self):
-        with self.assertRaisesRegex(ValueError, "between 20 and 250"):
-            set_camera_exposure(251)
-        with self.assertRaisesRegex(ValueError, "between 20 and 250"):
-            set_camera_exposure(19)
+    def test_live_exposure_is_limited_only_by_the_sensor(self):
+        # No camera open: 1 us up to one frame period (30 fps here).
+        with self.assertRaisesRegex(ValueError, "between 1 and 33333"):
+            set_camera_exposure(33334)
+        with self.assertRaisesRegex(ValueError, "between 1 and 33333"):
+            set_camera_exposure(0)
+
+    def test_sensor_range_comes_from_libcamera_capped_at_one_frame(self):
+        camera = MagicMock()
+        camera.camera_properties = {"Model": "ov9281"}
+        camera.camera_controls = {"ExposureTime": (9, 1_000_000, 100)}
+        with patch.dict(os.environ, {"PINPOINT_CAMERA_FPS": "242"}), patch.dict(
+            sys.modules, {"picamera2": SimpleNamespace(Picamera2=MagicMock(return_value=camera))},
+        ):
+            capture = CsiCapture()
+            config = exposure_configuration()
+            self.assertEqual((config["minUs"], config["maxUs"]), (9, 4132))
+            self.assertEqual(config["measurementMaxUs"], 250)
+            with self.assertRaisesRegex(ValueError, "between 9 and 4132"):
+                set_camera_exposure(8)
+            with self.assertRaisesRegex(ValueError, "between 9 and 4132"):
+                set_camera_exposure(4133)
+            self.assertEqual(set_camera_exposure(4132)["exposureUs"], 4132)
+            capture.release()
+        # Closing the camera forgets its range.
+        self.assertEqual(exposure_configuration()["maxUs"], 33333)
+
+    def test_applied_exposure_is_read_back_from_the_frames(self):
+        camera = MagicMock()
+        camera.camera_properties = {"Model": "ov9281"}
+        with patch.dict(sys.modules, {"picamera2": SimpleNamespace(Picamera2=MagicMock(return_value=camera))}):
+            capture = CsiCapture()
+            capture.metadata = {"ExposureTime": 3891}
+            self.assertEqual(set_camera_exposure(3900)["appliedExposureUs"], 3891)
+            capture.release()
 
     def test_strobe_mode_raises_the_exposure_limit_and_restores_the_normal_exposure(self):
         camera = MagicMock()
@@ -174,26 +205,23 @@ class CsiCameraTests(unittest.TestCase):
             capture = CsiCapture()
             set_camera_exposure(150)
             self.assertFalse(strobe_mode_enabled())
-            self.assertEqual(exposure_configuration()["maxUs"], 250)
+            # The shutter range no longer depends on the light mode: only the sensor limits it.
+            self.assertEqual(exposure_configuration()["maxUs"], 33333)
             self.assertFalse(exposure_configuration()["strobeMode"])
-            with self.assertRaisesRegex(ValueError, "between 20 and 250"):
-                set_camera_exposure(3900)
 
             result = set_strobe_mode(True)
             self.assertEqual(result["exposureUs"], 3900)
-            self.assertEqual(result["maxUs"], 4000)
+            self.assertEqual(result["maxUs"], 33333)
             self.assertTrue(result["strobeMode"])
             self.assertTrue(strobe_mode_enabled())
             self.assertEqual(configured_exposure_us(), 3900)
             self.assertEqual(set_camera_exposure(2000)["exposureUs"], 2000)
-            with self.assertRaisesRegex(ValueError, "between 20 and 4000"):
-                set_camera_exposure(4001)
             # Turning it on twice must not overwrite the remembered normal exposure.
             set_strobe_mode(True)
 
             result = set_strobe_mode(False)
             self.assertEqual(result["exposureUs"], 150)
-            self.assertEqual(result["maxUs"], 250)
+            self.assertEqual(result["maxUs"], 33333)
             self.assertFalse(strobe_mode_enabled())
             self.assertEqual(configured_exposure_us(), 150)
             capture.release()
@@ -216,7 +244,7 @@ class CsiCameraTests(unittest.TestCase):
             sun = set_light_mode("daylight")
             self.assertEqual((sun["exposureUs"], sun["gain"]), (30, 1.0))
             self.assertEqual(sun["activeLight"], "daylight")
-            self.assertEqual(sun["maxUs"], 250)
+            self.assertEqual(sun["maxUs"], 33333)
             set_camera_exposure(40)
 
             room = set_light_mode("flat")
@@ -225,7 +253,7 @@ class CsiCameraTests(unittest.TestCase):
 
             dark = set_light_mode("strobe")
             self.assertEqual(dark["exposureUs"], 3900)
-            self.assertEqual(dark["maxUs"], 4000)
+            self.assertEqual(dark["maxUs"], 33333)
             self.assertEqual(light_mode(), "strobe")
             self.assertEqual(set_light_mode("flat")["exposureUs"], 143)
             self.assertEqual(active_light(), "flat")
@@ -452,7 +480,7 @@ class CsiCameraTests(unittest.TestCase):
                 "AnalogueGain": 2.5,
             })
             saved = json.loads((Path(directory) / "camera-settings.json").read_text(encoding="utf-8"))
-            self.assertEqual(saved, {"exposureUs": 180, "gain": 2.5})
+            self.assertEqual(saved, {"exposureUs": 180, "gain": 2.5, "lightMode": "flat"})
             capture.release()
 
     def test_live_gain_rejects_invalid_values(self):

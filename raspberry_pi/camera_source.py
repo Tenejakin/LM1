@@ -64,13 +64,16 @@ def phase_of(a_stamps: "list[int]", b_stamp: int, period_ns: float) -> "float | 
 RAW_SCALE = 64
 DEFAULT_RAW_BLACK_LEVEL = 1024  # the measured floor of the data, in raw words
 
+# MIN/MAX_EXPOSURE_US are the measurement-safe range the automatic sweep chooses from. A shutter set by hand is
+# limited only by the sensor (hardware_exposure_limits): the measurement still rejects frames above 250 us itself.
 MIN_EXPOSURE_US = 20
 MAX_EXPOSURE_US = 250
 # A ball that moves further than this during one exposure is rejected by the measurement (launch_measurements
 # MAX_MOTION_BLUR_M), so the longest usable shutter is this distance divided by the ball's speed.
 BLUR_LIMIT_M = 0.004
 BLUR_SAFETY = 0.9
-EXPOSURE_STEP_US = 10
+EXPOSURE_STEP_US = 10  # the automatic sweep's step
+MANUAL_EXPOSURE_STEP_US = 1  # a shutter set by hand: any whole microsecond the sensor takes
 # Strobe mode: a long exposure (just under one 242 fps frame) with the IR ring flashing
 # a burst inside it, so one frame holds several sharp copies of the ball. The normal
 # measurement limit above still applies whenever strobe mode is off.
@@ -94,6 +97,8 @@ _lock = threading.Lock()
 _live: dict[str, Any] = {}
 _updated = 0.0
 _active_capture: CsiCapture | DualCsiCapture | None = None
+# The sensor's own shutter range at the running frame rate, read from libcamera when a camera opens.
+_hardware_exposure: tuple[int, int] | None = None
 
 
 def blur_safe_exposure_us(ball_speed_mps: float) -> int:
@@ -191,8 +196,40 @@ def strobe_mode_enabled() -> bool:
     return _load_camera_settings().get("strobeMode") is True
 
 
+def frame_period_us() -> int:
+    """One frame at the configured rate: no exposure can be longer without slowing the camera down."""
+    return int(1_000_000 / float(os.getenv("PINPOINT_CAMERA_FPS", "30")))
+
+
+def _sensor_exposure_limits(camera: Any) -> tuple[int, int]:
+    """The shutter range libcamera reports for this camera, capped at one frame period."""
+    period = frame_period_us()
+    controls = getattr(camera, "camera_controls", None)
+    limits = controls.get("ExposureTime") if isinstance(controls, dict) else None
+    if (isinstance(limits, (tuple, list)) and len(limits) >= 2
+            and all(isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 for v in limits[:2])):
+        low, high = int(limits[0]), int(limits[1])
+    else:
+        low, high = 1, period
+    low = max(1, low)
+    return low, max(low, min(high, period))
+
+
+def _publish_hardware_limits(limits: tuple[int, int] | None) -> None:
+    global _hardware_exposure
+    with _lock:
+        _hardware_exposure = limits
+
+
+def hardware_exposure_limits() -> tuple[int, int]:
+    """Shortest and longest shutter the sensor accepts; before a camera opens, 1 us to one frame."""
+    with _lock:
+        limits = _hardware_exposure
+    return limits if limits else (1, frame_period_us())
+
+
 def max_exposure_us() -> int:
-    return STROBE_MAX_EXPOSURE_US if strobe_mode_enabled() else MAX_EXPOSURE_US
+    return hardware_exposure_limits()[1]
 
 
 def light_mode() -> str:
@@ -216,11 +253,14 @@ def active_light() -> str:
 
 
 def exposure_configuration() -> dict[str, Any]:
+    low, high = hardware_exposure_limits()
     return {
         "configurable": uses_csi(),
-        "minUs": MIN_EXPOSURE_US,
-        "maxUs": max_exposure_us(),
-        "stepUs": EXPOSURE_STEP_US,
+        "minUs": low,
+        "maxUs": high,
+        "stepUs": MANUAL_EXPOSURE_STEP_US,
+        # Above this the launch measurement rejects the frames (motion blur); the shutter itself may go further.
+        "measurementMaxUs": MAX_EXPOSURE_US,
         "strobeMode": strobe_mode_enabled(),
         "lightMode": light_mode(),
         "activeLight": active_light(),
@@ -253,13 +293,31 @@ def _save_camera_settings(updates: dict[str, Any]) -> None:
     temporary.replace(path)
 
 
+def _applied_exposure_us(capture: Any, requested: int, wait_s: float = 0.3) -> int | None:
+    """The shutter the sensor actually used once the change reached a frame (it rounds to whole lines)."""
+    deadline = time.monotonic() + wait_s
+    applied = None
+    while time.monotonic() < deadline:
+        time.sleep(0.03)
+        applied = (getattr(capture, "metadata", None) or {}).get("ExposureTime")
+        # A line is a few microseconds; anything within 2 % (or 20 us) is this request, not the old value.
+        if isinstance(applied, (int, float)) and abs(applied - requested) <= max(20, requested * 0.02):
+            return int(applied)
+    return int(applied) if isinstance(applied, (int, float)) else None
+
+
 def set_camera_exposure(exposure_us: int) -> dict[str, Any]:
-    """Apply and persist a measurement-safe manual exposure on the active CSI camera."""
+    """Apply and persist any shutter the sensor supports, in every light mode.
+
+    The measurement keeps its own blur rule (frames above 250 us are not measured); this only refuses what the
+    hardware cannot do. A shutter set by hand also leaves Auto, so the next automatic sweep cannot overwrite it.
+    """
     if isinstance(exposure_us, bool) or not isinstance(exposure_us, int):
         raise ValueError("Exposure must be a whole number of microseconds.")
-    maximum = max_exposure_us()
-    if not MIN_EXPOSURE_US <= exposure_us <= maximum:
-        raise ValueError(f"Exposure must be between {MIN_EXPOSURE_US} and {maximum} μs.")
+    low, high = hardware_exposure_limits()
+    if not low <= exposure_us <= high:
+        raise ValueError(f"Exposure must be between {low} and {high} μs (the sensor's range at "
+                         f"{1_000_000 / frame_period_us():.0f} fps).")
     with _lock:
         capture = _active_capture
     if capture is None or not capture.isOpened():
@@ -267,12 +325,16 @@ def set_camera_exposure(exposure_us: int) -> dict[str, Any]:
 
     previous = capture.exposure_us
     capture.set_exposure(exposure_us)
+    updates: dict[str, Any] = {"exposureUs": exposure_us}
+    if light_mode() == "auto":
+        updates["lightMode"] = active_light()
     try:
-        _save_camera_setting("exposureUs", exposure_us)
+        _save_camera_settings(updates)
     except OSError:
         capture.set_exposure(previous)
         raise
-    return {"exposureUs": exposure_us, **exposure_configuration()}
+    return {"exposureUs": exposure_us, "appliedExposureUs": _applied_exposure_us(capture, exposure_us),
+            **exposure_configuration()}
 
 
 def _profile(settings: dict[str, Any], profiles: dict[str, Any], mode: str,
@@ -283,8 +345,8 @@ def _profile(settings: dict[str, Any], profiles: dict[str, Any], mode: str,
         exposure, gain = saved.get("exposureUs"), saved.get("gain")
         if (isinstance(exposure, int) and not isinstance(exposure, bool) and isinstance(gain, (int, float))
                 and not isinstance(gain, bool) and MIN_CAMERA_GAIN <= float(gain) <= MAX_CAMERA_GAIN):
-            limit = STROBE_MAX_EXPOSURE_US if mode == "strobe" else MAX_EXPOSURE_US
-            if MIN_EXPOSURE_US <= exposure <= limit:
+            low, high = hardware_exposure_limits()
+            if low <= exposure <= high:
                 return exposure, float(gain)
     if mode == "daylight":
         return DAYLIGHT_DEFAULT
@@ -502,6 +564,9 @@ class CsiCapture:
                 controls=controls, buffer_count=max(4, int(os.getenv("PINPOINT_CAMERA_BUFFER_COUNT", "8"))),
             )
             camera.configure(config)
+            self.exposure_limits = _sensor_exposure_limits(camera)
+            if publish:
+                _publish_hardware_limits(self.exposure_limits)
             if start:
                 camera.start()
             self.model = str(camera.camera_properties.get("Model", "CSI camera"))
@@ -589,6 +654,7 @@ class CsiCapture:
             finally:
                 camera.close()
         if self.publish:
+            _publish_hardware_limits(None)
             clear_camera_diagnostics()
 
 
@@ -652,6 +718,10 @@ class DualCsiCapture:
                 self.cameras[0].camera.start()
             self.exposure_us = self.cameras[0].exposure_us
             self.gain = self.cameras[0].gain
+            # Both sensors get the same shutter, so only the range both accept is offered.
+            ranges = [r for r in (getattr(c, "exposure_limits", None) for c in self.cameras)
+                      if isinstance(r, tuple) and len(r) == 2 and all(isinstance(v, int) for v in r)]
+            _publish_hardware_limits((max(r[0] for r in ranges), min(r[1] for r in ranges)) if ranges else None)
             for index in range(2):
                 thread = threading.Thread(target=self._collect, args=(index,),
                                           name=f"lm1-camera-{index}", daemon=True)
@@ -971,4 +1041,5 @@ class DualCsiCapture:
             self.secondary_frame = None
             for queue in self._queues:
                 queue.clear()
+            _publish_hardware_limits(None)
             clear_camera_diagnostics()
